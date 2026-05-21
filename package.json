@@ -4,14 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "admin:create": "node dist/db/create-admin.js",
+    "admin:create": "node dist/src/db/create-admin.js",
     "build": "tsc -p tsconfig.json",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "node dist/db/migrate.js",
+    "db:migrate": "node dist/src/db/migrate.js",
     "dev": "tsx watch src/server.ts",
     "lint": "eslint .",
     "prebuild": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
-    "start": "node dist/server.js",
+    "start": "node dist/src/server.js",
     "test": "vitest run"
   },
   "engines": {
