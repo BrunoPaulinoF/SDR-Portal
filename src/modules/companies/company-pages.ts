@@ -82,7 +82,7 @@ export function renderCompaniesListPage(companies: Company[]): string {
         <td>${escapeHtml(company.defaultHandoffName ?? '-')}</td>
         <td class="table-actions">
           <a href="/companies/${company.id}/edit">Editar</a>
-          <form method="post" action="/companies/${company.id}/delete" data-inline>
+          <form method="post" action="/companies/${company.id}/delete" data-inline onsubmit="return confirm('Tem certeza que deseja excluir esta empresa?')">
             <button class="link-button" type="submit">Excluir</button>
           </form>
         </td>
@@ -103,7 +103,7 @@ export function renderCompaniesListPage(companies: Company[]): string {
       </thead>
       <tbody>${rows}</tbody>
     </table></div>`
-    : '<section class="panel"><p class="muted">Nenhuma empresa cadastrada ainda.</p></section>';
+    : '<section class="empty-state"><h2>Nenhuma empresa cadastrada</h2><p class="muted">Cadastre a primeira empresa para criar SDRs e leads vinculados a ela.</p><a class="button" href="/companies/new">Nova empresa</a></section>';
 
   return renderLayout({
     title: 'Empresas - SDR Portal',
@@ -114,7 +114,6 @@ export function renderCompaniesListPage(companies: Company[]): string {
       <p class="muted">Cadastre as empresas que terao um ou mais SDRs.</p>
     </div>
     <div class="actions">
-      <a class="button button-secondary" href="/dashboard">Dashboard</a>
       <a class="button" href="/companies/new">Nova empresa</a>
     </div>
   </header>

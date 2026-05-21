@@ -19,10 +19,10 @@ export function renderJobLogsPage(logs: JobLog[]): string {
 
   const table = logs.length
     ? `<div class="table-wrap"><table><thead><tr><th>Data</th><th>Job</th><th>Status</th><th>Tentativa</th><th>SDR</th><th>Lead</th><th>Erro</th><th>Payload/Resultado</th></tr></thead><tbody>${rows}</tbody></table></div>`
-    : '<section class="panel"><p class="muted">Nenhum job executado ainda.</p></section>';
+    : '<section class="empty-state"><h2>Nenhum job executado</h2><p class="muted">Execucoes de disparo inicial e follow-up aparecerao aqui.</p></section>';
 
   return renderLayout({
     title: 'Job logs - SDR Portal',
-    body: `<main class="app-shell"><header class="topbar"><div><h1>Logs de jobs</h1><p class="muted">Execucoes de disparo inicial, follow-up e outros jobs do scheduler.</p></div><a class="button button-secondary" href="/dashboard">Dashboard</a></header>${table}</main>`,
+    body: `<main class="app-shell"><header class="topbar"><div><h1>Logs de jobs</h1><p class="muted">Execucoes de disparo inicial, follow-up e outros jobs do scheduler.</p></div></header><nav class="tabs-inline"><a href="/webhook-events">Webhook logs</a><a href="/ai-runs">AI logs</a><a href="/job-logs">Job logs</a></nav>${table}</main>`,
   });
 }

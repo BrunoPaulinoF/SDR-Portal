@@ -17,11 +17,11 @@ export function renderConversationsListPage(conversations: Conversation[], leads
     .join('');
   const table = conversations.length
     ? `<div class="table-wrap"><table><thead><tr><th>Lead</th><th>SDR</th><th>Status</th><th>Ultima mensagem</th><th>Acoes</th></tr></thead><tbody>${rows}</tbody></table></div>`
-    : '<section class="panel"><p class="muted">Nenhuma conversa registrada ainda.</p></section>';
+    : '<section class="empty-state"><h2>Nenhuma conversa registrada</h2><p class="muted">As conversas aparecem aqui quando os webhooks da UAZAPI receberem ou enviarem mensagens.</p></section>';
 
   return renderLayout({
     title: 'Conversas - SDR Portal',
-    body: `<main class="app-shell"><header class="topbar"><div><h1>Conversas</h1><p class="muted">Historico salvo a partir dos webhooks recebidos.</p></div><a class="button button-secondary" href="/dashboard">Dashboard</a></header>${table}</main>`,
+    body: `<main class="app-shell"><header class="topbar"><div><h1>Conversas</h1><p class="muted">Historico salvo a partir dos webhooks recebidos.</p></div></header>${table}</main>`,
   });
 }
 

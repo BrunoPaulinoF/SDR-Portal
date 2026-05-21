@@ -192,13 +192,23 @@ function renderSecretHint(): string {
   return '<p class="muted field-full">Campos de chave/token ficam em branco na edicao. Preencha apenas quando quiser substituir o valor salvo.</p>';
 }
 
+function renderFormSection(title: string, description: string, content: string, open = false): string {
+  return `<details class="form-section"${open ? ' open' : ''}>
+    <summary>${escapeHtml(title)}<span>${escapeHtml(description)}</span></summary>
+    <div class="form-section-body"><div class="form-grid">${content}</div></div>
+  </details>`;
+}
+
 function renderSdrAgentForm(action: string, companies: Company[], agent?: SdrAgent, error?: string): string {
   const data = agentToForm(agent);
   const errorHtml = error ? `<div class="alert-error">${escapeHtml(error)}</div>` : '';
 
   return `${errorHtml}
-    <form method="post" action="${escapeHtml(action)}" class="form-grid">
-      <h2 class="field-full">Geral</h2>
+    <form method="post" action="${escapeHtml(action)}" class="form-sections">
+      ${renderFormSection(
+        'Identidade',
+        'Empresa, nome do agente, status e oferta principal.',
+        `
       ${renderCompanySelect(companies, data.companyId || companies[0]?.id || '')}
       ${renderField('name', 'Nome interno', data.name, true)}
       ${renderField('displayName', 'Nome usado na conversa', data.displayName, true)}
@@ -206,8 +216,14 @@ function renderSdrAgentForm(action: string, companies: Company[], agent?: SdrAge
       ${renderField('productName', 'Produto ou servico', data.productName)}
       ${renderTextArea('productDescription', 'Descricao do produto ou servico', data.productDescription)}
       ${renderTextArea('offerDescription', 'Descricao da oferta', data.offerDescription)}
+        `,
+        true,
+      )}
 
-      <h2 class="field-full">IA</h2>
+      ${renderFormSection(
+        'IA e prompts',
+        'Modelo, chaves e instrucoes usadas nas respostas.',
+        `
       ${renderProviderSelect(data.aiProvider)}
       ${renderField('aiModel', 'Modelo', data.aiModel, true)}
       ${renderField('aiTemperature', 'Temperatura', data.aiTemperature, true, 'number')}
@@ -218,15 +234,26 @@ function renderSdrAgentForm(action: string, companies: Company[], agent?: SdrAge
       ${renderTextArea('prompt', 'Prompt principal', data.prompt, 10)}
       ${renderTextArea('firstMessagePrompt', 'Prompt da primeira mensagem', data.firstMessagePrompt, 6)}
       ${renderTextArea('followupPrompt', 'Prompt de follow-up', data.followupPrompt, 5)}
+        `,
+        true,
+      )}
 
-      <h2 class="field-full">WhatsApp e UAZAPI</h2>
+      ${renderFormSection(
+        'WhatsApp e UAZAPI',
+        'Conexao da instancia, tokens e numero do SDR.',
+        `
       ${renderField('uazapiBaseUrl', 'URL base UAZAPI', data.uazapiBaseUrl)}
       ${renderField('uazapiInstanceId', 'ID ou nome da instancia', data.uazapiInstanceId)}
       ${renderField('whatsappNumber', 'Numero WhatsApp', data.whatsappNumber)}
       ${renderField('uazapiInstanceTokenEncrypted', 'Token da instancia', data.uazapiInstanceTokenEncrypted, false, 'password')}
       ${renderField('uazapiAdminTokenEncrypted', 'Token admin UAZAPI', data.uazapiAdminTokenEncrypted, false, 'password')}
+        `,
+      )}
 
-      <h2 class="field-full">Envio</h2>
+      ${renderFormSection(
+        'Envio inicial',
+        'Janela de envio, dias permitidos, cooldown e limite diario.',
+        `
       ${renderField('timezone', 'Timezone', data.timezone, true)}
       ${renderField('sendWindowStart', 'Inicio da janela de envio', data.sendWindowStart, true, 'time')}
       ${renderField('sendWindowEnd', 'Fim da janela de envio', data.sendWindowEnd, true, 'time')}
@@ -234,15 +261,25 @@ function renderSdrAgentForm(action: string, companies: Company[], agent?: SdrAge
       ${renderField('initialCooldownMinMinutes', 'Cooldown inicial minimo em minutos', data.initialCooldownMinMinutes, true, 'number')}
       ${renderField('initialCooldownMaxMinutes', 'Cooldown inicial maximo em minutos', data.initialCooldownMaxMinutes, true, 'number')}
       ${renderField('dailyInitialSendLimit', 'Limite diario de mensagens iniciais', data.dailyInitialSendLimit, true, 'number')}
+        `,
+      )}
 
-      <h2 class="field-full">Follow-up</h2>
+      ${renderFormSection(
+        'Follow-up',
+        'Regras para uma tentativa automatica posterior.',
+        `
       <div class="field">${renderCheckbox('followupEnabled', 'Follow-up ativo', data.followupEnabled)}</div>
       ${renderField('followupAfterHours', 'Enviar follow-up apos quantas horas', data.followupAfterHours, true, 'number')}
       ${renderField('followupCooldownMinMinutes', 'Cooldown follow-up minimo em minutos', data.followupCooldownMinMinutes, true, 'number')}
       ${renderField('followupCooldownMaxMinutes', 'Cooldown follow-up maximo em minutos', data.followupCooldownMaxMinutes, true, 'number')}
       ${renderField('dailyFollowupSendLimit', 'Limite diario de follow-ups', data.dailyFollowupSendLimit, true, 'number')}
+        `,
+      )}
 
-      <h2 class="field-full">Buffer e handoff</h2>
+      ${renderFormSection(
+        'Resposta e handoff',
+        'Delay, divisao de mensagens, pausa humana e transferencia.',
+        `
       ${renderField('responseDelayBaseMs', 'Delay base da resposta em ms', data.responseDelayBaseMs, true, 'number')}
       ${renderField('responseDelayPerCharMs', 'Delay por caractere em ms', data.responseDelayPerCharMs, true, 'number')}
       ${renderField('responseDelayMaxMs', 'Delay maximo por parte em ms', data.responseDelayMaxMs, true, 'number')}
@@ -251,8 +288,10 @@ function renderSdrAgentForm(action: string, companies: Company[], agent?: SdrAge
       ${renderField('handoffName', 'Responsavel humano', data.handoffName)}
       ${renderField('handoffPhone', 'WhatsApp do responsavel humano', data.handoffPhone)}
       ${renderTextArea('handoffMessageTemplate', 'Modelo de mensagem para handoff', data.handoffMessageTemplate, 4)}
+        `,
+      )}
 
-      <div class="actions field-full">
+      <div class="actions">
         <button type="submit">Salvar SDR</button>
         <a class="button button-secondary" href="/sdr-agents">Cancelar</a>
       </div>
@@ -272,7 +311,7 @@ export function renderSdrAgentsListPage(agents: SdrAgent[], companies: Company[]
         <td class="table-actions">
           <a href="/sdr-agents/${agent.id}/edit">Editar</a>
           <form method="post" action="/sdr-agents/${agent.id}/toggle" data-inline><button class="link-button" type="submit">${toggleLabel}</button></form>
-          <form method="post" action="/sdr-agents/${agent.id}/delete" data-inline><button class="link-button" type="submit">Excluir</button></form>
+          <form method="post" action="/sdr-agents/${agent.id}/delete" data-inline onsubmit="return confirm('Tem certeza que deseja excluir este SDR?')"><button class="link-button" type="submit">Excluir</button></form>
         </td>
       </tr>`;
     })
@@ -283,7 +322,7 @@ export function renderSdrAgentsListPage(agents: SdrAgent[], companies: Company[]
       <thead><tr><th>SDR</th><th>Empresa</th><th>IA</th><th>Status</th><th>Acoes</th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>`
-    : '<section class="panel"><p class="muted">Nenhum SDR cadastrado ainda.</p></section>';
+    : '<section class="empty-state"><h2>Nenhum SDR cadastrado</h2><p class="muted">Crie um SDR para conectar WhatsApp, IA e regras de envio.</p><a class="button" href="/sdr-agents/new">Novo SDR</a></section>';
 
   return renderLayout({
     title: 'SDRs - SDR Portal',
@@ -294,7 +333,6 @@ export function renderSdrAgentsListPage(agents: SdrAgent[], companies: Company[]
       <p class="muted">Configure agentes, prompts, modelos, WhatsApp e regras de envio.</p>
     </div>
     <div class="actions">
-      <a class="button button-secondary" href="/dashboard">Dashboard</a>
       <a class="button" href="/sdr-agents/new">Novo SDR</a>
     </div>
   </header>

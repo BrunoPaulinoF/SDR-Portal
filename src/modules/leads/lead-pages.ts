@@ -106,18 +106,18 @@ export function renderLeadsListPage(leads: Lead[], companies: Company[], agents:
         <td>${escapeHtml(companiesById.get(lead.companyId) ?? '-')}</td>
         <td>${escapeHtml(agentsById.get(lead.sdrAgentId) ?? '-')}</td>
         <td>${escapeHtml(lead.segment ?? '-')}</td>
-        <td>${escapeHtml(lead.status)}</td>
-        <td class="table-actions"><a href="/leads/${lead.id}">Ver</a><a href="/leads/${lead.id}/edit">Editar</a><form method="post" action="/leads/${lead.id}/delete" data-inline><button class="link-button" type="submit">Excluir</button></form></td>
+        <td><span class="status-pill status-off">${escapeHtml(lead.status)}</span></td>
+        <td class="table-actions"><a href="/leads/${lead.id}">Ver</a><a href="/leads/${lead.id}/edit">Editar</a><form method="post" action="/leads/${lead.id}/delete" data-inline onsubmit="return confirm('Tem certeza que deseja excluir este lead?')"><button class="link-button" type="submit">Excluir</button></form></td>
       </tr>`,
     )
     .join('');
   const table = leads.length
     ? `<div class="table-wrap"><table><thead><tr><th>Lead</th><th>Empresa</th><th>SDR</th><th>Segmento</th><th>Status</th><th>Acoes</th></tr></thead><tbody>${rows}</tbody></table></div>`
-    : '<section class="panel"><p class="muted">Nenhum lead cadastrado ainda.</p></section>';
+    : '<section class="empty-state"><h2>Nenhum lead cadastrado</h2><p class="muted">Importe uma planilha Excel ou crie um lead manualmente para iniciar a operacao.</p><div class="actions"><a class="button button-secondary" href="/leads/import">Importar Excel</a><a class="button" href="/leads/new">Novo lead</a></div></section>';
 
   return renderLayout({
     title: 'Leads - SDR Portal',
-    body: `<main class="app-shell"><header class="topbar"><div><h1>Leads</h1><p class="muted">Cadastre, edite e importe contatos para os SDRs.</p></div><div class="actions"><a class="button button-secondary" href="/dashboard">Dashboard</a><a class="button button-secondary" href="/leads/import">Importar Excel</a><a class="button" href="/leads/new">Novo lead</a></div></header>${table}</main>`,
+    body: `<main class="app-shell"><header class="topbar"><div><h1>Leads</h1><p class="muted">Cadastre, edite e importe contatos para os SDRs.</p></div><div class="actions"><a class="button button-secondary" href="/leads/import">Importar Excel</a><a class="button" href="/leads/new">Novo lead</a></div></header>${table}</main>`,
   });
 }
 
@@ -257,15 +257,15 @@ export function renderLeadDetailPage(
     <div class="table-wrap"><table>${infoRows}</table></div>
   </section>
 
-  <section class="panel">
-    <h2>Chamadas de IA</h2>
+  <details class="panel spacing-top">
+    <summary><strong>Chamadas de IA</strong> <span class="muted">${aiRuns.length} registro(s)</span></summary>
     <div class="table-wrap"><table><thead><tr><th>Data</th><th>Proposito</th><th>Modelo</th><th>Erro</th><th>Latencia</th><th>Output</th></tr></thead><tbody>${aiRunRows}</tbody></table></div>
-  </section>
+  </details>
 
-  <section class="panel">
-    <h2>Jobs</h2>
+  <details class="panel spacing-top">
+    <summary><strong>Jobs</strong> <span class="muted">${jobLogs.length} registro(s)</span></summary>
     <div class="table-wrap"><table><thead><tr><th>Data</th><th>Job</th><th>Status</th><th>Tentativa</th><th>Erro</th><th>Payload</th></tr></thead><tbody>${jobRows}</tbody></table></div>
-  </section>
+  </details>
 </main>`,
   });
 }

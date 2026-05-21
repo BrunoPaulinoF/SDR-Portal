@@ -16,10 +16,10 @@ export function renderWebhookEventsPage(events: WebhookEvent[]): string {
     .join('');
   const table = events.length
     ? `<div class="table-wrap"><table><thead><tr><th>Data</th><th>Status</th><th>Evento</th><th>Numero</th><th>Erro</th><th>Raw</th></tr></thead><tbody>${rows}</tbody></table></div>`
-    : '<section class="panel"><p class="muted">Nenhum webhook recebido ainda.</p></section>';
+    : '<section class="empty-state"><h2>Nenhum webhook recebido</h2><p class="muted">Quando a UAZAPI enviar eventos, os payloads aparecerao aqui para diagnostico.</p></section>';
 
   return renderLayout({
     title: 'Webhook logs - SDR Portal',
-    body: `<main class="app-shell"><header class="topbar"><div><h1>Webhook logs</h1><p class="muted">Payloads brutos recebidos da UAZAPI.</p></div><a class="button button-secondary" href="/dashboard">Dashboard</a></header>${table}</main>`,
+    body: `<main class="app-shell"><header class="topbar"><div><h1>Webhook logs</h1><p class="muted">Payloads brutos recebidos da UAZAPI.</p></div></header><nav class="tabs-inline"><a href="/webhook-events">Webhook logs</a><a href="/ai-runs">AI logs</a><a href="/job-logs">Job logs</a></nav>${table}</main>`,
   });
 }

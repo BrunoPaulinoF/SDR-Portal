@@ -21,10 +21,10 @@ export function renderAiRunsPage(runs: AiRun[]): string {
 
   const table = runs.length
     ? `<div class="table-wrap"><table><thead><tr><th>Data</th><th>Provider</th><th>Modelo</th><th>Proposito</th><th>SDR</th><th>Lead</th><th>Erro</th><th>Tokens</th><th>Latencia</th><th>Output</th></tr></thead><tbody>${rows}</tbody></table></div>`
-    : '<section class="panel"><p class="muted">Nenhuma chamada de IA registrada ainda.</p></section>';
+    : '<section class="empty-state"><h2>Nenhuma chamada de IA registrada</h2><p class="muted">As chamadas aparecem aqui quando a IA responder mensagens, gerar prompts ou criar primeiras mensagens.</p></section>';
 
   return renderLayout({
     title: 'AI runs - SDR Portal',
-    body: `<main class="app-shell"><header class="topbar"><div><h1>Logs de IA</h1><p class="muted">Chamadas registradas ao modelo de IA com resultados e erros.</p></div><a class="button button-secondary" href="/dashboard">Dashboard</a></header>${table}</main>`,
+    body: `<main class="app-shell"><header class="topbar"><div><h1>Logs de IA</h1><p class="muted">Chamadas registradas ao modelo de IA com resultados e erros.</p></div></header><nav class="tabs-inline"><a href="/webhook-events">Webhook logs</a><a href="/ai-runs">AI logs</a><a href="/job-logs">Job logs</a></nav>${table}</main>`,
   });
 }

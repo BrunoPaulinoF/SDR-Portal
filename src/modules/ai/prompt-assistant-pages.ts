@@ -4,7 +4,7 @@ import { escapeHtml, renderLayout } from '../web/html.js';
 function renderSdrSelect(agents: SdrAgent[], selectedId: string): string {
   const options = agents.map(
     (agent) =>
-      `<option value="${escapeHtml(agent.id)}"${agent.id === selectedId ? ' selected' : ''}>${escapeHtml(agent.displayName)} (${escapeHtml(agent.name)}) — ${escapeHtml(agent.companyId)}</option>`,
+      `<option value="${escapeHtml(agent.id)}"${agent.id === selectedId ? ' selected' : ''}>${escapeHtml(agent.displayName)} (${escapeHtml(agent.name)})</option>`,
   );
 
   return `<select id="sdrAgentId" name="sdrAgentId" required>
@@ -47,7 +47,6 @@ export function renderPromptAssistantFormPage(
       <h1>IA auxiliar de prompt</h1>
       <p class="muted">Descreva o que o SDR deve fazer e a IA gerara um prompt configurado.</p>
     </div>
-    <a class="button button-secondary" href="/dashboard">Dashboard</a>
   </header>
 
   ${errorHtml}

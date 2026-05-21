@@ -10,9 +10,13 @@ const styles = `
   --border: #d8dee6;
   --primary: #1f6feb;
   --primary-dark: #174ea6;
+  --primary-soft: #e8f1ff;
   --danger-bg: #fff1f2;
   --danger-border: #fecdd3;
   --danger-text: #9f1239;
+  --sidebar: #0f172a;
+  --sidebar-muted: #94a3b8;
+  --sidebar-active: #1d4ed8;
 }
 
 * {
@@ -28,6 +32,83 @@ body {
 
 a {
   color: var(--primary);
+}
+
+.app-frame {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding: 22px 18px;
+  background: var(--sidebar);
+  color: #fff;
+}
+
+.brand {
+  display: grid;
+  gap: 4px;
+  padding: 4px 8px 22px;
+  border-bottom: 1px solid rgb(255 255 255 / 12%);
+}
+
+.brand strong {
+  font-size: 20px;
+}
+
+.brand span,
+.nav-group p {
+  color: var(--sidebar-muted);
+  font-size: 13px;
+}
+
+.nav-groups {
+  display: grid;
+  gap: 24px;
+  margin-top: 24px;
+}
+
+.nav-group {
+  display: grid;
+  gap: 6px;
+}
+
+.nav-group p {
+  margin: 0 0 4px;
+  padding: 0 8px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.nav-link {
+  display: block;
+  padding: 10px 12px;
+  color: #e2e8f0;
+  border-radius: 10px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.nav-link:hover,
+.nav-active {
+  background: var(--sidebar-active);
+  color: #fff;
+}
+
+.sidebar-logout {
+  margin-top: auto;
+  padding-top: 18px;
+}
+
+.sidebar-logout .button {
+  width: 100%;
 }
 
 .auth-page {
@@ -47,9 +128,9 @@ a {
 }
 
 .app-shell {
-  width: min(100%, 980px);
+  width: min(100%, 1180px);
   margin: 0 auto;
-  padding: 32px 20px;
+  padding: 32px 24px 48px;
 }
 
 .topbar {
@@ -58,6 +139,35 @@ a {
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 24px;
+}
+
+.topbar h1 {
+  margin-bottom: 6px;
+}
+
+.page-section {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 28px;
+}
+
+.section-heading {
+  display: grid;
+  gap: 4px;
+}
+
+.section-heading h2 {
+  margin-bottom: 0;
+}
+
+.module-card {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.module-card .button {
+  justify-self: start;
 }
 
 h1,
@@ -199,6 +309,75 @@ button:hover,
   border-radius: 14px;
 }
 
+.panel > summary {
+  cursor: pointer;
+  font-size: 18px;
+}
+
+.panel > summary + * {
+  margin-top: 16px;
+}
+
+.empty-state {
+  padding: 22px;
+  background: var(--card);
+  border: 1px dashed var(--border);
+  border-radius: 14px;
+}
+
+.form-sections {
+  display: grid;
+  gap: 14px;
+}
+
+.form-section {
+  padding: 0;
+  overflow: hidden;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.form-section summary {
+  padding: 16px 18px;
+  cursor: pointer;
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.form-section summary span {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.form-section-body {
+  padding: 0 18px 18px;
+}
+
+.tabs-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.tabs-inline a {
+  padding: 8px 12px;
+  background: #eef2f7;
+  color: var(--text);
+  border-radius: 999px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.tabs-inline a:hover {
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+}
+
 .spacing-top {
   margin-top: 18px;
 }
@@ -265,6 +444,11 @@ tr:last-child td {
   color: #475569;
 }
 
+.status-warn {
+  background: #fef3c7;
+  color: #92400e;
+}
+
 form[data-inline] {
   display: inline;
 }
@@ -287,6 +471,49 @@ form[data-inline] {
 
 .message-outbound {
   border-left: 4px solid var(--primary);
+}
+
+@media (max-width: 860px) {
+  .app-frame {
+    display: block;
+  }
+
+  .sidebar {
+    position: static;
+    height: auto;
+    padding: 14px;
+  }
+
+  .brand {
+    padding-bottom: 12px;
+  }
+
+  .nav-groups {
+    gap: 14px;
+    margin-top: 14px;
+  }
+
+  .nav-group {
+    display: flex;
+    flex-wrap: wrap;
+  }
+
+  .nav-group p {
+    width: 100%;
+  }
+
+  .sidebar-logout {
+    margin-top: 14px;
+  }
+
+  .topbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .app-shell {
+    padding: 24px 16px 36px;
+  }
 }
 `;
 

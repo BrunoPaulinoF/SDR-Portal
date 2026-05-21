@@ -13,7 +13,7 @@ function renderSchedulerResultPage(title: string, description: string, result: I
       <h1>${escapeHtml(title)}</h1>
       <p class="muted">${escapeHtml(description)}</p>
     </div>
-    <a class="button button-secondary" href="/dashboard">Dashboard</a>
+    <a class="button button-secondary" href="/job-logs">Ver job logs</a>
   </header>
   <section class="panel">
     <p>Enviadas: ${result.sent}</p>
