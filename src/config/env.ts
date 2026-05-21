@@ -3,12 +3,14 @@ import { z } from 'zod';
 
 config();
 
+const optionalUrl = z.preprocess((value) => (value === '' ? undefined : value), z.string().url().optional());
+
 const envSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     HOST: z.string().default('0.0.0.0'),
     PORT: z.coerce.number().int().positive().default(3000),
-    APP_URL: z.string().url().optional(),
+    APP_URL: optionalUrl,
     DATABASE_URL: z.string().optional(),
     SESSION_SECRET: z.string().min(16).optional(),
     ENCRYPTION_KEY: z.string().min(32).optional(),
@@ -16,7 +18,7 @@ const envSchema = z
     OPENAI_API_KEY: z.string().optional(),
     OPENROUTER_API_KEY: z.string().optional(),
     WEBHOOK_SHARED_SECRET: z.string().optional(),
-    WEB_RESEARCH_ENDPOINT: z.string().url().optional(),
+    WEB_RESEARCH_ENDPOINT: optionalUrl,
     WEB_RESEARCH_API_KEY: z.string().optional(),
     WEB_RESEARCH_TIMEOUT_MS: z.coerce.number().int().positive().default(8000),
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),

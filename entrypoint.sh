@@ -23,7 +23,11 @@ node dist/src/db/migrate.js
 
 echo "==> Verificando criacao de admin..."
 if [ -n "$ADMIN_EMAIL" ] && [ -n "$ADMIN_PASSWORD" ]; then
-  node dist/src/db/create-admin.js || echo "   (admin ja existe ou erro — continuando)"
+  if [ ${#ADMIN_PASSWORD} -lt 8 ]; then
+    echo "   ADMIN_PASSWORD tem menos de 8 caracteres — pulando criacao do admin."
+  else
+    node dist/src/db/create-admin.js || echo "   (admin ja existe ou erro — continuando)"
+  fi
 else
   echo "   ADMIN_EMAIL/ADMIN_PASSWORD nao definidos — pulando."
 fi
