@@ -19,14 +19,14 @@ until node -e "
 done
 
 echo "==> Postgres disponivel. Aplicando migrations..."
-node dist/db/migrate.js
+node dist/src/db/migrate.js
 
 echo "==> Verificando criacao de admin..."
 if [ -n "$ADMIN_EMAIL" ] && [ -n "$ADMIN_PASSWORD" ]; then
-  node dist/db/create-admin.js || echo "   (admin ja existe ou erro — continuando)"
+  node dist/src/db/create-admin.js || echo "   (admin ja existe ou erro — continuando)"
 else
   echo "   ADMIN_EMAIL/ADMIN_PASSWORD nao definidos — pulando."
 fi
 
 echo "==> Iniciando aplicacao na porta ${PORT:-3000}..."
-exec node dist/server.js
+exec node dist/src/server.js
