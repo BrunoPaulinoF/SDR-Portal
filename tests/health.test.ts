@@ -1708,10 +1708,18 @@ describe('UAZAPI webhook routes', () => {
         event: 'messages',
         data: {
           id: 'AUDIO-1',
-          from: '5511666666666@s.whatsapp.net',
+          chatid: '5511666666666@s.whatsapp.net',
+          content: {
+            URL: 'https://meta.example/audio.ogg',
+            PTT: true,
+            mimetype: 'audio/ogg; codecs=opus',
+          },
           fromMe: false,
-          type: 'audio',
-          message: { audioMessage: { url: 'https://meta.example/audio.ogg' } },
+          mediaType: 'audio',
+          messageType: 'AudioMessage',
+          sender: '123456789@lid',
+          sender_pn: '5511666666666@s.whatsapp.net',
+          type: 'media',
         },
       },
     });
@@ -1723,6 +1731,67 @@ describe('UAZAPI webhook routes', () => {
     expect(uazapiCalls).toContain('download:AUDIO-1:transcribe:instance-token');
     expect(aiCalls[0]).toContain('Texto transcrito do audio');
     expect(messages.some((message) => message.messageType === 'audio' && message.transcription === 'Texto transcrito do audio')).toBe(true);
+  });
+
+  it('stores unsupported media without calling AI when there is no text or transcription', async () => {
+    const aiCalls: string[] = [];
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const conversationRepository = createMemoryConversationRepository();
+    const webhookEventRepository = createMemoryWebhookEventRepository();
+    const company = await companyRepository.create({
+      name: 'Insumo Smart',
+      legalName: null,
+      cnpj: null,
+      segment: 'Gastronomia',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'sdr-insumo-smart',
+      displayName: 'Franciely',
+      isActive: true,
+      openaiApiKeyEncrypted: encryptSecret('openai-key'),
+      uazapiBaseUrl: 'https://api.uazapi.com',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+    });
+
+    app = buildApp({
+      aiClient: createMockAiClient(aiCalls, JSON.stringify({ mensagem_usuario: 'Nao deveria responder.', nao_responder: false })),
+      companyRepository,
+      conversationRepository,
+      leadRepository,
+      sdrAgentRepository,
+      webhookEventRepository,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/webhooks/uazapi/${agent.id}`,
+      payload: {
+        event: 'messages',
+        data: {
+          id: 'STICKER-1',
+          chatid: '5511555555555@s.whatsapp.net',
+          content: { URL: 'https://meta.example/sticker.webp', mimetype: 'image/webp' },
+          fromMe: false,
+          messageType: 'StickerMessage',
+          sender_pn: '5511555555555@s.whatsapp.net',
+          type: 'media',
+        },
+      },
+    });
+
+    const conversations = await conversationRepository.list();
+    const messages = conversations[0] ? await conversationRepository.listMessages(conversations[0].id) : [];
+
+    expect(response.statusCode).toBe(200);
+    expect(aiCalls).toHaveLength(0);
+    expect(messages[0]?.messageType).toBe('media');
   });
 
   it('splits long AI responses and sends each part with composing presence', async () => {

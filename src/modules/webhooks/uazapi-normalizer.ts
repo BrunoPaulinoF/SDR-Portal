@@ -19,7 +19,7 @@ export interface NormalizedWebhookMessage {
 
 export function isAudioMessageType(messageType: string): boolean {
   const normalized = messageType.toLowerCase();
-  return normalized.includes('audio') || normalized.includes('ptt') || normalized.includes('voice');
+  return normalized.includes('audio') || normalized.includes('ogg') || normalized.includes('opus') || normalized.includes('ptt') || normalized.includes('voice');
 }
 
 function asRecord(value: unknown): RecordValue {
@@ -65,11 +65,20 @@ function firstNormalizedNumber(...values: unknown[]): string | null {
   return null;
 }
 
+function isAudioPayload(messageType: string | null, content: RecordValue): boolean {
+  return (
+    isAudioMessageType(messageType ?? '') ||
+    firstBoolean(content.PTT, content.ptt) ||
+    isAudioMessageType(firstString(content.mimetype, content.mimeType, content.type) ?? '')
+  );
+}
+
 export function normalizeUazapiWebhook(body: unknown): NormalizedWebhookMessage | null {
   const root = asRecord(body);
   const data = asRecord(root.data ?? root.message ?? root);
   const key = asRecord(data.key ?? getPath(data, ['message', 'key']));
   const message = asRecord(data.message ?? root.message ?? data);
+  const content = asRecord(data.content);
   const eventType = firstString(root.event, data.event, root.type, 'messages') ?? 'messages';
   const remoteJid = firstString(key.remoteJid, data.chatid, data.chatId, data.from, data.remoteJid, root.from);
   const participant = firstString(key.participant, data.sender, data.participant);
@@ -80,13 +89,15 @@ export function normalizeUazapiWebhook(body: unknown): NormalizedWebhookMessage 
 
   if (!whatsappNumber) return null;
 
-  const messageType =
-    firstString(data.type, data.messageType, root.messageType, data.mediaType) ??
+  const rawMessageType =
+    firstString(data.messageType, root.messageType, data.mediaType, data.type) ??
     (typeof message.conversation === 'string' ? 'conversation' : 'unknown');
+  const messageType = isAudioPayload(rawMessageType, content) ? 'audio' : (firstString(data.type, rawMessageType) ?? 'unknown');
   const text = firstString(
     data.text,
     data.body,
     data.caption,
+    data.content,
     message.conversation,
     getPath(message, ['extendedTextMessage', 'text']),
     getPath(message, ['imageMessage', 'caption']),
@@ -97,7 +108,17 @@ export function normalizeUazapiWebhook(body: unknown): NormalizedWebhookMessage 
     eventType,
     fromMe,
     instanceId: firstString(root.instance, data.instance, data.instanceId, root.instanceId),
-    mediaUrl: firstString(data.mediaUrl, data.fileURL, data.url, getPath(message, ['audioMessage', 'url'])),
+    mediaUrl: firstString(
+      data.mediaUrl,
+      data.fileURL,
+      data.fileUrl,
+      data.url,
+      content.URL,
+      content.url,
+      content.fileURL,
+      content.fileUrl,
+      getPath(message, ['audioMessage', 'url']),
+    ),
     messageType,
     rawMessage: data,
     sentByApi: firstBoolean(data.wasSentByApi, data.sentByApi, root.wasSentByApi),

@@ -26,6 +26,10 @@ function humanPausedUntil(now: Date, hours: number): Date {
   return new Date(now.getTime() + hours * 60 * 60 * 1000);
 }
 
+function hasReplyableContent(text: string | null, transcription: string | null): boolean {
+  return Boolean(text?.trim() || transcription?.trim());
+}
+
 export function registerUazapiWebhookRoutes(
   app: FastifyInstance,
   sdrAgentRepository: SdrAgentRepository,
@@ -125,7 +129,9 @@ export function registerUazapiWebhookRoutes(
 
       if (!normalized.fromMe) {
         await leadRepository.markInboundReceived(lead.id, now);
-        await aiResponseService.respondToInbound({ agent, conversation, lead });
+        if (hasReplyableContent(normalized.text, transcription)) {
+          await aiResponseService.respondToInbound({ agent, conversation, lead });
+        }
       } else if (!normalized.sentByApi) {
         await leadRepository.markHumanPaused(lead.id, now, humanPausedUntil(now, agent.humanPauseHours), 'manual_whatsapp_message');
       }

@@ -25,7 +25,16 @@ export interface AiClient {
 
 interface ChatCompletionResponse {
   choices?: Array<{ message?: { content?: string | null } }>;
+  error?: { message?: string; type?: string; code?: string };
   usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+}
+
+async function readResponseBody(response: Response): Promise<ChatCompletionResponse> {
+  try {
+    return (await response.json()) as ChatCompletionResponse;
+  } catch {
+    return {};
+  }
 }
 
 function endpointFor(provider: string): string {
@@ -52,9 +61,10 @@ export function createHttpAiClient(): AiClient {
         }),
       });
 
-      const body = (await response.json()) as ChatCompletionResponse;
+      const body = await readResponseBody(response);
       if (!response.ok) {
-        throw new Error(`AI provider returned HTTP ${response.status}`);
+        const detail = body.error?.message ? `: ${body.error.message}` : '';
+        throw new Error(`AI provider returned HTTP ${response.status}${detail}`);
       }
 
       return {
