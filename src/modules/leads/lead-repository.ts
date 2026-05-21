@@ -41,8 +41,11 @@ export interface LeadRepository {
   markHumanPaused(id: string, pausedAt: Date, pausedUntil: Date, reason: string): Promise<Lead | null>;
   markInboundReceived(id: string, receivedAt: Date): Promise<Lead | null>;
   markFollowupSent(id: string, sentAt: Date): Promise<Lead | null>;
+  markNotInterested(id: string, markedAt: Date): Promise<Lead | null>;
   markTransferred(id: string, transferredAt: Date, summary: string): Promise<Lead | null>;
   markInitialSent(id: string, sentAt: Date, followupDueAt?: Date | null): Promise<Lead | null>;
+  disableFollowup(id: string, disabledAt: Date): Promise<Lead | null>;
+  updateStage(id: string, stage: string, updatedAt: Date): Promise<Lead | null>;
   update(id: string, input: LeadInput): Promise<Lead | null>;
 }
 
@@ -60,6 +63,7 @@ function normalize(input: LeadInput): Omit<Lead, 'id' | 'createdAt' | 'updatedAt
     contactName: input.contactName ?? null,
     extraData: input.extraData ?? null,
     status: input.status ?? 'pending',
+    conversationStage: 'permission',
     source: input.source ?? 'manual',
     firstMessageSentAt: null,
     lastInboundAt: null,
@@ -171,7 +175,11 @@ export function createMemoryLeadRepository(seedLeads: Lead[] = []): LeadReposito
     },
 
     async findBySdrAndWhatsapp(sdrAgentId, whatsappNumber) {
-      return [...rows.values()].find((lead) => lead.sdrAgentId === sdrAgentId && lead.whatsappNumber === whatsappNumber) ?? null;
+      return (
+        [...rows.values()]
+          .filter((lead) => lead.sdrAgentId === sdrAgentId && lead.whatsappNumber === whatsappNumber)
+          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0] ?? null
+      );
     },
 
     async list() {
@@ -204,7 +212,7 @@ export function createMemoryLeadRepository(seedLeads: Lead[] = []): LeadReposito
       if (!current) return null;
       const lead: Lead = {
         ...current,
-        status: current.status === 'transferred' ? 'transferred' : 'in_conversation',
+        status: current.status === 'transferred' || current.status === 'not_interested' ? current.status : 'in_conversation',
         lastInboundAt: receivedAt,
         followupDisabledAt: receivedAt,
         updatedAt: receivedAt,
@@ -231,17 +239,31 @@ export function createMemoryLeadRepository(seedLeads: Lead[] = []): LeadReposito
       return lead;
     },
 
+    async markNotInterested(id, markedAt) {
+      const current = rows.get(id);
+      if (!current) return null;
+      const lead: Lead = {
+        ...current,
+        status: 'not_interested',
+        conversationStage: 'not_interested',
+        notInterestedAt: markedAt,
+        followupDisabledAt: current.followupDisabledAt ?? markedAt,
+        updatedAt: markedAt,
+      };
+      rows.set(id, lead);
+      return lead;
+    },
+
     async markTransferred(id, transferredAt, summary) {
       const current = rows.get(id);
       if (!current) return null;
       const lead: Lead = {
         ...current,
         status: 'transferred',
+        conversationStage: 'handoff_done',
         handoffRequestedAt: transferredAt,
         handoffSummary: summary,
         followupDisabledAt: current.followupDisabledAt ?? transferredAt,
-        aiPausedAt: transferredAt,
-        aiPauseReason: 'handoff_requested_by_ai',
         updatedAt: transferredAt,
       };
       rows.set(id, lead);
@@ -262,6 +284,22 @@ export function createMemoryLeadRepository(seedLeads: Lead[] = []): LeadReposito
         lastOutboundAt: sentAt,
         updatedAt: sentAt,
       };
+      rows.set(id, lead);
+      return lead;
+    },
+
+    async disableFollowup(id, disabledAt) {
+      const current = rows.get(id);
+      if (!current) return null;
+      const lead: Lead = { ...current, followupDisabledAt: current.followupDisabledAt ?? disabledAt, updatedAt: disabledAt };
+      rows.set(id, lead);
+      return lead;
+    },
+
+    async updateStage(id, stage, updatedAt) {
+      const current = rows.get(id);
+      if (!current) return null;
+      const lead: Lead = { ...current, conversationStage: stage, updatedAt };
       rows.set(id, lead);
       return lead;
     },

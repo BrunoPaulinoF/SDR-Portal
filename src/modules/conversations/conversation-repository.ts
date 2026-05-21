@@ -82,7 +82,11 @@ export function createMemoryConversationRepository(seedConversations: Conversati
     },
 
     async findBySdrAndWhatsapp(sdrAgentId, whatsappNumber) {
-      return [...conversations.values()].find((item) => item.sdrAgentId === sdrAgentId && item.whatsappNumber === whatsappNumber) ?? null;
+      return (
+        [...conversations.values()]
+          .filter((item) => item.sdrAgentId === sdrAgentId && item.whatsappNumber === whatsappNumber)
+          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0] ?? null
+      );
     },
 
     async list() {

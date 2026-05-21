@@ -96,6 +96,23 @@ function createMockAiClient(calls: string[], outputText: string): AiClient {
   };
 }
 
+function createSequencedMockAiClient(calls: string[], outputTexts: string[]): AiClient {
+  let index = 0;
+  return {
+    async generate(input) {
+      calls.push(`${input.provider}:${input.model}:${input.messages.map((message) => message.content).join('\n---\n')}`);
+      const outputText = outputTexts[Math.min(index, outputTexts.length - 1)] ?? outputTexts[0] ?? '{}';
+      index += 1;
+      return {
+        outputText,
+        promptTokens: 10,
+        completionTokens: 5,
+        totalTokens: 15,
+      } satisfies AiGenerateResult;
+    },
+  };
+}
+
 function createMockLeadResearchProvider(calls: string[], result: LeadResearchResult | null): LeadResearchProvider {
   return {
     async research(input) {
@@ -109,6 +126,10 @@ afterEach(async () => {
   await app?.close();
   app = undefined;
 });
+
+function waitMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 describe('health route', () => {
   it('returns service status', async () => {
@@ -1655,6 +1676,418 @@ describe('UAZAPI webhook routes', () => {
     expect(updatedLead?.handoffSummary).toBe('Lead pediu atendimento humano para negociar valores.');
     expect(updatedLead?.followupDisabledAt).toBeInstanceOf(Date);
     expect(messages.some((message) => message.senderType === 'ai' && message.text === 'Vou chamar uma pessoa do nosso time para continuar por aqui.')).toBe(true);
+  });
+
+  it('keeps responding after handoff without notifying the human again', async () => {
+    const aiCalls: string[] = [];
+    const uazapiCalls: string[] = [];
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const conversationRepository = createMemoryConversationRepository();
+    const webhookEventRepository = createMemoryWebhookEventRepository();
+    const aiRunRepository = createMemoryAiRunRepository();
+    const company = await companyRepository.create({
+      name: 'Insumo Smart',
+      legalName: null,
+      cnpj: null,
+      segment: 'Gastronomia',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'sdr-insumo-smart',
+      displayName: 'Franciely',
+      isActive: true,
+      openaiApiKeyEncrypted: encryptSecret('openai-key'),
+      uazapiBaseUrl: 'https://api.uazapi.com',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+      handoffName: 'Gerente',
+      handoffPhone: '(11) 98888-7777',
+    });
+    const lead = await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511999999999',
+      companyName: 'Restaurante Handoff',
+      cnpj: null,
+      tradeName: null,
+      segment: 'Gastronomia',
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'initial_sent',
+      source: 'manual',
+    });
+
+    app = buildApp({
+      aiClient: createSequencedMockAiClient(aiCalls, [
+        JSON.stringify({
+          mensagem_usuario: 'Vou chamar uma pessoa do nosso time para continuar por aqui.',
+          nao_responder: false,
+          actions: [{ type: 'notify_handoff', summary: 'Lead pediu atendimento humano.' }],
+        }),
+        JSON.stringify({
+          mensagem_usuario: 'Entendi. Vou continuar por aqui enquanto isso.',
+          nao_responder: false,
+          actions: [{ type: 'notify_handoff', summary: 'Nao deve notificar de novo.' }],
+        }),
+      ]),
+      aiRunRepository,
+      companyRepository,
+      conversationRepository,
+      leadRepository,
+      sdrAgentRepository,
+      uazapiClient: createMockUazapiClient(uazapiCalls),
+      webhookEventRepository,
+    });
+
+    await app.inject({
+      method: 'POST',
+      url: `/webhooks/uazapi/${agent.id}`,
+      payload: {
+        event: 'messages',
+        data: {
+          id: 'HANDOFF-ONCE-1',
+          from: '5511999999999@s.whatsapp.net',
+          fromMe: false,
+          type: 'conversation',
+          text: 'Quero falar com uma pessoa.',
+        },
+      },
+    });
+
+    const secondResponse = await app.inject({
+      method: 'POST',
+      url: `/webhooks/uazapi/${agent.id}`,
+      payload: {
+        event: 'messages',
+        data: {
+          id: 'HANDOFF-ONCE-2',
+          from: '5511999999999@s.whatsapp.net',
+          fromMe: false,
+          type: 'conversation',
+          text: 'Pode me explicar melhor?',
+        },
+      },
+    });
+
+    const updatedLead = await leadRepository.findById(lead.id);
+    const humanNotifications = uazapiCalls.filter((call) => call.startsWith('text:5511988887777:'));
+
+    expect(secondResponse.statusCode).toBe(200);
+    expect(aiCalls).toHaveLength(2);
+    expect(updatedLead?.status).toBe('transferred');
+    expect(uazapiCalls).toContain('text:5511999999999:Entendi. Vou continuar por aqui enquanto isso.:instance-token');
+    expect(humanNotifications).toHaveLength(1);
+  });
+
+  it('applies AI actions to update stage and mark not interested', async () => {
+    const aiCalls: string[] = [];
+    const uazapiCalls: string[] = [];
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const conversationRepository = createMemoryConversationRepository();
+    const webhookEventRepository = createMemoryWebhookEventRepository();
+    const aiRunRepository = createMemoryAiRunRepository();
+    const company = await companyRepository.create({
+      name: 'Kybernan',
+      legalName: null,
+      cnpj: null,
+      segment: 'Consultoria',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'kyane',
+      displayName: 'Kyane',
+      isActive: true,
+      openaiApiKeyEncrypted: encryptSecret('openai-key'),
+      uazapiBaseUrl: 'https://api.uazapi.com',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+    });
+    const lead = await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511999999999',
+      companyName: 'Lead Sem Interesse',
+      cnpj: null,
+      tradeName: null,
+      segment: 'Servicos',
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'initial_sent',
+      source: 'manual',
+    });
+
+    app = buildApp({
+      aiClient: createMockAiClient(
+        aiCalls,
+        JSON.stringify({
+          mensagem_usuario: 'Entendi, obrigado pelo retorno. Fico à disposição se fizer sentido no futuro.',
+          nao_responder: false,
+          status_sugerido: 'not_interested',
+          stage_sugerido: 'not_interested',
+          actions: [{ type: 'mark_not_interested' }, { type: 'disable_followup' }],
+        }),
+      ),
+      aiRunRepository,
+      companyRepository,
+      conversationRepository,
+      leadRepository,
+      sdrAgentRepository,
+      uazapiClient: createMockUazapiClient(uazapiCalls),
+      webhookEventRepository,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/webhooks/uazapi/${agent.id}`,
+      payload: {
+        event: 'messages',
+        data: {
+          id: 'NO-INTEREST-1',
+          from: '5511999999999@s.whatsapp.net',
+          fromMe: false,
+          type: 'conversation',
+          text: 'Nao tenho interesse, obrigado.',
+        },
+      },
+    });
+
+    const updatedLead = await leadRepository.findById(lead.id);
+
+    expect(response.statusCode).toBe(200);
+    expect(updatedLead?.status).toBe('not_interested');
+    expect(updatedLead?.conversationStage).toBe('not_interested');
+    expect(updatedLead?.notInterestedAt).toBeInstanceOf(Date);
+    expect(updatedLead?.followupDisabledAt).toBeInstanceOf(Date);
+    expect(uazapiCalls).toContain(
+      'text:5511999999999:Entendi, obrigado pelo retorno. Fico à disposição se fizer sentido no futuro.:instance-token',
+    );
+  });
+
+  it('buffers inbound messages before responding once', async () => {
+    const aiCalls: string[] = [];
+    const uazapiCalls: string[] = [];
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const conversationRepository = createMemoryConversationRepository();
+    const webhookEventRepository = createMemoryWebhookEventRepository();
+    const aiRunRepository = createMemoryAiRunRepository();
+    const company = await companyRepository.create({
+      name: 'Kybernan',
+      legalName: null,
+      cnpj: null,
+      segment: 'Consultoria',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'kyane',
+      displayName: 'Kyane',
+      isActive: true,
+      openaiApiKeyEncrypted: encryptSecret('openai-key'),
+      uazapiBaseUrl: 'https://api.uazapi.com',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+    });
+    await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511999999999',
+      companyName: 'Lead Buffer',
+      cnpj: null,
+      tradeName: null,
+      segment: 'Servicos',
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'initial_sent',
+      source: 'manual',
+    });
+
+    app = buildApp({
+      aiClient: createMockAiClient(aiCalls, JSON.stringify({ mensagem_usuario: 'Resposta unica.', nao_responder: false, actions: [] })),
+      aiRunRepository,
+      companyRepository,
+      conversationRepository,
+      inboundResponseBufferMs: 100,
+      leadRepository,
+      sdrAgentRepository,
+      uazapiClient: createMockUazapiClient(uazapiCalls),
+      webhookEventRepository,
+    });
+
+    await app.inject({
+      method: 'POST',
+      url: `/webhooks/uazapi/${agent.id}`,
+      payload: { event: 'messages', data: { id: 'BUFFER-1', from: '5511999999999@s.whatsapp.net', fromMe: false, type: 'conversation', text: 'Primeira parte' } },
+    });
+    await waitMs(20);
+    await app.inject({
+      method: 'POST',
+      url: `/webhooks/uazapi/${agent.id}`,
+      payload: { event: 'messages', data: { id: 'BUFFER-2', from: '5511999999999@s.whatsapp.net', fromMe: false, type: 'conversation', text: 'Segunda parte' } },
+    });
+
+    await waitMs(50);
+    expect(aiCalls).toHaveLength(0);
+
+    await waitMs(80);
+
+    expect(aiCalls).toHaveLength(1);
+    expect(aiCalls[0]).toContain('Primeira parte');
+    expect(aiCalls[0]).toContain('Segunda parte');
+  });
+
+  it('resets a test conversation with !reset and uses the latest lead afterwards', async () => {
+    const aiCalls: string[] = [];
+    const uazapiCalls: string[] = [];
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const conversationRepository = createMemoryConversationRepository();
+    const webhookEventRepository = createMemoryWebhookEventRepository();
+    const aiRunRepository = createMemoryAiRunRepository();
+    const company = await companyRepository.create({
+      name: 'Kybernan',
+      legalName: null,
+      cnpj: null,
+      segment: 'Consultoria',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'kyane',
+      displayName: 'Kyane',
+      isActive: true,
+      productName: 'Mentoria Presencial em Planejamento Estrategico',
+      openaiApiKeyEncrypted: encryptSecret('openai-key'),
+      uazapiBaseUrl: 'https://api.uazapi.com',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+    });
+    const oldLead = await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511999999999',
+      companyName: 'Lead Teste',
+      cnpj: null,
+      tradeName: null,
+      segment: 'Servicos',
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'in_conversation',
+      source: 'manual',
+    });
+    const oldConversation = await conversationRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      leadId: oldLead.id,
+      whatsappNumber: oldLead.whatsappNumber,
+      status: 'open',
+      lastMessageAt: new Date(),
+    });
+    await conversationRepository.createMessage({
+      conversationId: oldConversation.id,
+      leadId: oldLead.id,
+      sdrAgentId: agent.id,
+      direction: 'inbound',
+      senderType: 'lead',
+      whatsappMessageId: 'OLD-1',
+      messageType: 'conversation',
+      text: 'Mensagem antiga',
+      transcription: null,
+      mediaUrl: null,
+      rawPayload: null,
+      sentByApi: false,
+      fromMe: false,
+    });
+
+    await waitMs(1);
+    app = buildApp({
+      aiClient: createMockAiClient(aiCalls, JSON.stringify({ mensagem_usuario: 'Resposta do novo ciclo.', nao_responder: false, actions: [] })),
+      aiRunRepository,
+      companyRepository,
+      conversationRepository,
+      leadRepository,
+      sdrAgentRepository,
+      uazapiClient: createMockUazapiClient(uazapiCalls),
+      webhookEventRepository,
+    });
+
+    const resetResponse = await app.inject({
+      method: 'POST',
+      url: `/webhooks/uazapi/${agent.id}`,
+      payload: {
+        event: 'messages',
+        data: {
+          id: 'RESET-1',
+          from: '5511999999999@s.whatsapp.net',
+          fromMe: false,
+          type: 'conversation',
+          text: '!reset',
+        },
+      },
+    });
+
+    const latestLead = await leadRepository.findBySdrAndWhatsapp(agent.id, oldLead.whatsappNumber);
+    const latestConversation = await conversationRepository.findBySdrAndWhatsapp(agent.id, oldLead.whatsappNumber);
+    const conversations = await conversationRepository.list();
+
+    expect(resetResponse.statusCode).toBe(200);
+    expect(latestLead?.id).not.toBe(oldLead.id);
+    expect(latestLead?.source).toBe('reset_command');
+    expect(latestLead?.status).toBe('initial_sent');
+    expect(latestLead?.conversationStage).toBe('permission');
+    expect(latestConversation?.id).not.toBe(oldConversation.id);
+    expect(latestConversation?.leadId).toBe(latestLead?.id);
+    expect(conversations).toHaveLength(2);
+    expect(aiCalls).toHaveLength(0);
+    expect(uazapiCalls.some((call) => call.startsWith('text:5511999999999:Olá, tudo bem? Aqui é Kyane.'))).toBe(true);
+
+    await app.inject({
+      method: 'POST',
+      url: `/webhooks/uazapi/${agent.id}`,
+      payload: {
+        event: 'messages',
+        data: {
+          id: 'RESET-2',
+          from: '5511999999999@s.whatsapp.net',
+          fromMe: false,
+          type: 'conversation',
+          text: 'Agora vou responder o novo teste',
+        },
+      },
+    });
+
+    const latestMessages = latestConversation ? await conversationRepository.listMessages(latestConversation.id) : [];
+    const oldMessages = await conversationRepository.listMessages(oldConversation.id);
+
+    expect(aiCalls).toHaveLength(1);
+    expect(aiCalls[0]).toContain('Agora vou responder o novo teste');
+    expect(latestMessages.some((message) => message.text === 'Agora vou responder o novo teste')).toBe(true);
+    expect(oldMessages.some((message) => message.text === 'Mensagem antiga')).toBe(true);
+    expect(oldMessages.some((message) => message.text === 'Agora vou responder o novo teste')).toBe(false);
   });
 
   it('transcribes inbound audio before sending it to the AI response flow', async () => {

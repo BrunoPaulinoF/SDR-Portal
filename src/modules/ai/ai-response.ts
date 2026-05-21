@@ -4,6 +4,7 @@ const aiResponseSchema = z.object({
   mensagem_usuario: z.string().default(''),
   nao_responder: z.boolean().default(false),
   status_sugerido: z.string().optional(),
+  stage_sugerido: z.string().optional(),
   actions: z.array(z.union([z.string(), z.object({ type: z.string(), summary: z.string().optional() }).passthrough()])).default([]),
 });
 

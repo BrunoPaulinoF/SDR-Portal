@@ -7,6 +7,7 @@ import { env } from './config/env.js';
 import { createHttpAiClient, type AiClient } from './modules/ai/ai-client.js';
 import { createMemoryAiRunRepository, type AiRunRepository } from './modules/ai/ai-run-repository.js';
 import { createAiResponseService } from './modules/ai/ai-response-service.js';
+import { createInboundResponseBuffer } from './modules/ai/inbound-response-buffer.js';
 import { createAudioTranscriptionService } from './modules/audio/audio-transcription-service.js';
 import { registerAiRunRoutes } from './modules/ai/ai-run-routes.js';
 import { registerPromptAssistantRoutes } from './modules/ai/prompt-assistant-routes.js';
@@ -37,6 +38,7 @@ import { registerUazapiRoutes } from './modules/uazapi/uazapi-routes.js';
 import { registerAssetsRoutes } from './modules/web/assets.js';
 import { registerWebhookEventRoutes } from './modules/webhooks/webhook-event-routes.js';
 import { createMemoryWebhookEventRepository, type WebhookEventRepository } from './modules/webhooks/webhook-event-repository.js';
+import { createResetConversationService } from './modules/webhooks/reset-conversation-service.js';
 import { registerUazapiWebhookRoutes } from './modules/webhooks/uazapi-webhook-routes.js';
 
 export type AppInstance = FastifyInstance;
@@ -52,6 +54,7 @@ export interface AppOptions extends FastifyServerOptions {
   leadResearchService?: LeadResearchService;
   leadResearchRepository?: LeadResearchRepository;
   leadRepository?: LeadRepository;
+  inboundResponseBufferMs?: number;
   sdrAgentRepository?: SdrAgentRepository;
   uazapiClient?: UazapiClient;
   webhookEventRepository?: WebhookEventRepository;
@@ -307,6 +310,11 @@ function createLazyDbLeadRepository(): LeadRepository {
       return createDbLeadRepository().markFollowupSent(id, sentAt);
     },
 
+    async markNotInterested(id, markedAt) {
+      const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
+      return createDbLeadRepository().markNotInterested(id, markedAt);
+    },
+
     async markTransferred(id, transferredAt, summary) {
       const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
       return createDbLeadRepository().markTransferred(id, transferredAt, summary);
@@ -315,6 +323,16 @@ function createLazyDbLeadRepository(): LeadRepository {
     async markInitialSent(id, sentAt, followupDueAt) {
       const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
       return createDbLeadRepository().markInitialSent(id, sentAt, followupDueAt);
+    },
+
+    async disableFollowup(id, disabledAt) {
+      const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
+      return createDbLeadRepository().disableFollowup(id, disabledAt);
+    },
+
+    async updateStage(id, stage, updatedAt) {
+      const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
+      return createDbLeadRepository().updateStage(id, stage, updatedAt);
     },
 
     async update(id, input) {
@@ -350,6 +368,7 @@ export function buildApp(options: AppOptions = {}): AppInstance {
     leadResearchService,
     leadResearchRepository,
     leadRepository,
+    inboundResponseBufferMs,
     sdrAgentRepository,
     uazapiClient,
     webhookEventRepository,
@@ -385,6 +404,15 @@ export function buildApp(options: AppOptions = {}): AppInstance {
     sdrAgentRepository: sdrAgents,
     uazapiClient: uazapi,
   });
+  const resetConversation = createResetConversationService({
+    aiClient: ai,
+    aiRunRepository: aiRuns,
+    conversationRepository: conversations,
+    jobLogRepository: jobLogs,
+    leadResearchService: researchService,
+    leadRepository: leads,
+    uazapiClient: uazapi,
+  });
   const followupOutreach = createFollowupOutreachService({
     jobLogRepository: jobLogs,
     leadRepository: leads,
@@ -397,6 +425,12 @@ export function buildApp(options: AppOptions = {}): AppInstance {
     conversationRepository: conversations,
     leadRepository: leads,
     uazapiClient: uazapi,
+  });
+  const bufferedAiResponseService = createInboundResponseBuffer({
+    aiResponseService,
+    conversationRepository: conversations,
+    delayMs: inboundResponseBufferMs ?? (env.NODE_ENV === 'test' ? 0 : env.INBOUND_RESPONSE_BUFFER_MS),
+    leadRepository: leads,
   });
   const audioTranscriptionService = createAudioTranscriptionService({ uazapiClient: uazapi });
 
@@ -428,7 +462,19 @@ export function buildApp(options: AppOptions = {}): AppInstance {
   registerWebhookEventRoutes(app, repository, webhookEvents);
   registerAiRunRoutes(app, repository, aiRuns);
   registerJobLogRoutes(app, repository, jobLogs);
-  registerUazapiWebhookRoutes(app, sdrAgents, leads, conversations, webhookEvents, aiResponseService, audioTranscriptionService);
+  app.addHook('onClose', async () => {
+    bufferedAiResponseService.close();
+  });
+  registerUazapiWebhookRoutes(
+    app,
+    sdrAgents,
+    leads,
+    conversations,
+    webhookEvents,
+    bufferedAiResponseService,
+    audioTranscriptionService,
+    resetConversation,
+  );
   registerPromptAssistantRoutes(app, repository, sdrAgents, ai, aiRuns);
 
   return app;

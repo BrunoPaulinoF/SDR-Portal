@@ -28,6 +28,7 @@ export function createDbConversationRepository(): ConversationRepository {
         .select()
         .from(conversations)
         .where(and(eq(conversations.sdrAgentId, sdrAgentId), eq(conversations.whatsappNumber, whatsappNumber)))
+        .orderBy(desc(conversations.createdAt))
         .limit(1);
       return conversation ?? null;
     },

@@ -24,6 +24,8 @@ interface RespondInput {
   lead: Lead;
 }
 
+type AiAction = ParsedAiResponse['actions'][number];
+
 function apiKeyFor(agent: SdrAgent): string | null {
   if (agent.aiProvider === 'openrouter') {
     return agent.openrouterApiKeyEncrypted ? decryptSecret(agent.openrouterApiKeyEncrypted) : (env.OPENROUTER_API_KEY ?? null);
@@ -39,6 +41,7 @@ function uazapiCredentials(agent: SdrAgent): { baseUrl: string; token: string } 
 function systemPrompt(agent: SdrAgent, lead: Lead): string {
   return buildSdrSystemPrompt({
     customPrompt: agent.prompt,
+    conversationStage: lead.conversationStage,
     leadName: lead.companyName,
     leadSegment: lead.segment,
     leadWhatsapp: lead.whatsappNumber,
@@ -48,18 +51,31 @@ function systemPrompt(agent: SdrAgent, lead: Lead): string {
   });
 }
 
+function actionType(action: AiAction): string {
+  return typeof action === 'string' ? action : action.type;
+}
+
+function actionString(action: AiAction, key: string): string | null {
+  if (typeof action === 'string') return null;
+  const value = action[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
 function normalizePhone(value: string): string {
   const digits = value.replace(/\D/g, '');
   return digits.length === 10 || digits.length === 11 ? `55${digits}` : digits;
 }
 
 function hasNotifyHandoff(parsed: ParsedAiResponse): boolean {
-  return parsed.actions.some((action) => (typeof action === 'string' ? action === 'notify_handoff' : action.type === 'notify_handoff'));
+  return parsed.actions.some((action) => actionType(action) === 'notify_handoff');
 }
 
 function handoffSummary(parsed: ParsedAiResponse, lead: Lead, history: AiChatMessage[]): string {
   for (const action of parsed.actions) {
-    if (typeof action !== 'string' && action.type === 'notify_handoff' && action.summary?.trim()) return action.summary.trim();
+    if (actionType(action) === 'notify_handoff') {
+      const summary = actionString(action, 'summary');
+      if (summary) return summary;
+    }
   }
 
   if (parsed.mensagem_usuario.trim()) return parsed.mensagem_usuario.trim();
@@ -108,11 +124,52 @@ async function notifyHandoff(
   if (!result.ok) throw new Error(`UAZAPI returned HTTP ${result.status}`);
 }
 
+function normalizeStage(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9_]+/g, '_');
+  const allowed = new Set(['permission', 'discovery', 'solution', 'handoff_offer', 'handoff_done', 'not_interested']);
+  return allowed.has(normalized) ? normalized : null;
+}
+
+async function applyLeadActions(
+  deps: AiResponseDependencies,
+  parsed: ParsedAiResponse,
+  input: RespondInput,
+  credentials: { baseUrl: string; token: string },
+  history: AiChatMessage[],
+): Promise<void> {
+  const now = new Date();
+  const hasAction = (type: string): boolean => parsed.actions.some((action) => actionType(action) === type);
+  const setStageAction = parsed.actions.find((action) => actionType(action) === 'set_stage');
+  const requestedStage = normalizeStage(actionString(setStageAction ?? '', 'stage') ?? parsed.stage_sugerido);
+  const shouldMarkNotInterested =
+    hasAction('mark_not_interested') || parsed.status_sugerido === 'not_interested' || requestedStage === 'not_interested';
+  const shouldDisableFollowup = hasAction('disable_followup') || shouldMarkNotInterested;
+  const shouldNotifyHandoff = hasNotifyHandoff(parsed) && !input.lead.handoffRequestedAt;
+
+  if (requestedStage && requestedStage !== input.lead.conversationStage) {
+    await deps.leadRepository.updateStage(input.lead.id, requestedStage, now);
+  }
+
+  if (shouldDisableFollowup) {
+    await deps.leadRepository.disableFollowup(input.lead.id, now);
+  }
+
+  if (shouldMarkNotInterested) {
+    await deps.leadRepository.markNotInterested(input.lead.id, now);
+  }
+
+  if (shouldNotifyHandoff) {
+    const summary = handoffSummary(parsed, input.lead, history);
+    await notifyHandoff(deps, input.agent, input.lead, credentials, summary);
+    await deps.leadRepository.markTransferred(input.lead.id, now, summary);
+  }
+}
+
 export function createAiResponseService(deps: AiResponseDependencies) {
   return {
     async respondToInbound(input: RespondInput): Promise<void> {
       if (!input.agent.isActive) return;
-      if (input.lead.status === 'transferred' || input.lead.handoffRequestedAt) return;
       if (input.lead.humanPausedUntil && input.lead.humanPausedUntil > new Date()) return;
 
       const apiKey = apiKeyFor(input.agent);
@@ -156,13 +213,8 @@ export function createAiResponseService(deps: AiResponseDependencies) {
           latencyMs: Date.now() - startedAt,
         });
 
-        const shouldNotifyHandoff = hasNotifyHandoff(parsed);
         if (parsed.nao_responder || !parsed.mensagem_usuario.trim()) {
-          if (shouldNotifyHandoff) {
-            const summary = handoffSummary(parsed, input.lead, messages);
-            await notifyHandoff(deps, input.agent, input.lead, credentials, summary);
-            await deps.leadRepository.markTransferred(input.lead.id, new Date(), summary);
-          }
+          await applyLeadActions(deps, parsed, input, credentials, messages);
           return;
         }
 
@@ -208,11 +260,7 @@ export function createAiResponseService(deps: AiResponseDependencies) {
           await deps.conversationRepository.touch(input.conversation.id, new Date());
         }
 
-        if (shouldNotifyHandoff) {
-          const summary = handoffSummary(parsed, input.lead, messages);
-          await notifyHandoff(deps, input.agent, input.lead, credentials, summary);
-          await deps.leadRepository.markTransferred(input.lead.id, new Date(), summary);
-        }
+        await applyLeadActions(deps, parsed, input, credentials, messages);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown AI response error';
         await deps.aiRunRepository.create({

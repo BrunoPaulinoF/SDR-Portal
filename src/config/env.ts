@@ -25,6 +25,7 @@ const envSchema = z
     SCHEDULER_ENABLED: z.coerce.boolean().default(false),
     INITIAL_OUTREACH_CRON: z.string().default('* * * * *'),
     FOLLOWUP_CRON: z.string().default('*/5 * * * *'),
+    INBOUND_RESPONSE_BUFFER_MS: z.coerce.number().int().min(20000).default(20000),
   })
   .superRefine((value, context) => {
     if (value.NODE_ENV !== 'test' && !value.DATABASE_URL) {

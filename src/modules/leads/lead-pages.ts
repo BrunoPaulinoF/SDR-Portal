@@ -188,6 +188,7 @@ export function renderLeadDetailPage(
     ['Cidade/Estado', [lead.city, lead.state].filter(Boolean).join(' / ')],
     ['Contato', lead.contactName],
     ['Status', lead.status],
+    ['Etapa', lead.conversationStage],
     ['Fonte', lead.source],
     ['Primeira msg', lead.firstMessageSentAt?.toISOString()],
     ['Ultimo inbound', lead.lastInboundAt?.toISOString()],

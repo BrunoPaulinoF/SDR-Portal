@@ -7,6 +7,7 @@ import type { LeadRepository } from '../leads/lead-repository.js';
 import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
 import type { createAiResponseService } from '../ai/ai-response-service.js';
 import type { createAudioTranscriptionService } from '../audio/audio-transcription-service.js';
+import type { ResetConversationService } from './reset-conversation-service.js';
 import { isAudioMessageType, normalizeUazapiWebhook } from './uazapi-normalizer.js';
 import type { WebhookEventRepository } from './webhook-event-repository.js';
 
@@ -30,6 +31,10 @@ function hasReplyableContent(text: string | null, transcription: string | null):
   return Boolean(text?.trim() || transcription?.trim());
 }
 
+function isResetCommand(text: string | null): boolean {
+  return text?.trim().toLowerCase() === '!reset';
+}
+
 export function registerUazapiWebhookRoutes(
   app: FastifyInstance,
   sdrAgentRepository: SdrAgentRepository,
@@ -38,6 +43,7 @@ export function registerUazapiWebhookRoutes(
   webhookEventRepository: WebhookEventRepository,
   aiResponseService: AiResponseService,
   audioTranscriptionService: AudioTranscriptionService,
+  resetConversationService: ResetConversationService,
 ): void {
   app.post('/webhooks/uazapi/:sdrAgentId', async (request, reply) => {
     const params = paramsSchema.safeParse(request.params);
@@ -66,6 +72,26 @@ export function registerUazapiWebhookRoutes(
       if (!normalized) throw new Error('Unsupported or invalid webhook payload');
       const whatsappNumber = normalized.whatsappNumber;
       if (!whatsappNumber) throw new Error('Webhook without valid WhatsApp number');
+      const now = new Date();
+
+      if (!normalized.fromMe && isResetCommand(normalized.text)) {
+        const previousLead = await leadRepository.findBySdrAndWhatsapp(agent.id, whatsappNumber);
+        await resetConversationService.reset({ agent, previousLead, whatsappNumber });
+        await webhookEventRepository.updateProcessing(event.id, {
+          eventType: normalized.eventType,
+          messageType: normalized.messageType,
+          instanceId: normalized.instanceId,
+          whatsappMessageId: normalized.whatsappMessageId,
+          fromNumber: normalized.whatsappNumber,
+          toNumber: normalized.toNumber,
+          fromMe: normalized.fromMe,
+          wasSentByApi: normalized.sentByApi,
+          normalizedBody: JSON.stringify({ ...normalized, command: 'reset' }),
+          processingStatus: 'processed',
+          processingError: null,
+        });
+        return reply.send({ ok: true, command: 'reset' });
+      }
 
       let lead = await leadRepository.findBySdrAndWhatsapp(agent.id, whatsappNumber);
       if (!lead) {
@@ -87,7 +113,6 @@ export function registerUazapiWebhookRoutes(
       }
 
       let conversation = await conversationRepository.findBySdrAndWhatsapp(agent.id, whatsappNumber);
-      const now = new Date();
       if (!conversation) {
         conversation = await conversationRepository.create({
           companyId: agent.companyId,

@@ -18,9 +18,12 @@ export interface InitialOutreachResult {
   details: string[];
 }
 
-interface InitialOutreachDependencies {
+export interface FirstMessageDependencies {
   aiClient: AiClient;
   aiRunRepository: AiRunRepository;
+}
+
+interface InitialOutreachDependencies extends FirstMessageDependencies {
   jobLogRepository: JobLogRepository;
   leadResearchService: LeadResearchService;
   leadRepository: LeadRepository;
@@ -149,8 +152,8 @@ Fontes da pesquisa: ${research?.sources.join(', ') ?? ''}`,
   ];
 }
 
-async function buildFirstMessage(
-  deps: Pick<InitialOutreachDependencies, 'aiClient' | 'aiRunRepository'>,
+export async function buildFirstMessage(
+  deps: FirstMessageDependencies,
   agent: SdrAgent,
   lead: Lead,
   research: LeadResearchResult | null,
@@ -214,7 +217,7 @@ async function buildFirstMessage(
   }
 }
 
-function followupDueAt(agent: SdrAgent, sentAt: Date): Date | null {
+export function followupDueAt(agent: SdrAgent, sentAt: Date): Date | null {
   if (!agent.followupEnabled) return null;
   return new Date(sentAt.getTime() + agent.followupAfterHours * 60 * 60 * 1000);
 }

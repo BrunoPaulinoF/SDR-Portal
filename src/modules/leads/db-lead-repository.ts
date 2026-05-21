@@ -100,6 +100,7 @@ export function createDbLeadRepository(): LeadRepository {
         .select()
         .from(leads)
         .where(and(eq(leads.sdrAgentId, sdrAgentId), eq(leads.whatsappNumber, whatsappNumber)))
+        .orderBy(desc(leads.createdAt))
         .limit(1);
       return lead ?? null;
     },
@@ -134,10 +135,25 @@ export function createDbLeadRepository(): LeadRepository {
       const [lead] = await db
         .update(leads)
         .set({
-          status: current?.status === 'transferred' ? 'transferred' : 'in_conversation',
+          status: current?.status === 'transferred' || current?.status === 'not_interested' ? current.status : 'in_conversation',
           lastInboundAt: receivedAt,
           followupDisabledAt: receivedAt,
           updatedAt: receivedAt,
+        })
+        .where(eq(leads.id, id))
+        .returning();
+      return lead ?? null;
+    },
+
+    async markNotInterested(id, markedAt) {
+      const [lead] = await db
+        .update(leads)
+        .set({
+          status: 'not_interested',
+          conversationStage: 'not_interested',
+          notInterestedAt: markedAt,
+          followupDisabledAt: markedAt,
+          updatedAt: markedAt,
         })
         .where(eq(leads.id, id))
         .returning();
@@ -158,11 +174,10 @@ export function createDbLeadRepository(): LeadRepository {
         .update(leads)
         .set({
           status: 'transferred',
+          conversationStage: 'handoff_done',
           handoffRequestedAt: transferredAt,
           handoffSummary: summary,
           followupDisabledAt: transferredAt,
-          aiPausedAt: transferredAt,
-          aiPauseReason: 'handoff_requested_by_ai',
           updatedAt: transferredAt,
         })
         .where(eq(leads.id, id))
@@ -174,6 +189,24 @@ export function createDbLeadRepository(): LeadRepository {
       const [lead] = await db
         .update(leads)
         .set({ status: 'initial_sent', firstMessageSentAt: sentAt, followupDueAt, lastOutboundAt: sentAt, updatedAt: sentAt })
+        .where(eq(leads.id, id))
+        .returning();
+      return lead ?? null;
+    },
+
+    async disableFollowup(id, disabledAt) {
+      const [lead] = await db
+        .update(leads)
+        .set({ followupDisabledAt: disabledAt, updatedAt: disabledAt })
+        .where(eq(leads.id, id))
+        .returning();
+      return lead ?? null;
+    },
+
+    async updateStage(id, stage, updatedAt) {
+      const [lead] = await db
+        .update(leads)
+        .set({ conversationStage: stage, updatedAt })
         .where(eq(leads.id, id))
         .returning();
       return lead ?? null;

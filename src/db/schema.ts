@@ -118,6 +118,7 @@ export const leads = pgTable(
     contactName: text('contact_name'),
     extraData: text('extra_data'),
     status: text('status').default('pending').notNull(),
+    conversationStage: text('conversation_stage').default('permission').notNull(),
     source: text('source').default('manual').notNull(),
     firstMessageSentAt: timestamp('first_message_sent_at', { withTimezone: true }),
     lastInboundAt: timestamp('last_inbound_at', { withTimezone: true }),
@@ -134,7 +135,6 @@ export const leads = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
-  (table) => [uniqueIndex('leads_sdr_whatsapp_unique_idx').on(table.sdrAgentId, table.whatsappNumber)],
 );
 
 export type Lead = typeof leads.$inferSelect;
@@ -222,7 +222,6 @@ export const conversations = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
-  (table) => [uniqueIndex('conversations_sdr_whatsapp_unique_idx').on(table.sdrAgentId, table.whatsappNumber)],
 );
 
 export type Conversation = typeof conversations.$inferSelect;
