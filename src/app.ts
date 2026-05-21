@@ -17,6 +17,7 @@ import { createMemoryCompanyRepository, type CompanyRepository } from './modules
 import { registerCompanyRoutes } from './modules/companies/company-routes.js';
 import { createMemoryConversationRepository, type ConversationRepository } from './modules/conversations/conversation-repository.js';
 import { registerConversationRoutes } from './modules/conversations/conversation-routes.js';
+import { registerDashboardRoutes } from './modules/dashboard/dashboard-routes.js';
 import { createMemoryJobLogRepository, type JobLogRepository } from './modules/jobs/job-log-repository.js';
 import { registerJobLogRoutes } from './modules/jobs/job-log-routes.js';
 import { createMemoryLeadResearchRepository, type LeadResearchRepository } from './modules/leads/lead-research-repository.js';
@@ -98,6 +99,10 @@ function createLazyDbConversationRepository(): ConversationRepository {
     async list() {
       const { createDbConversationRepository } = await import('./modules/conversations/db-conversation-repository.js');
       return createDbConversationRepository().list();
+    },
+    async listAllMessages() {
+      const { createDbConversationRepository } = await import('./modules/conversations/db-conversation-repository.js');
+      return createDbConversationRepository().listAllMessages();
     },
     async listMessages(conversationId) {
       const { createDbConversationRepository } = await import('./modules/conversations/db-conversation-repository.js');
@@ -453,6 +458,7 @@ export function buildApp(options: AppOptions = {}): AppInstance {
 
   registerAssetsRoutes(app);
   registerAuthRoutes(app, repository);
+  registerDashboardRoutes(app, repository, companies, sdrAgents, leads, conversations, aiRuns, jobLogs);
   registerCompanyRoutes(app, repository, companies);
   registerSdrAgentRoutes(app, repository, companies, sdrAgents);
   registerLeadRoutes(app, repository, companies, sdrAgents, leads, aiRuns, jobLogs);

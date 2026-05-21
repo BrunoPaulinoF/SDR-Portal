@@ -4,8 +4,8 @@ import { z } from 'zod';
 import { verifyPassword } from './password.js';
 import type { AuthRepository } from './auth-repository.js';
 import { clearSessionCookie, setSessionCookie } from './session.js';
-import { renderDashboardPage, renderLoginPage } from './auth-pages.js';
-import { getCurrentUser, requireUser } from './access.js';
+import { renderLoginPage } from './auth-pages.js';
+import { getCurrentUser } from './access.js';
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -49,13 +49,4 @@ export function registerAuthRoutes(app: FastifyInstance, repository: AuthReposit
     return reply.redirect('/login');
   });
 
-  app.get('/dashboard', async (request, reply) => {
-    const user = await requireUser(request, reply, repository);
-
-    if (!user) {
-      return undefined;
-    }
-
-    return reply.type('text/html').send(renderDashboardPage(user));
-  });
 }

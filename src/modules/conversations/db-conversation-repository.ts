@@ -37,6 +37,10 @@ export function createDbConversationRepository(): ConversationRepository {
       return db.select().from(conversations).orderBy(desc(conversations.lastMessageAt));
     },
 
+    async listAllMessages() {
+      return db.select().from(messages).orderBy(desc(messages.createdAt));
+    },
+
     async listMessages(conversationId) {
       return db.select().from(messages).where(eq(messages.conversationId, conversationId)).orderBy(asc(messages.createdAt));
     },

@@ -330,6 +330,73 @@ button:hover,
   border-radius: 14px;
 }
 
+.dashboard-shell {
+  width: min(100%, 1380px);
+}
+
+.dashboard-filters {
+  margin-bottom: 18px;
+}
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.kpi-card {
+  display: grid;
+  gap: 8px;
+}
+
+.kpi-card span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.kpi-card strong {
+  font-size: 32px;
+  line-height: 1;
+}
+
+.kpi-card p {
+  margin-bottom: 0;
+}
+
+.alert-list {
+  display: grid;
+  gap: 10px;
+}
+
+.alert-list div {
+  padding: 12px 14px;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--primary);
+  border-radius: 10px;
+}
+
+.bar-track {
+  display: inline-flex;
+  width: min(180px, 100%);
+  height: 9px;
+  margin-right: 8px;
+  overflow: hidden;
+  background: #e2e8f0;
+  border-radius: 999px;
+  vertical-align: middle;
+}
+
+.bar-track span {
+  display: block;
+  background: var(--primary);
+  border-radius: inherit;
+}
+
 .panel > summary {
   cursor: pointer;
   font-size: 18px;
@@ -533,6 +600,11 @@ tr:last-child td {
 .status-warn {
   background: #fef3c7;
   color: #92400e;
+}
+
+.status-danger {
+  background: var(--danger-bg);
+  color: var(--danger-text);
 }
 
 form[data-inline] {

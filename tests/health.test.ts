@@ -186,6 +186,153 @@ describe('auth routes', () => {
     expect(dashboardResponse.body).toContain('SDR Portal');
     expect(dashboardResponse.body).toContain('admin@example.com');
   });
+
+  it('renders dashboard KPIs from repository data', async () => {
+    const user = await createTestUser();
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const conversationRepository = createMemoryConversationRepository();
+    const company = await companyRepository.create({
+      name: 'Insumo Smart',
+      legalName: null,
+      cnpj: null,
+      segment: 'Gastronomia',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'sdr-insumo-smart',
+      displayName: 'Kyane',
+      isActive: true,
+      uazapiBaseUrl: 'https://api.uazapi.com',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+      sendDaysOfWeek: '0,1,2,3,4,5,6',
+      sendWindowStart: '00:00',
+      sendWindowEnd: '23:59',
+      initialCooldownMinMinutes: 0,
+      initialCooldownMaxMinutes: 0,
+      dailyInitialSendLimit: 10,
+    });
+    const pendingLead = await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511999999999',
+      companyName: 'Restaurante Pendente',
+      cnpj: null,
+      tradeName: null,
+      segment: 'Gastronomia',
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'pending',
+      source: 'manual',
+    });
+    const handoffLead = await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511888888888',
+      companyName: 'Restaurante Handoff',
+      cnpj: null,
+      tradeName: null,
+      segment: 'Gastronomia',
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'pending',
+      source: 'manual',
+    });
+    const followupLead = await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511777777777',
+      companyName: 'Restaurante Followup',
+      cnpj: null,
+      tradeName: null,
+      segment: 'Gastronomia',
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'pending',
+      source: 'manual',
+    });
+    const now = new Date();
+    await leadRepository.markInitialSent(handoffLead.id, new Date(now.getTime() - 90 * 60 * 1000), null);
+    await leadRepository.markInboundReceived(handoffLead.id, new Date(now.getTime() - 80 * 60 * 1000));
+    await leadRepository.markTransferred(handoffLead.id, new Date(now.getTime() - 60 * 60 * 1000), 'Lead pediu contato comercial.');
+    await leadRepository.markInitialSent(followupLead.id, new Date(now.getTime() - 48 * 60 * 60 * 1000), new Date(now.getTime() - 60 * 60 * 1000));
+    await leadRepository.markFollowupSent(followupLead.id, new Date(now.getTime() - 30 * 60 * 1000));
+    const conversation = await conversationRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      leadId: handoffLead.id,
+      whatsappNumber: handoffLead.whatsappNumber,
+      status: 'open',
+      lastMessageAt: now,
+    });
+    await conversationRepository.createMessage({
+      conversationId: conversation.id,
+      leadId: handoffLead.id,
+      sdrAgentId: agent.id,
+      direction: 'inbound',
+      senderType: 'lead',
+      whatsappMessageId: 'in-1',
+      messageType: 'conversation',
+      text: 'Tenho interesse',
+      transcription: null,
+      mediaUrl: null,
+      rawPayload: null,
+      sentByApi: false,
+      fromMe: false,
+    });
+    await conversationRepository.createMessage({
+      conversationId: conversation.id,
+      leadId: handoffLead.id,
+      sdrAgentId: agent.id,
+      direction: 'outbound',
+      senderType: 'ai',
+      whatsappMessageId: 'out-1',
+      messageType: 'conversation',
+      text: 'Vou te encaminhar.',
+      transcription: null,
+      mediaUrl: null,
+      rawPayload: null,
+      sentByApi: true,
+      fromMe: true,
+    });
+
+    app = buildApp({
+      authRepository: createMemoryAuthRepository([user]),
+      companyRepository,
+      conversationRepository,
+      leadRepository,
+      sdrAgentRepository,
+    });
+    const sessionCookie = await login();
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/dashboard?period=7d',
+      cookies: { sdr_portal_session: sessionCookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain('Mensagens enviadas');
+    expect(response.body).toContain('Responderam');
+    expect(response.body).toContain('Handoffs');
+    expect(response.body).toContain('Follow-ups feitos');
+    expect(response.body).toContain('Proximos disparos por SDR');
+    expect(response.body).toContain('Restaurante Pendente');
+    expect(response.body).toContain(`/leads/${pendingLead.id}`);
+    expect(response.body).toContain('pronto agora');
+    expect(response.body).toContain('Insumo Smart');
+  });
 });
 
 describe('company routes', () => {
