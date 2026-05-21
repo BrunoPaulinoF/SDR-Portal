@@ -66,7 +66,7 @@ export function renderPromptAssistantFormPage(
       <div class="field">
         <label for="briefing">Briefing</label>
         <textarea id="briefing" name="briefing" rows="6" required style="width:100%;">${escapeHtml(briefing ?? '')}</textarea>
-        <p class="muted">Ex: "O SDR deve abordar restaurantes em SP oferecendo sistema de gestao. Tom consultivo e direto, sem ser insistente. Nao mencionar preco na primeira mensagem." Nao precisa explicar comandos internos, JSON ou handoff.</p>
+        <p class="muted">Ex: "O SDR deve abordar empresarios oferecendo um telefonema estrategico gratuito com o Igor Moscheto. Tom consultivo e direto, sem ser insistente. Nao falar em agenda ou horarios." Nao precisa explicar comandos internos, JSON ou handoff.</p>
       </div>
       <button type="submit">Gerar prompt</button>
     </form>

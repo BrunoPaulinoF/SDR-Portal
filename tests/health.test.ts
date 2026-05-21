@@ -280,7 +280,7 @@ describe('SDR agent routes', () => {
     });
 
     expect(newPageResponse.statusCode).toBe(200);
-    expect(newPageResponse.body).toContain('Sorvetes artesanais premium');
+    expect(newPageResponse.body).toContain('Direcionamento estrategico gratuito');
     expect(newPageResponse.body).toContain('Prompt editavel do SDR');
     expect(newPageResponse.body).toContain('{{companyName}}');
     expect(newPageResponse.body).toContain('help-tooltip');

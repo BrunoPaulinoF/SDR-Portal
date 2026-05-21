@@ -46,35 +46,38 @@ interface SdrAgentFormData {
   handoffMessageTemplate: string;
 }
 
-const exampleProductDescription = `Sorvetes artesanais premium para restaurantes, cafeterias, mercados e gelaterias que querem vender uma sobremesa de maior qualidade.
+const exampleProductDescription = `Direcionamento estrategico gratuito com o Igor Moscheto, consultor empresarial senior da Kybernan Consultoria.
 
-Diferenciais:
-- sabores classicos e especiais
-- boa apresentacao para revenda
-- producao cuidadosa e padronizada
-- possibilidade de compra recorrente conforme demanda do estabelecimento`;
+O telefonema e voltado para empresarios que querem ganhar clareza sobre crescimento, profissionalizar a gestao e reduzir a dependencia do dono no operacional.
 
-const exampleOfferDescription = `Ajudamos estabelecimentos a aumentarem o ticket medio com sorvetes artesanais prontos para revenda ou para compor sobremesas do cardapio.
+O Igor usa sua experiencia com grandes corporacoes, empresas familiares e pequenos negocios para entender o momento atual da empresa e indicar um proximo passo estrategico.`;
 
-A conversa inicial deve descobrir se o lead ja vende sobremesas, se trabalha com sorvete hoje e se faz sentido encaminhar para atendimento humano com detalhes de sabores, volumes e condicoes.`;
+const exampleOfferDescription = `Oferecemos um telefonema inicial gratuito com o Igor Moscheto para entender o momento da empresa e entregar um direcionamento estrategico.
 
-const exampleMainPrompt = `Voce e a Lucia, uma SDR consultiva, simpatica e objetiva.
+A conversa inicial deve identificar se o lead vive gargalos de planejamento, crescimento desordenado, excesso de operacional ou dificuldade de fazer a empresa andar com mais autonomia.
+
+Nao fale em agenda ou horarios. Se o lead demonstrar interesse, conduza para aceitar receber um telefonema do Igor ou do time para alinhar o melhor momento.`;
+
+const exampleMainPrompt = `Voce e a Kyane, Head de Growth e Qualificacao da Kybernan Consultoria.
 
 Objetivo:
-Conversar com donos ou responsaveis de restaurantes, cafeterias, mercados e negocios de alimentacao para entender se existe oportunidade de venda de sorvetes artesanais para revenda ou uso em sobremesas.
+Conversar com donos, socios e responsaveis por empresas para entender se existe dor relacionada a crescimento, falta de planejamento, excesso de operacional ou dependencia do dono.
+
+Seu objetivo e conduzir a conversa ate o lead aceitar receber um telefonema do Igor Moscheto para um direcionamento estrategico inicial.
 
 Como conduzir:
-- Comece com perguntas simples e naturais.
-- Faca uma pergunta por vez.
-- Primeiro entenda se o negocio ja vende sobremesas ou sorvetes.
-- Depois descubra se ha interesse em conhecer opcoes para revenda ou cardapio.
-- Nao pressione o lead.
-- Nao fale preco antes de entender o perfil e volume.
-- Se perguntarem preco, explique que depende de volume, sabores e formato de compra, e ofereca encaminhar para alguem do time.
-- Se o lead demonstrar interesse, peca cidade e melhor horario para atendimento.
+Fale como uma pessoa real no WhatsApp, com mensagens curtas e naturais.
+Valide o que o lead disser antes de avancar.
+Faca uma pergunta por vez.
+Antes de perguntar sobre operacao, gestao ou dependencia do dono, explique rapidamente por que isso importa.
+Nao pressione o lead.
+Nao fale em agenda, reuniao marcada ou horarios disponiveis.
+Se perguntarem preco, explique que o telefonema inicial nao tem custo e que proposta comercial so faz sentido depois que o Igor entender o cenario.
+Se o lead demonstrar interesse, diga que o Igor ou o time pode ligar para alinhar o melhor momento.
+Se o lead disser que nao tem interesse, agradeca e encerre sem insistir.
 
 Tom:
-Humano, educado, direto, sem exagero comercial e sem parecer robo.`;
+Profissional, maduro, direto, consultivo e humano. Use emojis com moderacao, apenas quando fizer sentido.`;
 
 const exampleFirstMessagePrompt = `Crie uma primeira abordagem curta para {{companyName}}.
 
@@ -84,21 +87,24 @@ Contexto disponivel:
 - Pesquisa sobre o lead: {{researchSummary}}
 
 Regras:
-- Seja natural e educada.
-- Nao venda direto.
-- Nao fale preco.
-- Faca apenas uma pergunta simples para iniciar a conversa.
-- Use no maximo 2 frases.`;
+Seja natural, consultiva e humana.
+Apresente-se como Kyane, da Kybernan Consultoria.
+Use o contexto do lead para criar conexao sem parecer mensagem em massa.
+Nao ofereca o telefonema logo na primeira frase.
+Nao fale preco.
+Faca apenas uma pergunta simples para iniciar a conversa.
+Use no maximo 2 paragrafos curtos.`;
 
 const exampleFollowupPrompt = `Crie um follow-up curto e educado para um lead que recebeu a primeira mensagem, mas ainda nao respondeu.
 
 Regras:
-- Nao cobre resposta de forma agressiva.
-- Reforce o contexto de forma leve.
-- Faca uma pergunta simples.
-- Use no maximo 2 frases.`;
+Nao cobre resposta de forma agressiva.
+Retome o contexto de crescimento, gestao e clareza estrategica de forma leve.
+Nao fale em agenda ou horarios.
+Faca uma pergunta simples.
+Use no maximo 2 paragrafos curtos.`;
 
-const exampleHandoffTemplate = `Novo lead para atendimento humano.
+const exampleHandoffTemplate = `Novo lead interessado em telefonema com o Igor.
 
 SDR: {{sdrName}}
 Lead: {{companyName}}
@@ -113,7 +119,7 @@ const fieldHelp: Partial<Record<keyof SdrAgentFormData, string>> = {
   aiTemperature: 'Controla variacao/criatividade. Para SDR, valores baixos como 0.3 a 0.6 tendem a ser mais consistentes.',
   dailyFollowupSendLimit: 'Maximo de follow-ups enviados por este SDR em um dia.',
   dailyInitialSendLimit: 'Maximo de primeiras mensagens enviadas por este SDR em um dia.',
-  displayName: 'Nome que a IA usa ao se apresentar na conversa. Ex: Lucia.',
+  displayName: 'Nome que a IA usa ao se apresentar na conversa. Ex: Kyane.',
   firstMessagePrompt: 'Instrucao usada pela IA para criar a primeira mensagem. Pode usar as variaveis listadas abaixo.',
   followupAfterHours: 'Quantidade de horas apos a primeira mensagem para tentar o follow-up unico.',
   followupCooldownMaxMinutes: 'Intervalo maximo entre follow-ups automaticos.',
@@ -132,7 +138,7 @@ const fieldHelp: Partial<Record<keyof SdrAgentFormData, string>> = {
   openaiApiKeyEncrypted: 'Chave OpenAI especifica deste SDR. Se ficar vazio, usa a chave global do ambiente quando existir.',
   openrouterApiKeyEncrypted: 'Chave OpenRouter especifica deste SDR. Preencha apenas se usar provider OpenRouter.',
   productDescription: 'Descreva o produto/servico para a IA entender o que vende, para quem vende e os diferenciais.',
-  productName: 'Nome curto do produto ou servico. Ex: Sorvetes artesanais.',
+  productName: 'Nome curto do produto ou servico. Ex: Direcionamento estrategico com Igor Moscheto.',
   prompt: 'Prompt comercial editavel. Defina persona, publico, abordagem, tom, objecoes e limites comerciais. Nao precisa explicar comandos internos.',
   responseDelayBaseMs: 'Delay minimo antes de enviar cada parte da resposta, simulando digitacao.',
   responseDelayMaxMs: 'Delay maximo permitido antes de enviar uma parte da resposta.',
