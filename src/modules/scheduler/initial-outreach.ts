@@ -1,4 +1,8 @@
+import { env } from '../../config/env.js';
 import type { Lead, SdrAgent } from '../../db/schema.js';
+import type { AiChatMessage, AiClient } from '../ai/ai-client.js';
+import type { AiRunRepository } from '../ai/ai-run-repository.js';
+import { parseAiResponse } from '../ai/ai-response.js';
 import type { JobLogRepository } from '../jobs/job-log-repository.js';
 import type { LeadResearchResult, LeadResearchService } from '../leads/lead-research-service.js';
 import type { LeadRepository } from '../leads/lead-repository.js';
@@ -14,6 +18,8 @@ export interface InitialOutreachResult {
 }
 
 interface InitialOutreachDependencies {
+  aiClient: AiClient;
+  aiRunRepository: AiRunRepository;
   jobLogRepository: JobLogRepository;
   leadResearchService: LeadResearchService;
   leadRepository: LeadRepository;
@@ -90,11 +96,7 @@ function interpolate(template: string, agent: SdrAgent, lead: Lead, research: Le
   return template.replace(/{{\s*([a-zA-Z0-9_]+)\s*}}/g, (_match, key: string) => replacements[key] ?? '');
 }
 
-function buildFirstMessage(agent: SdrAgent, lead: Lead, research: LeadResearchResult | null): string {
-  if (agent.firstMessagePrompt) {
-    return interpolate(agent.firstMessagePrompt, agent, lead, research).trim();
-  }
-
+function buildFallbackFirstMessage(agent: SdrAgent, lead: Lead, research: LeadResearchResult | null): string {
   const segment = lead.segment ? ` do setor de ${lead.segment}` : '';
   const product = agent.productName ? ` sobre ${agent.productName}` : '';
   if (research?.summary) {
@@ -102,6 +104,104 @@ function buildFirstMessage(agent: SdrAgent, lead: Lead, research: LeadResearchRe
   }
 
   return `Olá, tudo bem? Aqui é ${agent.displayName}. Estava olhando empresas${segment} e queria entender um pouco melhor a operação da ${lead.companyName}${product}. Posso te fazer uma pergunta rápida?`;
+}
+
+function apiKeyFor(agent: SdrAgent): string | null {
+  if (agent.aiProvider === 'openrouter') {
+    return agent.openrouterApiKeyEncrypted ? decryptSecret(agent.openrouterApiKeyEncrypted) : (env.OPENROUTER_API_KEY ?? null);
+  }
+  return agent.openaiApiKeyEncrypted ? decryptSecret(agent.openaiApiKeyEncrypted) : (env.OPENAI_API_KEY ?? null);
+}
+
+function firstMessageAiMessages(agent: SdrAgent, lead: Lead, research: LeadResearchResult | null): AiChatMessage[] {
+  const configuredPrompt = interpolate(agent.firstMessagePrompt ?? '', agent, lead, research).trim();
+  return [
+    {
+      role: 'system',
+      content:
+        'Voce escreve a primeira mensagem de um SDR no WhatsApp. Responda apenas em JSON estrito neste formato: {"mensagem_usuario":"texto","nao_responder":false,"status_sugerido":"initial_sent","actions":[]}. Use pt-BR, seja natural, curto e nao invente informacoes.',
+    },
+    {
+      role: 'user',
+      content: `Crie uma primeira mensagem para este lead.
+Instrucao configurada pelo SDR:
+${configuredPrompt || 'Abordagem consultiva e curta.'}
+
+Nome do SDR: ${agent.displayName}
+Produto/servico: ${agent.productName ?? ''}
+Oferta: ${agent.offerDescription ?? ''}
+Empresa lead: ${lead.companyName}
+Segmento lead: ${lead.segment ?? ''}
+WhatsApp lead: ${lead.whatsappNumber}
+Pesquisa sobre o lead: ${research?.summary ?? ''}
+Fontes da pesquisa: ${research?.sources.join(', ') ?? ''}`,
+    },
+  ];
+}
+
+async function buildFirstMessage(
+  deps: Pick<InitialOutreachDependencies, 'aiClient' | 'aiRunRepository'>,
+  agent: SdrAgent,
+  lead: Lead,
+  research: LeadResearchResult | null,
+): Promise<string> {
+  const fallback = buildFallbackFirstMessage(agent, lead, research);
+  if (!agent.firstMessagePrompt?.trim()) return fallback;
+
+  const apiKey = apiKeyFor(agent);
+  if (!apiKey) return fallback;
+
+  const messages = firstMessageAiMessages(agent, lead, research);
+  const startedAt = Date.now();
+
+  try {
+    const aiResult = await deps.aiClient.generate({
+      apiKey,
+      maxTokens: agent.aiMaxOutputTokens,
+      messages,
+      model: agent.aiModel,
+      provider: agent.aiProvider,
+      temperature: agent.aiTemperature,
+    });
+    const parsed = parseAiResponse(aiResult.outputText);
+    await deps.aiRunRepository.create({
+      sdrAgentId: agent.id,
+      leadId: lead.id,
+      conversationId: null,
+      provider: agent.aiProvider,
+      model: agent.aiModel,
+      purpose: 'first_message_generation',
+      inputMessages: JSON.stringify(messages),
+      outputText: aiResult.outputText,
+      parsedJson: JSON.stringify(parsed),
+      error: null,
+      promptTokens: aiResult.promptTokens,
+      completionTokens: aiResult.completionTokens,
+      totalTokens: aiResult.totalTokens,
+      latencyMs: Date.now() - startedAt,
+    });
+
+    return parsed.nao_responder || !parsed.mensagem_usuario.trim() ? fallback : parsed.mensagem_usuario.trim();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown first message AI error';
+    await deps.aiRunRepository.create({
+      sdrAgentId: agent.id,
+      leadId: lead.id,
+      conversationId: null,
+      provider: agent.aiProvider,
+      model: agent.aiModel,
+      purpose: 'first_message_generation',
+      inputMessages: JSON.stringify(messages),
+      outputText: null,
+      parsedJson: null,
+      error: message,
+      promptTokens: null,
+      completionTokens: null,
+      totalTokens: null,
+      latencyMs: Date.now() - startedAt,
+    });
+    return fallback;
+  }
 }
 
 function followupDueAt(agent: SdrAgent, sentAt: Date): Date | null {
@@ -163,7 +263,7 @@ export function createInitialOutreachService(deps: InitialOutreachDependencies) 
       }
 
       const research = await deps.leadResearchService.researchLead({ agent, lead });
-      const text = buildFirstMessage(agent, lead, research);
+      const text = await buildFirstMessage(deps, agent, lead, research);
       await deps.uazapiClient.sendPresence({ ...credentials, number: lead.whatsappNumber, presence: 'composing', delay: 1000 });
       const result = await deps.uazapiClient.sendText({
         ...credentials,

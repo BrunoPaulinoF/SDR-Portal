@@ -57,6 +57,14 @@ function normalizeNumber(value: string | null): string | null {
   return digits.length >= 10 ? digits : null;
 }
 
+function firstNormalizedNumber(...values: unknown[]): string | null {
+  for (const value of values) {
+    const normalized = normalizeNumber(firstString(value));
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
 export function normalizeUazapiWebhook(body: unknown): NormalizedWebhookMessage | null {
   const root = asRecord(body);
   const data = asRecord(root.data ?? root.message ?? root);
@@ -66,7 +74,9 @@ export function normalizeUazapiWebhook(body: unknown): NormalizedWebhookMessage 
   const remoteJid = firstString(key.remoteJid, data.chatid, data.chatId, data.from, data.remoteJid, root.from);
   const participant = firstString(key.participant, data.sender, data.participant);
   const fromMe = firstBoolean(data.fromMe, key.fromMe, root.fromMe);
-  const whatsappNumber = normalizeNumber(fromMe ? remoteJid : (participant ?? remoteJid));
+  const whatsappNumber = fromMe
+    ? firstNormalizedNumber(remoteJid, data.chatid, data.chatId)
+    : firstNormalizedNumber(data.sender_pn, data.senderPn, data.senderPhone, data.chatid, data.chatId, remoteJid, participant);
 
   if (!whatsappNumber) return null;
 

@@ -377,6 +377,8 @@ export function buildApp(options: AppOptions = {}): AppInstance {
     leadResearchService ??
     createLeadResearchService({ provider: leadResearchProvider ?? createHttpLeadResearchProvider(), repository: leadResearchRepo });
   const initialOutreach = createInitialOutreachService({
+    aiClient: ai,
+    aiRunRepository: aiRuns,
     jobLogRepository: jobLogs,
     leadResearchService: researchService,
     leadRepository: leads,

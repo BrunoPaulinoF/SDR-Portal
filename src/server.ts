@@ -1,5 +1,7 @@
 import { buildApp } from './app.js';
 import { env } from './config/env.js';
+import { createHttpAiClient } from './modules/ai/ai-client.js';
+import { createDbAiRunRepository } from './modules/ai/db-ai-run-repository.js';
 import { createDbJobLogRepository } from './modules/jobs/db-job-log-repository.js';
 import { createDbLeadResearchRepository } from './modules/leads/db-lead-research-repository.js';
 import { createHttpLeadResearchProvider, createLeadResearchService } from './modules/leads/lead-research-service.js';
@@ -23,6 +25,8 @@ async function start(): Promise<void> {
     await app.listen({ host: env.HOST, port: env.PORT });
     const initialBoss = await startPgBossInitialOutreachScheduler(
       createInitialOutreachService({
+        aiClient: createHttpAiClient(),
+        aiRunRepository: createDbAiRunRepository(),
         jobLogRepository: createDbJobLogRepository(),
         leadResearchService: createLeadResearchService({
           provider: createHttpLeadResearchProvider(),

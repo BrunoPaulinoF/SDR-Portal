@@ -14,6 +14,7 @@ import { createMemoryLeadRepository } from '../src/modules/leads/lead-repository
 import { createMemorySdrAgentRepository } from '../src/modules/sdr-agents/sdr-agent-repository.js';
 import { encryptSecret } from '../src/modules/security/secrets.js';
 import type { UazapiClient, UazapiResult } from '../src/modules/uazapi/uazapi-client.js';
+import { normalizeUazapiWebhook } from '../src/modules/webhooks/uazapi-normalizer.js';
 import { createMemoryWebhookEventRepository } from '../src/modules/webhooks/webhook-event-repository.js';
 import { hashPassword } from '../src/modules/auth/password.js';
 import writeXlsxFile from 'write-excel-file/node';
@@ -669,7 +670,7 @@ describe('initial outreach scheduler', () => {
     expect(updatedLead?.followupDueAt).toBeInstanceOf(Date);
     expect(calls).toEqual([
       'presence:5511999999999:composing:instance-token',
-      'text:5511999999999:Olá Restaurante A, aqui é Franciely. Posso fazer uma pergunta rápida?:instance-token',
+      'text:5511999999999:Olá, tudo bem? Aqui é Franciely. Estava olhando empresas do setor de Gastronomia e queria entender um pouco melhor a operação da Restaurante A. Posso te fazer uma pergunta rápida?:instance-token',
     ]);
     expect(logs[0]?.status).toBe('completed');
     expect(logs[0]?.leadId).toBe(lead.id);
@@ -752,11 +753,193 @@ describe('initial outreach scheduler', () => {
     expect(researchCalls[0]).toContain('Restaurante Pesquisa');
     expect(researchCalls[0]).toContain('Campinas');
     expect(calls).toContain(
-      'text:5511888888888:Olá Restaurante Pesquisa, vi que o restaurante abriu uma nova unidade em Campinas. Posso te fazer uma pergunta rápida?:instance-token',
+      'text:5511888888888:Olá, tudo bem? Aqui é Franciely. Vi que o restaurante abriu uma nova unidade em Campinas. Queria entender um pouco melhor a operação da Restaurante Pesquisa. Posso te fazer uma pergunta rápida?:instance-token',
     );
     expect(research?.status).toBe('completed');
     expect(research?.summary).toBe('o restaurante abriu uma nova unidade em Campinas');
     expect(research?.sources).toContain('example.com');
+  });
+
+  it('generates the first message with AI when prompt and API key are configured', async () => {
+    const user = await createTestUser();
+    const calls: string[] = [];
+    const aiCalls: string[] = [];
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const aiRunRepository = createMemoryAiRunRepository();
+    const company = await companyRepository.create({
+      name: 'Insumo Smart',
+      legalName: null,
+      cnpj: null,
+      segment: 'Gastronomia',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'sdr-insumo-smart',
+      displayName: 'Franciely',
+      isActive: true,
+      firstMessagePrompt: 'Use um tom consultivo para {{companyName}}.',
+      openaiApiKeyEncrypted: encryptSecret('openai-key'),
+      uazapiBaseUrl: 'https://api.uazapi.com',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+      sendDaysOfWeek: '0,1,2,3,4,5,6',
+      sendWindowStart: '00:00',
+      sendWindowEnd: '23:59',
+      initialCooldownMinMinutes: 0,
+      initialCooldownMaxMinutes: 0,
+      dailyInitialSendLimit: 10,
+    });
+    const lead = await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511777777777',
+      companyName: 'Restaurante IA',
+      cnpj: null,
+      tradeName: null,
+      segment: 'Gastronomia',
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'pending',
+      source: 'manual',
+    });
+
+    app = buildApp({
+      aiClient: createMockAiClient(
+        aiCalls,
+        '{"mensagem_usuario":"Oi, tudo bem? Vi a Restaurante IA e queria entender a operação de vocês. Posso fazer uma pergunta rápida?","nao_responder":false,"status_sugerido":"initial_sent","actions":[]}',
+      ),
+      aiRunRepository,
+      authRepository: createMemoryAuthRepository([user]),
+      companyRepository,
+      leadRepository,
+      sdrAgentRepository,
+      uazapiClient: createMockUazapiClient(calls),
+    });
+    const sessionCookie = await login();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/scheduler/initial-outreach/run',
+      cookies: { sdr_portal_session: sessionCookie },
+    });
+
+    const aiRuns = await aiRunRepository.list();
+
+    expect(response.statusCode).toBe(200);
+    expect(aiCalls[0]).toContain('openai:gpt-4o-mini');
+    expect(aiCalls[0]).toContain('Use um tom consultivo para Restaurante IA.');
+    expect(calls).toContain(
+      'text:5511777777777:Oi, tudo bem? Vi a Restaurante IA e queria entender a operação de vocês. Posso fazer uma pergunta rápida?:instance-token',
+    );
+    expect(aiRuns[0]?.purpose).toBe('first_message_generation');
+    expect(aiRuns[0]?.leadId).toBe(lead.id);
+    expect(aiRuns[0]?.error).toBeNull();
+  });
+
+  it('falls back to a safe first message when AI generation fails', async () => {
+    const user = await createTestUser();
+    const calls: string[] = [];
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const aiRunRepository = createMemoryAiRunRepository();
+    const company = await companyRepository.create({
+      name: 'Insumo Smart',
+      legalName: null,
+      cnpj: null,
+      segment: 'Gastronomia',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'sdr-insumo-smart',
+      displayName: 'Franciely',
+      isActive: true,
+      firstMessagePrompt: 'Nao envie este prompt literal.',
+      openaiApiKeyEncrypted: encryptSecret('openai-key'),
+      uazapiBaseUrl: 'https://api.uazapi.com',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+      sendDaysOfWeek: '0,1,2,3,4,5,6',
+      sendWindowStart: '00:00',
+      sendWindowEnd: '23:59',
+      initialCooldownMinMinutes: 0,
+      initialCooldownMaxMinutes: 0,
+      dailyInitialSendLimit: 10,
+    });
+    await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511666666666',
+      companyName: 'Restaurante Fallback',
+      cnpj: null,
+      tradeName: null,
+      segment: 'Gastronomia',
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'pending',
+      source: 'manual',
+    });
+
+    app = buildApp({
+      aiClient: {
+        async generate() {
+          throw new Error('AI provider returned HTTP 400');
+        },
+      },
+      aiRunRepository,
+      authRepository: createMemoryAuthRepository([user]),
+      companyRepository,
+      leadRepository,
+      sdrAgentRepository,
+      uazapiClient: createMockUazapiClient(calls),
+    });
+    const sessionCookie = await login();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/scheduler/initial-outreach/run',
+      cookies: { sdr_portal_session: sessionCookie },
+    });
+
+    const aiRuns = await aiRunRepository.list();
+
+    expect(response.statusCode).toBe(200);
+    expect(calls).toContain(
+      'text:5511666666666:Olá, tudo bem? Aqui é Franciely. Estava olhando empresas do setor de Gastronomia e queria entender um pouco melhor a operação da Restaurante Fallback. Posso te fazer uma pergunta rápida?:instance-token',
+    );
+    expect(calls.join('\n')).not.toContain('Nao envie este prompt literal.');
+    expect(aiRuns[0]?.error).toBe('AI provider returned HTTP 400');
+  });
+});
+
+describe('UAZAPI normalizer', () => {
+  it('prefers real phone fields over @lid identifiers', () => {
+    const normalized = normalizeUazapiWebhook({
+      event: 'messages',
+      data: {
+        id: 'MSG-LID',
+        sender: '137499217248386@lid',
+        sender_pn: '553499969911@s.whatsapp.net',
+        chatid: '137499217248386@lid',
+        fromMe: false,
+        type: 'conversation',
+        text: 'Oi',
+      },
+    });
+
+    expect(normalized?.whatsappNumber).toBe('553499969911');
   });
 });
 
