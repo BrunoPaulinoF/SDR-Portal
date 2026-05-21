@@ -190,6 +190,27 @@ label {
   font-weight: 700;
 }
 
+.label-with-help {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.help-tooltip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  color: var(--primary-dark);
+  background: var(--primary-soft);
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  cursor: help;
+  font-size: 12px;
+  font-weight: 800;
+}
+
 input,
 select {
   width: 100%;
@@ -385,6 +406,41 @@ button:hover,
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.template-vars {
+  padding: 14px;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.template-vars strong {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.template-vars ul {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.template-vars li {
+  display: grid;
+  gap: 2px;
+  padding: 10px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.template-vars code {
+  color: var(--primary-dark);
+  font-weight: 800;
 }
 
 .tabs-inline {

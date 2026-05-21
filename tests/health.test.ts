@@ -273,6 +273,18 @@ describe('SDR agent routes', () => {
     app = buildApp({ authRepository: createMemoryAuthRepository([user]), companyRepository, sdrAgentRepository });
     const sessionCookie = await login();
 
+    const newPageResponse = await app.inject({
+      method: 'GET',
+      url: '/sdr-agents/new',
+      cookies: { sdr_portal_session: sessionCookie },
+    });
+
+    expect(newPageResponse.statusCode).toBe(200);
+    expect(newPageResponse.body).toContain('Sorvetes artesanais premium');
+    expect(newPageResponse.body).toContain('Prompt editavel do SDR');
+    expect(newPageResponse.body).toContain('{{companyName}}');
+    expect(newPageResponse.body).toContain('help-tooltip');
+
     const createResponse = await app.inject({
       method: 'POST',
       url: '/sdr-agents',

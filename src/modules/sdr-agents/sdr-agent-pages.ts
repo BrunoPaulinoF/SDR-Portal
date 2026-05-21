@@ -46,17 +46,119 @@ interface SdrAgentFormData {
   handoffMessageTemplate: string;
 }
 
+const exampleProductDescription = `Sorvetes artesanais premium para restaurantes, cafeterias, mercados e gelaterias que querem vender uma sobremesa de maior qualidade.
+
+Diferenciais:
+- sabores classicos e especiais
+- boa apresentacao para revenda
+- producao cuidadosa e padronizada
+- possibilidade de compra recorrente conforme demanda do estabelecimento`;
+
+const exampleOfferDescription = `Ajudamos estabelecimentos a aumentarem o ticket medio com sorvetes artesanais prontos para revenda ou para compor sobremesas do cardapio.
+
+A conversa inicial deve descobrir se o lead ja vende sobremesas, se trabalha com sorvete hoje e se faz sentido encaminhar para atendimento humano com detalhes de sabores, volumes e condicoes.`;
+
+const exampleMainPrompt = `Voce e a Lucia, uma SDR consultiva, simpatica e objetiva.
+
+Objetivo:
+Conversar com donos ou responsaveis de restaurantes, cafeterias, mercados e negocios de alimentacao para entender se existe oportunidade de venda de sorvetes artesanais para revenda ou uso em sobremesas.
+
+Como conduzir:
+- Comece com perguntas simples e naturais.
+- Faca uma pergunta por vez.
+- Primeiro entenda se o negocio ja vende sobremesas ou sorvetes.
+- Depois descubra se ha interesse em conhecer opcoes para revenda ou cardapio.
+- Nao pressione o lead.
+- Nao fale preco antes de entender o perfil e volume.
+- Se perguntarem preco, explique que depende de volume, sabores e formato de compra, e ofereca encaminhar para alguem do time.
+- Se o lead demonstrar interesse, peca cidade e melhor horario para atendimento.
+
+Tom:
+Humano, educado, direto, sem exagero comercial e sem parecer robo.`;
+
+const exampleFirstMessagePrompt = `Crie uma primeira abordagem curta para {{companyName}}.
+
+Contexto disponivel:
+- Segmento: {{segment}}
+- Produto: {{productName}}
+- Pesquisa sobre o lead: {{researchSummary}}
+
+Regras:
+- Seja natural e educada.
+- Nao venda direto.
+- Nao fale preco.
+- Faca apenas uma pergunta simples para iniciar a conversa.
+- Use no maximo 2 frases.`;
+
+const exampleFollowupPrompt = `Crie um follow-up curto e educado para um lead que recebeu a primeira mensagem, mas ainda nao respondeu.
+
+Regras:
+- Nao cobre resposta de forma agressiva.
+- Reforce o contexto de forma leve.
+- Faca uma pergunta simples.
+- Use no maximo 2 frases.`;
+
+const exampleHandoffTemplate = `Novo lead para atendimento humano.
+
+SDR: {{sdrName}}
+Lead: {{companyName}}
+WhatsApp: {{whatsappNumber}}
+Produto: {{productName}}
+Resumo: {{summary}}`;
+
+const fieldHelp: Partial<Record<keyof SdrAgentFormData, string>> = {
+  aiMaxOutputTokens: 'Limite aproximado de tokens que a IA pode gerar. Para WhatsApp, 800 a 2000 costuma ser suficiente; modelos reasoning podem usar mais internamente.',
+  aiModel: 'Modelo usado por este SDR. Ex: gpt-4o-mini para velocidade/custo, gpt-5.4-mini para reasoning com mais qualidade.',
+  aiProvider: 'Escolha onde a IA sera chamada. OpenAI usa sua chave OpenAI; OpenRouter usa sua chave OpenRouter.',
+  aiTemperature: 'Controla variacao/criatividade. Para SDR, valores baixos como 0.3 a 0.6 tendem a ser mais consistentes.',
+  dailyFollowupSendLimit: 'Maximo de follow-ups enviados por este SDR em um dia.',
+  dailyInitialSendLimit: 'Maximo de primeiras mensagens enviadas por este SDR em um dia.',
+  displayName: 'Nome que a IA usa ao se apresentar na conversa. Ex: Lucia.',
+  firstMessagePrompt: 'Instrucao usada pela IA para criar a primeira mensagem. Pode usar as variaveis listadas abaixo.',
+  followupAfterHours: 'Quantidade de horas apos a primeira mensagem para tentar o follow-up unico.',
+  followupCooldownMaxMinutes: 'Intervalo maximo entre follow-ups automaticos.',
+  followupCooldownMinMinutes: 'Intervalo minimo entre follow-ups automaticos.',
+  followupEnabled: 'Quando ativo, o sistema tenta enviar um unico follow-up se o lead nao responder.',
+  followupPrompt: 'Instrucao usada pela IA ou pelo template para criar o follow-up.',
+  handoffMessageTemplate: 'Mensagem enviada ao responsavel humano quando a IA solicita transferencia.',
+  handoffName: 'Nome do responsavel ou time que recebe handoffs.',
+  handoffPhone: 'WhatsApp que recebera avisos de transferencia para humano.',
+  humanPauseHours: 'Tempo que a IA fica pausada quando alguem responde manualmente pelo WhatsApp do SDR.',
+  initialCooldownMaxMinutes: 'Tempo maximo aleatorio entre primeiras mensagens.',
+  initialCooldownMinMinutes: 'Tempo minimo aleatorio entre primeiras mensagens para evitar disparos muito proximos.',
+  messageSplitMaxChars: 'Tamanho maximo de cada parte quando a resposta for dividida em varias mensagens.',
+  name: 'Nome interno para organizacao. Nao precisa ser o nome que aparece para o lead.',
+  offerDescription: 'Explique a oferta comercial, promessa, diferenciais e quando chamar humano.',
+  openaiApiKeyEncrypted: 'Chave OpenAI especifica deste SDR. Se ficar vazio, usa a chave global do ambiente quando existir.',
+  openrouterApiKeyEncrypted: 'Chave OpenRouter especifica deste SDR. Preencha apenas se usar provider OpenRouter.',
+  productDescription: 'Descreva o produto/servico para a IA entender o que vende, para quem vende e os diferenciais.',
+  productName: 'Nome curto do produto ou servico. Ex: Sorvetes artesanais.',
+  prompt: 'Prompt comercial editavel. Defina persona, publico, abordagem, tom, objecoes e limites comerciais. Nao precisa explicar comandos internos.',
+  responseDelayBaseMs: 'Delay minimo antes de enviar cada parte da resposta, simulando digitacao.',
+  responseDelayMaxMs: 'Delay maximo permitido antes de enviar uma parte da resposta.',
+  responseDelayPerCharMs: 'Quanto maior, mais tempo a IA espera proporcionalmente ao tamanho da mensagem.',
+  sendDaysOfWeek: 'Dias permitidos para disparo: 0=domingo, 1=segunda, 2=terca, 3=quarta, 4=quinta, 5=sexta, 6=sabado.',
+  sendWindowEnd: 'Horario final em que este SDR pode enviar mensagens automaticas.',
+  sendWindowStart: 'Horario inicial em que este SDR pode enviar mensagens automaticas.',
+  timezone: 'Fuso usado para calcular janela de envio e dias permitidos.',
+  uazapiAdminTokenEncrypted: 'Token admin usado para configurar webhook quando necessario.',
+  uazapiBaseUrl: 'URL base da sua UAZAPI. Ex: https://sua-uazapi.com.',
+  uazapiInstanceId: 'ID ou nome da instancia WhatsApp dentro da UAZAPI.',
+  uazapiInstanceTokenEncrypted: 'Token da instancia usado para enviar mensagens, presenca e baixar audios.',
+  whatsappNumber: 'Numero conectado nesta instancia/SDR, preferencialmente com DDI e DDD.',
+};
+
 const defaultForm: SdrAgentFormData = {
   companyId: '',
   name: '',
   displayName: '',
   isActive: false,
   productName: '',
-  productDescription: '',
-  offerDescription: '',
-  prompt: '',
-  firstMessagePrompt: '',
-  followupPrompt: '',
+  productDescription: exampleProductDescription,
+  offerDescription: exampleOfferDescription,
+  prompt: exampleMainPrompt,
+  firstMessagePrompt: exampleFirstMessagePrompt,
+  followupPrompt: exampleFollowupPrompt,
   aiProvider: 'openai',
   aiModel: 'gpt-4o-mini',
   aiTemperature: '0.4',
@@ -87,7 +189,7 @@ const defaultForm: SdrAgentFormData = {
   humanPauseHours: '24',
   handoffName: '',
   handoffPhone: '',
-  handoffMessageTemplate: '',
+  handoffMessageTemplate: exampleHandoffTemplate,
 };
 
 function agentToForm(agent?: SdrAgent): SdrAgentFormData {
@@ -140,24 +242,33 @@ function agentToForm(agent?: SdrAgent): SdrAgentFormData {
   };
 }
 
+function renderHelp(name: keyof SdrAgentFormData): string {
+  const help = fieldHelp[name];
+  return help ? ` <span class="help-tooltip" title="${escapeHtml(help)}">(?)</span>` : '';
+}
+
+function renderLabel(name: keyof SdrAgentFormData, label: string): string {
+  return `<label for="${name}" class="label-with-help">${label}${renderHelp(name)}</label>`;
+}
+
 function renderField(name: keyof SdrAgentFormData, label: string, value: string, required = false, type = 'text'): string {
   const requiredAttribute = required ? ' required' : '';
   return `<div class="field">
-    <label for="${name}">${label}</label>
+    ${renderLabel(name, label)}
     <input id="${name}" name="${name}" type="${type}" value="${escapeHtml(value)}"${requiredAttribute}>
   </div>`;
 }
 
 function renderTextArea(name: keyof SdrAgentFormData, label: string, value: string, rows = 5): string {
   return `<div class="field field-full">
-    <label for="${name}">${label}</label>
+    ${renderLabel(name, label)}
     <textarea id="${name}" name="${name}" rows="${rows}">${escapeHtml(value)}</textarea>
   </div>`;
 }
 
 function renderCheckbox(name: keyof SdrAgentFormData, label: string, checked: boolean): string {
   const checkedAttribute = checked ? ' checked' : '';
-  return `<label class="checkbox-field"><input name="${name}" type="checkbox"${checkedAttribute}> ${label}</label>`;
+  return `<label class="checkbox-field"><input name="${name}" type="checkbox"${checkedAttribute}> ${label}${renderHelp(name)}</label>`;
 }
 
 function renderCompanySelect(companies: Company[], selectedId: string): string {
@@ -169,7 +280,7 @@ function renderCompanySelect(companies: Company[], selectedId: string): string {
     .join('');
 
   return `<div class="field">
-    <label for="companyId">Empresa</label>
+    <label for="companyId" class="label-with-help">Empresa <span class="help-tooltip" title="Empresa dona deste SDR. Leads, conversas e relatorios ficam vinculados a ela.">(?)</span></label>
     <select id="companyId" name="companyId" required>${options}</select>
   </div>`;
 }
@@ -184,8 +295,28 @@ function renderProviderSelect(selectedProvider: string): string {
     .join('');
 
   return `<div class="field">
-    <label for="aiProvider">Provedor IA</label>
+    ${renderLabel('aiProvider', 'Provedor IA')}
     <select id="aiProvider" name="aiProvider" required>${options}</select>
+  </div>`;
+}
+
+function renderFirstMessageVariables(): string {
+  const variables: Array<[string, string]> = [
+    ['{{companyName}}', 'nome da empresa lead'],
+    ['{{company_name}}', 'alias de companyName'],
+    ['{{segment}}', 'segmento do lead'],
+    ['{{whatsappNumber}}', 'WhatsApp do lead'],
+    ['{{sdrName}}', 'nome do SDR'],
+    ['{{productName}}', 'produto/servico'],
+    ['{{researchSummary}}', 'resumo da pesquisa web, quando houver'],
+    ['{{researchSources}}', 'fontes da pesquisa web, quando houver'],
+  ];
+  const items = variables.map(([key, description]) => `<li><code>${escapeHtml(key)}</code><span>${escapeHtml(description)}</span></li>`).join('');
+
+  return `<div class="template-vars field-full">
+    <strong>Variaveis permitidas para copiar e colar</strong>
+    <p class="muted">Use no prompt da primeira mensagem. Se alguma informacao nao existir, ela fica vazia.</p>
+    <ul>${items}</ul>
   </div>`;
 }
 
@@ -246,6 +377,7 @@ function renderSdrAgentForm(action: string, companies: Company[], agent?: SdrAge
       ${renderLockedBasePrompt()}
       ${renderTextArea('prompt', 'Prompt editavel do SDR', data.prompt, 10)}
       ${renderTextArea('firstMessagePrompt', 'Prompt da primeira mensagem', data.firstMessagePrompt, 6)}
+      ${renderFirstMessageVariables()}
       ${renderTextArea('followupPrompt', 'Prompt de follow-up', data.followupPrompt, 5)}
         `,
         true,
