@@ -3,6 +3,7 @@ import type { Lead, SdrAgent } from '../../db/schema.js';
 import type { AiChatMessage, AiClient } from '../ai/ai-client.js';
 import type { AiRunRepository } from '../ai/ai-run-repository.js';
 import { parseAiResponse } from '../ai/ai-response.js';
+import { buildSdrSystemPrompt } from '../ai/sdr-base-prompt.js';
 import type { JobLogRepository } from '../jobs/job-log-repository.js';
 import type { LeadResearchResult, LeadResearchService } from '../leads/lead-research-service.js';
 import type { LeadRepository } from '../leads/lead-repository.js';
@@ -118,8 +119,17 @@ function firstMessageAiMessages(agent: SdrAgent, lead: Lead, research: LeadResea
   return [
     {
       role: 'system',
-      content:
-        'Voce escreve a primeira mensagem de um SDR no WhatsApp. Responda apenas em JSON estrito neste formato: {"mensagem_usuario":"texto","nao_responder":false,"status_sugerido":"initial_sent","actions":[]}. Use pt-BR, seja natural, curto e nao invente informacoes.',
+      content: `${buildSdrSystemPrompt({
+        customPrompt: agent.prompt,
+        leadName: lead.companyName,
+        leadSegment: lead.segment,
+        leadWhatsapp: lead.whatsappNumber,
+        offerDescription: agent.offerDescription,
+        productName: agent.productName,
+        sdrName: agent.displayName,
+      })}
+
+Tarefa especifica: escreva a primeira mensagem de abordagem. Use "status_sugerido":"initial_sent".`,
     },
     {
       role: 'user',

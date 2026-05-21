@@ -357,6 +357,36 @@ button:hover,
   padding: 0 18px 18px;
 }
 
+.locked-prompt {
+  padding: 14px;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.locked-prompt-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.locked-prompt-header span {
+  padding: 4px 8px;
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.locked-prompt pre {
+  max-height: 260px;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .tabs-inline {
   display: flex;
   flex-wrap: wrap;

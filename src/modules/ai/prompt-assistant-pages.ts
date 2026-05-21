@@ -45,7 +45,7 @@ export function renderPromptAssistantFormPage(
   <header class="topbar">
     <div>
       <h1>IA auxiliar de prompt</h1>
-      <p class="muted">Descreva o que o SDR deve fazer e a IA gerara um prompt configurado.</p>
+      <p class="muted">Descreva produto, publico, tom e regras comerciais. As instrucoes tecnicas fixas ja sao aplicadas automaticamente.</p>
     </div>
   </header>
 
@@ -60,13 +60,13 @@ export function renderPromptAssistantFormPage(
         ${renderSdrSelect(agents, selectedSdrAgentId ?? '')}
       </div>
       ${selectedAgent ? `<div class="field" style="margin-bottom:1rem;">
-        <label>Prompt atual do SDR</label>
+        <label>Prompt editavel atual do SDR</label>
         <pre style="white-space:pre-wrap;word-break:break-word;background:#f5f5f5;padding:0.75rem;border-radius:4px;max-height:150px;overflow:auto;font-size:0.85rem;margin:0;">${escapeHtml(currentPrompt || '(sem prompt configurado)')}</pre>
       </div>` : ''}
       <div class="field">
         <label for="briefing">Briefing</label>
         <textarea id="briefing" name="briefing" rows="6" required style="width:100%;">${escapeHtml(briefing ?? '')}</textarea>
-        <p class="muted">Ex: "O SDR deve abordar restaurantes em SP oferecendo sistema de gestao. Tom consultivo e direto, sem ser insistente. Nao mencionar preco na primeira mensagem."</p>
+        <p class="muted">Ex: "O SDR deve abordar restaurantes em SP oferecendo sistema de gestao. Tom consultivo e direto, sem ser insistente. Nao mencionar preco na primeira mensagem." Nao precisa explicar comandos internos, JSON ou handoff.</p>
       </div>
       <button type="submit">Gerar prompt</button>
     </form>

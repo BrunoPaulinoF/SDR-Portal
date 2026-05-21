@@ -85,7 +85,7 @@ function createMockUazapiClient(calls: string[]): UazapiClient {
 function createMockAiClient(calls: string[], outputText: string): AiClient {
   return {
     async generate(input) {
-      calls.push(`${input.provider}:${input.model}:${input.messages.at(-1)?.content ?? ''}`);
+      calls.push(`${input.provider}:${input.model}:${input.messages.map((message) => message.content).join('\n---\n')}`);
       return {
         outputText,
         promptTokens: 10,
@@ -834,6 +834,7 @@ describe('initial outreach scheduler', () => {
 
     expect(response.statusCode).toBe(200);
     expect(aiCalls[0]).toContain('openai:gpt-4o-mini');
+    expect(aiCalls[0]).toContain('Comandos internos disponiveis');
     expect(aiCalls[0]).toContain('Use um tom consultivo para Restaurante IA.');
     expect(calls).toContain(
       'text:5511777777777:Oi, tudo bem? Vi a Restaurante IA e queria entender a operação de vocês. Posso fazer uma pergunta rápida?:instance-token',
@@ -1540,6 +1541,7 @@ describe('UAZAPI webhook routes', () => {
 
     expect(response.statusCode).toBe(200);
     expect(aiCalls[0]).toContain('openai:gpt-4o-mini');
+    expect(aiCalls[0]).toContain('notify_handoff');
     expect(uazapiCalls).toContain('text:5511999999999:Claro, posso te fazer uma pergunta rápida?:instance-token');
     expect(aiRuns[0]?.parsedJson).toContain('mensagem_usuario');
     expect(messages.some((message) => message.senderType === 'ai' && message.text === 'Claro, posso te fazer uma pergunta rápida?')).toBe(true);
@@ -1973,6 +1975,7 @@ describe('IA auxiliar de prompt', () => {
     expect(generateResponse.body).toContain('Aplicar prompt ao SDR');
     expect(aiCalls[0]).toContain('Restaurantes em SP');
     expect(aiCalls[0]).toContain('(sem prompt)');
+    expect(aiCalls[0]).toContain('Nao repita essas regras tecnicas');
 
     const aiRuns = await aiRunRepository.list();
     expect(aiRuns[0]?.purpose).toBe('prompt_generation');

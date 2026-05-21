@@ -8,6 +8,7 @@ import type { AiChatMessage, AiClient } from './ai-client.js';
 import type { AiRunRepository } from './ai-run-repository.js';
 import { parseAiResponse, type ParsedAiResponse } from './ai-response.js';
 import { buildResponseParts, waitBeforeSending } from './response-buffer.js';
+import { buildSdrSystemPrompt } from './sdr-base-prompt.js';
 
 interface AiResponseDependencies {
   aiClient: AiClient;
@@ -36,17 +37,15 @@ function uazapiCredentials(agent: SdrAgent): { baseUrl: string; token: string } 
 }
 
 function systemPrompt(agent: SdrAgent, lead: Lead): string {
-  return `Voce e um SDR respondendo no WhatsApp.
-Responda apenas em JSON estrito neste formato: {"mensagem_usuario":"texto","nao_responder":false,"status_sugerido":"in_conversation","actions":[]}.
-Use pt-BR, frases curtas e nao invente informacoes.
-Quando precisar transferir para humano, inclua "notify_handoff" em actions e coloque um resumo objetivo em mensagem_usuario ou em actions[].summary.
-Nome do SDR: ${agent.displayName}
-Produto/servico: ${agent.productName ?? ''}
-Oferta: ${agent.offerDescription ?? ''}
-Lead: ${lead.companyName} (${lead.whatsappNumber})
-Segmento do lead: ${lead.segment ?? ''}
-Prompt configurado do SDR:
-${agent.prompt ?? 'Conduza uma conversa consultiva e natural.'}`;
+  return buildSdrSystemPrompt({
+    customPrompt: agent.prompt,
+    leadName: lead.companyName,
+    leadSegment: lead.segment,
+    leadWhatsapp: lead.whatsappNumber,
+    offerDescription: agent.offerDescription,
+    productName: agent.productName,
+    sdrName: agent.displayName,
+  });
 }
 
 function normalizePhone(value: string): string {

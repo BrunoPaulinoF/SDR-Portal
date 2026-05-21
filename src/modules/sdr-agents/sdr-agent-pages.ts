@@ -1,4 +1,5 @@
 import type { Company, SdrAgent } from '../../db/schema.js';
+import { SDR_BASE_PROMPT } from '../ai/sdr-base-prompt.js';
 import { escapeHtml, renderLayout } from '../web/html.js';
 
 interface SdrAgentFormData {
@@ -192,6 +193,17 @@ function renderSecretHint(): string {
   return '<p class="muted field-full">Campos de chave/token ficam em branco na edicao. Preencha apenas quando quiser substituir o valor salvo.</p>';
 }
 
+function renderLockedBasePrompt(): string {
+  return `<div class="field field-full locked-prompt">
+    <div class="locked-prompt-header">
+      <label>Instrucoes fixas do SDR</label>
+      <span>Nao editavel</span>
+    </div>
+    <p class="muted">Estas regras sempre sao enviadas para a IA. Use o prompt editavel abaixo apenas para produto, publico, tom e regras comerciais especificas.</p>
+    <pre>${escapeHtml(SDR_BASE_PROMPT)}</pre>
+  </div>`;
+}
+
 function renderFormSection(title: string, description: string, content: string, open = false): string {
   return `<details class="form-section"${open ? ' open' : ''}>
     <summary>${escapeHtml(title)}<span>${escapeHtml(description)}</span></summary>
@@ -231,7 +243,8 @@ function renderSdrAgentForm(action: string, companies: Company[], agent?: SdrAge
       ${renderField('openaiApiKeyEncrypted', 'Chave OpenAI', data.openaiApiKeyEncrypted, false, 'password')}
       ${renderField('openrouterApiKeyEncrypted', 'Chave OpenRouter', data.openrouterApiKeyEncrypted, false, 'password')}
       ${renderSecretHint()}
-      ${renderTextArea('prompt', 'Prompt principal', data.prompt, 10)}
+      ${renderLockedBasePrompt()}
+      ${renderTextArea('prompt', 'Prompt editavel do SDR', data.prompt, 10)}
       ${renderTextArea('firstMessagePrompt', 'Prompt da primeira mensagem', data.firstMessagePrompt, 6)}
       ${renderTextArea('followupPrompt', 'Prompt de follow-up', data.followupPrompt, 5)}
         `,
