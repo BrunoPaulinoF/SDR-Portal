@@ -1,0 +1,1905 @@
+import { afterEach, describe, expect, it } from 'vitest';
+
+import { buildApp, type AppInstance } from '../src/app.js';
+import type { AiClient, AiGenerateResult } from '../src/modules/ai/ai-client.js';
+import { createMemoryAiRunRepository } from '../src/modules/ai/ai-run-repository.js';
+import { createMemoryAuthRepository, type AuthUser } from '../src/modules/auth/auth-repository.js';
+import { createMemoryCompanyRepository } from '../src/modules/companies/company-repository.js';
+import { createMemoryConversationRepository } from '../src/modules/conversations/conversation-repository.js';
+import { createMemoryJobLogRepository } from '../src/modules/jobs/job-log-repository.js';
+import { importLeadsFromExcel } from '../src/modules/leads/lead-importer.js';
+import { createMemoryLeadResearchRepository } from '../src/modules/leads/lead-research-repository.js';
+import type { LeadResearchProvider, LeadResearchResult } from '../src/modules/leads/lead-research-service.js';
+import { createMemoryLeadRepository } from '../src/modules/leads/lead-repository.js';
+import { createMemorySdrAgentRepository } from '../src/modules/sdr-agents/sdr-agent-repository.js';
+import { encryptSecret } from '../src/modules/security/secrets.js';
+import type { UazapiClient, UazapiResult } from '../src/modules/uazapi/uazapi-client.js';
+import { createMemoryWebhookEventRepository } from '../src/modules/webhooks/webhook-event-repository.js';
+import { hashPassword } from '../src/modules/auth/password.js';
+import writeXlsxFile from 'write-excel-file/node';
+
+let app: AppInstance | undefined;
+
+async function createTestUser(): Promise<AuthUser> {
+  return {
+    id: '8bfcf9a6-38f9-4a0d-8f4d-7818adf99680',
+    name: 'Admin',
+    email: 'admin@example.com',
+    passwordHash: await hashPassword('password123'),
+    role: 'admin',
+  };
+}
+
+async function login(): Promise<string> {
+  const loginResponse = await app?.inject({
+    method: 'POST',
+    url: '/login',
+    payload: 'email=admin%40example.com&password=password123',
+    headers: {
+      'content-type': 'application/x-www-form-urlencoded',
+    },
+  });
+
+  const cookie = loginResponse?.cookies[0];
+  expect(loginResponse?.statusCode).toBe(302);
+  expect(cookie?.name).toBe('sdr_portal_session');
+  return cookie?.value ?? '';
+}
+
+function formPayload(values: Record<string, string>): string {
+  return new URLSearchParams(values).toString();
+}
+
+function createMockUazapiClient(calls: string[]): UazapiClient {
+  const ok = (body: unknown): UazapiResult => ({ status: 200, ok: true, body });
+
+  return {
+    async configureWebhook(input) {
+      calls.push(`webhook:${input.url}:${input.token}`);
+      return ok({ response: 'webhook configured' });
+    },
+
+    async downloadMessage(input) {
+      calls.push(`download:${input.id}:${input.transcribe ? 'transcribe' : 'raw'}:${input.token}`);
+      return ok({ fileURL: 'https://api.uazapi.com/files/audio.mp3', transcription: 'Texto transcrito do audio' });
+    },
+
+    async getInstanceStatus(input) {
+      calls.push(`status:${input.baseUrl}:${input.token}`);
+      return ok({ connected: true, loggedIn: true });
+    },
+
+    async sendPresence(input) {
+      calls.push(`presence:${input.number}:${input.presence}:${input.token}`);
+      return ok({ response: 'presence sent' });
+    },
+
+    async sendText(input) {
+      calls.push(`text:${input.number}:${input.text}:${input.token}`);
+      return ok({ response: 'message sent' });
+    },
+  };
+}
+
+function createMockAiClient(calls: string[], outputText: string): AiClient {
+  return {
+    async generate(input) {
+      calls.push(`${input.provider}:${input.model}:${input.messages.at(-1)?.content ?? ''}`);
+      return {
+        outputText,
+        promptTokens: 10,
+        completionTokens: 5,
+        totalTokens: 15,
+      } satisfies AiGenerateResult;
+    },
+  };
+}
+
+function createMockLeadResearchProvider(calls: string[], result: LeadResearchResult | null): LeadResearchProvider {
+  return {
+    async research(input) {
+      calls.push(input.query);
+      return result;
+    },
+  };
+}
+
+afterEach(async () => {
+  await app?.close();
+  app = undefined;
+});
+
+describe('health route', () => {
+  it('returns service status', async () => {
+    app = buildApp();
+
+    const response = await app.inject({ method: 'GET', url: '/health' });
+    const body = response.json<{ status: string; timestamp: string; uptime: number }>();
+
+    expect(response.statusCode).toBe(200);
+    expect(body.status).toBe('ok');
+    expect(typeof body.timestamp).toBe('string');
+    expect(typeof body.uptime).toBe('number');
+  });
+});
+
+describe('auth routes', () => {
+  it('requires login to access dashboard', async () => {
+    app = buildApp();
+
+    const response = await app.inject({ method: 'GET', url: '/dashboard' });
+
+    expect(response.statusCode).toBe(302);
+    expect(response.headers.location).toBe('/login');
+  });
+
+  it('logs in and renders dashboard', async () => {
+    const user = await createTestUser();
+
+    app = buildApp({ authRepository: createMemoryAuthRepository([user]) });
+
+    const loginResponse = await app.inject({
+      method: 'POST',
+      url: '/login',
+      payload: 'email=admin%40example.com&password=password123',
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+    });
+
+    const cookie = loginResponse.cookies[0];
+    expect(loginResponse.statusCode).toBe(302);
+    expect(loginResponse.headers.location).toBe('/dashboard');
+    expect(cookie?.name).toBe('sdr_portal_session');
+
+    const dashboardResponse = await app.inject({
+      method: 'GET',
+      url: '/dashboard',
+      cookies: {
+        [cookie?.name ?? '']: cookie?.value ?? '',
+      },
+    });
+
+    expect(dashboardResponse.statusCode).toBe(200);
+    expect(dashboardResponse.body).toContain('SDR Portal');
+    expect(dashboardResponse.body).toContain('admin@example.com');
+  });
+});
+
+describe('company routes', () => {
+  it('requires login to list companies', async () => {
+    app = buildApp();
+
+    const response = await app.inject({ method: 'GET', url: '/companies' });
+
+    expect(response.statusCode).toBe(302);
+    expect(response.headers.location).toBe('/login');
+  });
+
+  it('creates, updates and deletes a company', async () => {
+    const user = await createTestUser();
+    const companyRepository = createMemoryCompanyRepository();
+    app = buildApp({ authRepository: createMemoryAuthRepository([user]), companyRepository });
+    const sessionCookie = await login();
+
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: '/companies',
+      payload: 'name=Insumo%20Smart&segment=Gastronomia&cnpj=12345678000199&defaultHandoffName=Fernando',
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      cookies: {
+        sdr_portal_session: sessionCookie,
+      },
+    });
+
+    expect(createResponse.statusCode).toBe(302);
+    expect(createResponse.headers.location).toBe('/companies');
+
+    const [createdCompany] = await companyRepository.list();
+    expect(createdCompany?.name).toBe('Insumo Smart');
+
+    const listResponse = await app.inject({
+      method: 'GET',
+      url: '/companies',
+      cookies: {
+        sdr_portal_session: sessionCookie,
+      },
+    });
+
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.body).toContain('Insumo Smart');
+    expect(listResponse.body).toContain('Gastronomia');
+
+    const updateResponse = await app.inject({
+      method: 'POST',
+      url: `/companies/${createdCompany?.id}`,
+      payload: 'name=Insumo%20Smart%20Consultoria&segment=Restaurantes',
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      cookies: {
+        sdr_portal_session: sessionCookie,
+      },
+    });
+
+    expect(updateResponse.statusCode).toBe(302);
+    expect(updateResponse.headers.location).toBe('/companies');
+
+    const updatedCompany = createdCompany ? await companyRepository.findById(createdCompany.id) : null;
+    expect(updatedCompany?.name).toBe('Insumo Smart Consultoria');
+    expect(updatedCompany?.segment).toBe('Restaurantes');
+
+    const deleteResponse = await app.inject({
+      method: 'POST',
+      url: `/companies/${createdCompany?.id}/delete`,
+      cookies: {
+        sdr_portal_session: sessionCookie,
+      },
+    });
+
+    expect(deleteResponse.statusCode).toBe(302);
+    expect(await companyRepository.list()).toHaveLength(0);
+  });
+});
+
+describe('SDR agent routes', () => {
+  it('requires login to list SDRs', async () => {
+    app = buildApp();
+
+    const response = await app.inject({ method: 'GET', url: '/sdr-agents' });
+
+    expect(response.statusCode).toBe(302);
+    expect(response.headers.location).toBe('/login');
+  });
+
+  it('creates, updates, toggles and deletes an SDR', async () => {
+    const user = await createTestUser();
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const company = await companyRepository.create({
+      name: 'Insumo Smart',
+      legalName: null,
+      cnpj: null,
+      segment: 'Gastronomia',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: 'Fernando',
+      defaultHandoffPhone: '5511999999999',
+    });
+
+    app = buildApp({ authRepository: createMemoryAuthRepository([user]), companyRepository, sdrAgentRepository });
+    const sessionCookie = await login();
+
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: '/sdr-agents',
+      payload: formPayload({
+        companyId: company.id,
+        name: 'sdr-insumo-smart',
+        displayName: 'Franciely',
+        productName: 'Consultoria CMV',
+        aiProvider: 'openai',
+        aiModel: 'gpt-4o-mini',
+        aiTemperature: '0.4',
+        aiMaxOutputTokens: '800',
+        timezone: 'America/Sao_Paulo',
+        sendWindowStart: '08:00',
+        sendWindowEnd: '18:00',
+        sendDaysOfWeek: '1,2,3,4,5',
+        initialCooldownMinMinutes: '5',
+        initialCooldownMaxMinutes: '15',
+        followupEnabled: 'on',
+        followupAfterHours: '24',
+        followupCooldownMinMinutes: '10',
+        followupCooldownMaxMinutes: '30',
+        dailyInitialSendLimit: '50',
+        dailyFollowupSendLimit: '50',
+        responseDelayBaseMs: '1200',
+        responseDelayPerCharMs: '35',
+        responseDelayMaxMs: '12000',
+        messageSplitMaxChars: '450',
+        humanPauseHours: '24',
+        handoffName: 'Fernando',
+        handoffPhone: '5511999999999',
+      }),
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      cookies: {
+        sdr_portal_session: sessionCookie,
+      },
+    });
+
+    expect(createResponse.statusCode).toBe(302);
+    expect(createResponse.headers.location).toBe('/sdr-agents');
+
+    const [createdAgent] = await sdrAgentRepository.list();
+    expect(createdAgent?.displayName).toBe('Franciely');
+    expect(createdAgent?.companyId).toBe(company.id);
+    expect(createdAgent?.followupEnabled).toBe(true);
+
+    const listResponse = await app.inject({
+      method: 'GET',
+      url: '/sdr-agents',
+      cookies: {
+        sdr_portal_session: sessionCookie,
+      },
+    });
+
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.body).toContain('Franciely');
+    expect(listResponse.body).toContain('Insumo Smart');
+
+    const updateResponse = await app.inject({
+      method: 'POST',
+      url: `/sdr-agents/${createdAgent?.id}`,
+      payload: formPayload({
+        companyId: company.id,
+        name: 'sdr-insumo-smart-v2',
+        displayName: 'Fran',
+        aiProvider: 'openrouter',
+        aiModel: 'openai/gpt-4o-mini',
+        aiTemperature: '0.5',
+        aiMaxOutputTokens: '900',
+        timezone: 'America/Sao_Paulo',
+        sendWindowStart: '09:00',
+        sendWindowEnd: '17:00',
+        sendDaysOfWeek: '1,2,3,4,5',
+        initialCooldownMinMinutes: '6',
+        initialCooldownMaxMinutes: '16',
+        followupAfterHours: '36',
+        followupCooldownMinMinutes: '11',
+        followupCooldownMaxMinutes: '31',
+        dailyInitialSendLimit: '40',
+        dailyFollowupSendLimit: '20',
+        responseDelayBaseMs: '1300',
+        responseDelayPerCharMs: '40',
+        responseDelayMaxMs: '13000',
+        messageSplitMaxChars: '400',
+        humanPauseHours: '24',
+      }),
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      cookies: {
+        sdr_portal_session: sessionCookie,
+      },
+    });
+
+    expect(updateResponse.statusCode).toBe(302);
+    const updatedAgent = createdAgent ? await sdrAgentRepository.findById(createdAgent.id) : null;
+    expect(updatedAgent?.displayName).toBe('Fran');
+    expect(updatedAgent?.aiProvider).toBe('openrouter');
+    expect(updatedAgent?.followupEnabled).toBe(false);
+
+    const toggleResponse = await app.inject({
+      method: 'POST',
+      url: `/sdr-agents/${createdAgent?.id}/toggle`,
+      cookies: {
+        sdr_portal_session: sessionCookie,
+      },
+    });
+
+    expect(toggleResponse.statusCode).toBe(302);
+    expect((await sdrAgentRepository.findById(createdAgent?.id ?? ''))?.isActive).toBe(true);
+
+    const deleteResponse = await app.inject({
+      method: 'POST',
+      url: `/sdr-agents/${createdAgent?.id}/delete`,
+      cookies: {
+        sdr_portal_session: sessionCookie,
+      },
+    });
+
+    expect(deleteResponse.statusCode).toBe(302);
+    expect(await sdrAgentRepository.list()).toHaveLength(0);
+  });
+});
+
+describe('UAZAPI routes', () => {
+  it('tests instance status using saved SDR credentials', async () => {
+    const user = await createTestUser();
+    const calls: string[] = [];
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const company = await companyRepository.create({
+      name: 'Insumo Smart',
+      legalName: null,
+      cnpj: null,
+      segment: 'Gastronomia',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'sdr-insumo-smart',
+      displayName: 'Franciely',
+      uazapiBaseUrl: 'https://api.uazapi.com',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+    });
+
+    app = buildApp({
+      authRepository: createMemoryAuthRepository([user]),
+      companyRepository,
+      sdrAgentRepository,
+      uazapiClient: createMockUazapiClient(calls),
+    });
+    const sessionCookie = await login();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/sdr-agents/${agent.id}/uazapi/status`,
+      cookies: {
+        sdr_portal_session: sessionCookie,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain('Status UAZAPI');
+    expect(response.body).toContain('connected');
+    expect(calls).toContain('status:https://api.uazapi.com:instance-token');
+  });
+
+  it('sends test message with composing presence first', async () => {
+    const user = await createTestUser();
+    const calls: string[] = [];
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const company = await companyRepository.create({
+      name: 'Insumo Smart',
+      legalName: null,
+      cnpj: null,
+      segment: 'Gastronomia',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'sdr-insumo-smart',
+      displayName: 'Franciely',
+      uazapiBaseUrl: 'https://api.uazapi.com',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+    });
+
+    app = buildApp({
+      authRepository: createMemoryAuthRepository([user]),
+      companyRepository,
+      sdrAgentRepository,
+      uazapiClient: createMockUazapiClient(calls),
+    });
+    const sessionCookie = await login();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/sdr-agents/${agent.id}/uazapi/send-test`,
+      payload: formPayload({ number: '5511999999999', text: 'Teste do portal' }),
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      cookies: {
+        sdr_portal_session: sessionCookie,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain('Enviar teste UAZAPI');
+    expect(calls).toEqual([
+      'presence:5511999999999:composing:instance-token',
+      'text:5511999999999:Teste do portal:instance-token',
+    ]);
+  });
+});
+
+describe('lead routes and import', () => {
+  it('creates, updates and deletes a lead', async () => {
+    const user = await createTestUser();
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const company = await companyRepository.create({
+      name: 'Insumo Smart',
+      legalName: null,
+      cnpj: null,
+      segment: 'Gastronomia',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({ companyId: company.id, name: 'sdr-insumo-smart', displayName: 'Franciely' });
+
+    app = buildApp({ authRepository: createMemoryAuthRepository([user]), companyRepository, sdrAgentRepository, leadRepository });
+    const sessionCookie = await login();
+
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: '/leads',
+      payload: formPayload({
+        companyId: company.id,
+        sdrAgentId: agent.id,
+        whatsappNumber: '(11) 99999-9999',
+        companyName: 'Restaurante Bom Prato',
+        segment: 'Restaurante',
+        status: 'pending',
+      }),
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      cookies: { sdr_portal_session: sessionCookie },
+    });
+
+    expect(createResponse.statusCode).toBe(302);
+    const [createdLead] = await leadRepository.list();
+    expect(createdLead?.whatsappNumber).toBe('5511999999999');
+    expect(createdLead?.companyName).toBe('Restaurante Bom Prato');
+
+    const listResponse = await app.inject({ method: 'GET', url: '/leads', cookies: { sdr_portal_session: sessionCookie } });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.body).toContain('Restaurante Bom Prato');
+
+    const updateResponse = await app.inject({
+      method: 'POST',
+      url: `/leads/${createdLead?.id}`,
+      payload: formPayload({
+        companyId: company.id,
+        sdrAgentId: agent.id,
+        whatsappNumber: '5511888888888',
+        companyName: 'Restaurante Bom Prato LTDA',
+        segment: 'Food service',
+        status: 'waiting_reply',
+      }),
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      cookies: { sdr_portal_session: sessionCookie },
+    });
+
+    expect(updateResponse.statusCode).toBe(302);
+    const updatedLead = createdLead ? await leadRepository.findById(createdLead.id) : null;
+    expect(updatedLead?.companyName).toBe('Restaurante Bom Prato LTDA');
+    expect(updatedLead?.status).toBe('waiting_reply');
+
+    const deleteResponse = await app.inject({
+      method: 'POST',
+      url: `/leads/${createdLead?.id}/delete`,
+      cookies: { sdr_portal_session: sessionCookie },
+    });
+
+    expect(deleteResponse.statusCode).toBe(302);
+    expect(await leadRepository.list()).toHaveLength(0);
+  });
+
+  it('imports leads from Excel rows', async () => {
+    const leadRepository = createMemoryLeadRepository();
+    const companyId = '56e5c1d4-bdb2-45ff-8cf4-23282a1969e5';
+    const sdrAgentId = '59ecb448-9f01-4f65-a728-b925db6ed082';
+    const buffer = await writeXlsxFile([
+      ['numero_whatsapp', 'CNPJ', 'nome_empresa', 'segmento'],
+      ['(11) 99999-9999', '12345678000199', 'Restaurante A', 'Gastronomia'],
+      ['11888888888', '12345678000198', 'Restaurante B', 'Food service'],
+      ['', '123', 'Sem telefone', 'Teste'],
+    ]).toBuffer();
+
+    const result = await importLeadsFromExcel({ buffer, companyId, fileName: 'leads.xlsx', leadRepository, sdrAgentId });
+    const leads = await leadRepository.list();
+
+    expect(result.totalRows).toBe(3);
+    expect(result.successRows).toBe(2);
+    expect(result.errorRows).toBe(1);
+    expect(leads).toHaveLength(2);
+    expect(leads[0]?.whatsappNumber).toBe('5511999999999');
+    expect(leads[0]?.source).toBe('import:leads.xlsx');
+  });
+});
+
+describe('initial outreach scheduler', () => {
+  it('sends the first pending lead message and marks lead as contacted', async () => {
+    const user = await createTestUser();
+    const calls: string[] = [];
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const jobLogRepository = createMemoryJobLogRepository();
+    const company = await companyRepository.create({
+      name: 'Insumo Smart',
+      legalName: null,
+      cnpj: null,
+      segment: 'Gastronomia',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'sdr-insumo-smart',
+      displayName: 'Franciely',
+      isActive: true,
+      firstMessagePrompt: 'Olá {{companyName}}, aqui é {{sdrName}}. Posso fazer uma pergunta rápida?',
+      uazapiBaseUrl: 'https://api.uazapi.com',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+      sendDaysOfWeek: '0,1,2,3,4,5,6',
+      sendWindowStart: '00:00',
+      sendWindowEnd: '23:59',
+      initialCooldownMinMinutes: 0,
+      initialCooldownMaxMinutes: 0,
+      dailyInitialSendLimit: 10,
+    });
+    const lead = await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511999999999',
+      companyName: 'Restaurante A',
+      cnpj: null,
+      tradeName: null,
+      segment: 'Gastronomia',
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'pending',
+      source: 'manual',
+    });
+
+    app = buildApp({
+      authRepository: createMemoryAuthRepository([user]),
+      companyRepository,
+      jobLogRepository,
+      leadRepository,
+      sdrAgentRepository,
+      uazapiClient: createMockUazapiClient(calls),
+    });
+    const sessionCookie = await login();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/scheduler/initial-outreach/run',
+      cookies: { sdr_portal_session: sessionCookie },
+    });
+
+    const updatedLead = await leadRepository.findById(lead.id);
+    const logs = await jobLogRepository.list();
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain('Enviadas: 1');
+    expect(updatedLead?.status).toBe('initial_sent');
+    expect(updatedLead?.firstMessageSentAt).toBeInstanceOf(Date);
+    expect(updatedLead?.followupDueAt).toBeInstanceOf(Date);
+    expect(calls).toEqual([
+      'presence:5511999999999:composing:instance-token',
+      'text:5511999999999:Olá Restaurante A, aqui é Franciely. Posso fazer uma pergunta rápida?:instance-token',
+    ]);
+    expect(logs[0]?.status).toBe('completed');
+    expect(logs[0]?.leadId).toBe(lead.id);
+  });
+
+  it('uses lead research in the first message when research is available', async () => {
+    const user = await createTestUser();
+    const calls: string[] = [];
+    const researchCalls: string[] = [];
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const leadResearchRepository = createMemoryLeadResearchRepository();
+    const jobLogRepository = createMemoryJobLogRepository();
+    const company = await companyRepository.create({
+      name: 'Insumo Smart',
+      legalName: null,
+      cnpj: null,
+      segment: 'Gastronomia',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'sdr-insumo-smart',
+      displayName: 'Franciely',
+      isActive: true,
+      firstMessagePrompt: 'Olá {{companyName}}, vi que {{researchSummary}}. Posso te fazer uma pergunta rápida?',
+      uazapiBaseUrl: 'https://api.uazapi.com',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+      sendDaysOfWeek: '0,1,2,3,4,5,6',
+      sendWindowStart: '00:00',
+      sendWindowEnd: '23:59',
+      initialCooldownMinMinutes: 0,
+      initialCooldownMaxMinutes: 0,
+      dailyInitialSendLimit: 10,
+    });
+    const lead = await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511888888888',
+      companyName: 'Restaurante Pesquisa',
+      cnpj: null,
+      tradeName: null,
+      segment: 'Gastronomia',
+      city: 'Campinas',
+      state: 'SP',
+      contactName: null,
+      extraData: null,
+      status: 'pending',
+      source: 'manual',
+    });
+
+    app = buildApp({
+      authRepository: createMemoryAuthRepository([user]),
+      companyRepository,
+      jobLogRepository,
+      leadResearchProvider: createMockLeadResearchProvider(researchCalls, {
+        summary: 'o restaurante abriu uma nova unidade em Campinas',
+        sources: ['https://example.com/noticia'],
+      }),
+      leadResearchRepository,
+      leadRepository,
+      sdrAgentRepository,
+      uazapiClient: createMockUazapiClient(calls),
+    });
+    const sessionCookie = await login();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/scheduler/initial-outreach/run',
+      cookies: { sdr_portal_session: sessionCookie },
+    });
+
+    const research = await leadResearchRepository.findByLeadId(lead.id);
+
+    expect(response.statusCode).toBe(200);
+    expect(researchCalls[0]).toContain('Restaurante Pesquisa');
+    expect(researchCalls[0]).toContain('Campinas');
+    expect(calls).toContain(
+      'text:5511888888888:Olá Restaurante Pesquisa, vi que o restaurante abriu uma nova unidade em Campinas. Posso te fazer uma pergunta rápida?:instance-token',
+    );
+    expect(research?.status).toBe('completed');
+    expect(research?.summary).toBe('o restaurante abriu uma nova unidade em Campinas');
+    expect(research?.sources).toContain('example.com');
+  });
+});
+
+describe('follow-up scheduler', () => {
+  it('sends one due follow-up and disables future follow-ups for the lead', async () => {
+    const user = await createTestUser();
+    const calls: string[] = [];
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const jobLogRepository = createMemoryJobLogRepository();
+    const company = await companyRepository.create({
+      name: 'Insumo Smart',
+      legalName: null,
+      cnpj: null,
+      segment: 'Gastronomia',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'sdr-insumo-smart',
+      displayName: 'Franciely',
+      isActive: true,
+      followupPrompt: 'Oi {{companyName}}, posso retomar nossa conversa?',
+      uazapiBaseUrl: 'https://api.uazapi.com',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+      sendDaysOfWeek: '0,1,2,3,4,5,6',
+      sendWindowStart: '00:00',
+      sendWindowEnd: '23:59',
+      followupCooldownMinMinutes: 0,
+      followupCooldownMaxMinutes: 0,
+      dailyFollowupSendLimit: 10,
+    });
+    const lead = await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511999999999',
+      companyName: 'Restaurante A',
+      cnpj: null,
+      tradeName: null,
+      segment: 'Gastronomia',
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'pending',
+      source: 'manual',
+    });
+    await leadRepository.markInitialSent(lead.id, new Date('2026-05-19T10:00:00.000Z'), new Date('2026-05-19T11:00:00.000Z'));
+
+    app = buildApp({
+      authRepository: createMemoryAuthRepository([user]),
+      companyRepository,
+      jobLogRepository,
+      leadRepository,
+      sdrAgentRepository,
+      uazapiClient: createMockUazapiClient(calls),
+    });
+    const sessionCookie = await login();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/scheduler/followup/run',
+      cookies: { sdr_portal_session: sessionCookie },
+    });
+    const secondResponse = await app.inject({
+      method: 'POST',
+      url: '/scheduler/followup/run',
+      cookies: { sdr_portal_session: sessionCookie },
+    });
+
+    const updatedLead = await leadRepository.findById(lead.id);
+    const logs = await jobLogRepository.list();
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain('Enviadas: 1');
+    expect(secondResponse.body).toContain('Enviadas: 0');
+    expect(updatedLead?.status).toBe('followup_sent');
+    expect(updatedLead?.followupSentAt).toBeInstanceOf(Date);
+    expect(updatedLead?.followupDisabledAt).toBeInstanceOf(Date);
+    expect(calls).toEqual([
+      'presence:5511999999999:composing:instance-token',
+      'text:5511999999999:Oi Restaurante A, posso retomar nossa conversa?:instance-token',
+    ]);
+    expect(logs[0]?.jobName).toBe('followup-outreach');
+    expect(logs[0]?.status).toBe('completed');
+  });
+
+  it('does not send follow-up when the lead already replied', async () => {
+    const user = await createTestUser();
+    const calls: string[] = [];
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const company = await companyRepository.create({
+      name: 'Insumo Smart',
+      legalName: null,
+      cnpj: null,
+      segment: 'Gastronomia',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'sdr-insumo-smart',
+      displayName: 'Franciely',
+      isActive: true,
+      uazapiBaseUrl: 'https://api.uazapi.com',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+      sendDaysOfWeek: '0,1,2,3,4,5,6',
+      sendWindowStart: '00:00',
+      sendWindowEnd: '23:59',
+      followupCooldownMinMinutes: 0,
+      followupCooldownMaxMinutes: 0,
+    });
+    const lead = await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511888888888',
+      companyName: 'Restaurante B',
+      cnpj: null,
+      tradeName: null,
+      segment: 'Gastronomia',
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'pending',
+      source: 'manual',
+    });
+    await leadRepository.markInitialSent(lead.id, new Date('2026-05-19T10:00:00.000Z'), new Date('2026-05-19T11:00:00.000Z'));
+    await leadRepository.markInboundReceived(lead.id, new Date('2026-05-19T10:30:00.000Z'));
+
+    app = buildApp({
+      authRepository: createMemoryAuthRepository([user]),
+      companyRepository,
+      leadRepository,
+      sdrAgentRepository,
+      uazapiClient: createMockUazapiClient(calls),
+    });
+    const sessionCookie = await login();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/scheduler/followup/run',
+      cookies: { sdr_portal_session: sessionCookie },
+    });
+
+    const updatedLead = await leadRepository.findById(lead.id);
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain('Enviadas: 0');
+    expect(updatedLead?.status).toBe('in_conversation');
+    expect(updatedLead?.followupSentAt).toBeNull();
+    expect(calls).toEqual([]);
+  });
+});
+
+describe('UAZAPI webhook routes', () => {
+  it('stores raw webhook, message and updates existing lead conversation', async () => {
+    const user = await createTestUser();
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const conversationRepository = createMemoryConversationRepository();
+    const webhookEventRepository = createMemoryWebhookEventRepository();
+    const company = await companyRepository.create({
+      name: 'Insumo Smart',
+      legalName: null,
+      cnpj: null,
+      segment: 'Gastronomia',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({ companyId: company.id, name: 'sdr-insumo-smart', displayName: 'Franciely' });
+    const lead = await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511999999999',
+      companyName: 'Restaurante A',
+      cnpj: null,
+      tradeName: null,
+      segment: 'Gastronomia',
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'initial_sent',
+      source: 'manual',
+    });
+
+    app = buildApp({
+      authRepository: createMemoryAuthRepository([user]),
+      companyRepository,
+      conversationRepository,
+      leadRepository,
+      sdrAgentRepository,
+      webhookEventRepository,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/webhooks/uazapi/${agent.id}`,
+      payload: {
+        event: 'messages',
+        instance: 'instancia-1',
+        data: {
+          id: 'MSG-1',
+          from: '5511999999999@s.whatsapp.net',
+          fromMe: false,
+          type: 'conversation',
+          text: 'Oi, pode falar',
+        },
+      },
+    });
+
+    const events = await webhookEventRepository.list();
+    const conversations = await conversationRepository.list();
+    const messages = conversations[0] ? await conversationRepository.listMessages(conversations[0].id) : [];
+    const updatedLead = await leadRepository.findById(lead.id);
+
+    expect(response.statusCode).toBe(200);
+    expect(events[0]?.processingStatus).toBe('processed');
+    expect(events[0]?.rawBody).toContain('Oi, pode falar');
+    expect(conversations).toHaveLength(1);
+    expect(messages[0]?.text).toBe('Oi, pode falar');
+    expect(messages[0]?.senderType).toBe('lead');
+    expect(updatedLead?.status).toBe('in_conversation');
+    expect(updatedLead?.followupDisabledAt).toBeInstanceOf(Date);
+
+    const sessionCookie = await login();
+    const conversationsPage = await app.inject({ method: 'GET', url: '/conversations', cookies: { sdr_portal_session: sessionCookie } });
+    const webhookLogsPage = await app.inject({ method: 'GET', url: '/webhook-events', cookies: { sdr_portal_session: sessionCookie } });
+    expect(conversationsPage.body).toContain('Restaurante A');
+    expect(webhookLogsPage.body).toContain('Oi, pode falar');
+  });
+
+  it('creates an inbound unknown lead when the number is not registered', async () => {
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const conversationRepository = createMemoryConversationRepository();
+    const webhookEventRepository = createMemoryWebhookEventRepository();
+    const company = await companyRepository.create({
+      name: 'Insumo Smart',
+      legalName: null,
+      cnpj: null,
+      segment: 'Gastronomia',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({ companyId: company.id, name: 'sdr-insumo-smart', displayName: 'Franciely' });
+
+    app = buildApp({ companyRepository, conversationRepository, leadRepository, sdrAgentRepository, webhookEventRepository });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/webhooks/uazapi/${agent.id}`,
+      payload: {
+        event: 'messages',
+        data: {
+          key: { remoteJid: '5511888888888@s.whatsapp.net', id: 'MSG-2', fromMe: false },
+          message: { conversation: 'Olá, tudo bem?' },
+        },
+      },
+    });
+
+    const leads = await leadRepository.list();
+    const conversations = await conversationRepository.list();
+
+    expect(response.statusCode).toBe(200);
+    expect(leads).toHaveLength(1);
+    expect(leads[0]?.source).toBe('inbound_unknown');
+    expect(leads[0]?.whatsappNumber).toBe('5511888888888');
+    expect(conversations).toHaveLength(1);
+  });
+
+  it('pauses AI when a manual WhatsApp message is sent from the phone', async () => {
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const conversationRepository = createMemoryConversationRepository();
+    const webhookEventRepository = createMemoryWebhookEventRepository();
+    const company = await companyRepository.create({
+      name: 'Insumo Smart',
+      legalName: null,
+      cnpj: null,
+      segment: 'Gastronomia',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'sdr-insumo-smart',
+      displayName: 'Franciely',
+      humanPauseHours: 2,
+    });
+    const lead = await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511999999999',
+      companyName: 'Restaurante A',
+      cnpj: null,
+      tradeName: null,
+      segment: 'Gastronomia',
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'initial_sent',
+      source: 'manual',
+    });
+
+    app = buildApp({ companyRepository, conversationRepository, leadRepository, sdrAgentRepository, webhookEventRepository });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/webhooks/uazapi/${agent.id}`,
+      payload: {
+        event: 'messages',
+        data: {
+          id: 'HUMAN-1',
+          from: '5511999999999@s.whatsapp.net',
+          fromMe: true,
+          wasSentByApi: false,
+          type: 'conversation',
+          text: 'Eu assumo daqui.',
+        },
+      },
+    });
+
+    const conversations = await conversationRepository.list();
+    const messages = conversations[0] ? await conversationRepository.listMessages(conversations[0].id) : [];
+    const updatedLead = await leadRepository.findById(lead.id);
+
+    expect(response.statusCode).toBe(200);
+    expect(messages[0]?.senderType).toBe('human');
+    expect(messages[0]?.direction).toBe('outbound');
+    expect(updatedLead?.status).toBe('human_paused');
+    expect(updatedLead?.aiPauseReason).toBe('manual_whatsapp_message');
+    expect(updatedLead?.humanPausedUntil).toBeInstanceOf(Date);
+    expect(updatedLead?.humanPausedUntil?.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it('does not trigger AI while human pause is active', async () => {
+    const aiCalls: string[] = [];
+    const uazapiCalls: string[] = [];
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const conversationRepository = createMemoryConversationRepository();
+    const webhookEventRepository = createMemoryWebhookEventRepository();
+    const aiRunRepository = createMemoryAiRunRepository();
+    const company = await companyRepository.create({
+      name: 'Insumo Smart',
+      legalName: null,
+      cnpj: null,
+      segment: 'Gastronomia',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'sdr-insumo-smart',
+      displayName: 'Franciely',
+      isActive: true,
+      openaiApiKeyEncrypted: encryptSecret('openai-key'),
+      uazapiBaseUrl: 'https://api.uazapi.com',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+    });
+    const lead = await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511777777777',
+      companyName: 'Restaurante Pausado',
+      cnpj: null,
+      tradeName: null,
+      segment: 'Gastronomia',
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'initial_sent',
+      source: 'manual',
+    });
+    await leadRepository.markHumanPaused(
+      lead.id,
+      new Date('2026-05-20T10:00:00.000Z'),
+      new Date(Date.now() + 60 * 60 * 1000),
+      'manual_whatsapp_message',
+    );
+
+    app = buildApp({
+      aiClient: createMockAiClient(aiCalls, JSON.stringify({ mensagem_usuario: 'Nao deve enviar', nao_responder: false, actions: [] })),
+      aiRunRepository,
+      companyRepository,
+      conversationRepository,
+      leadRepository,
+      sdrAgentRepository,
+      uazapiClient: createMockUazapiClient(uazapiCalls),
+      webhookEventRepository,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/webhooks/uazapi/${agent.id}`,
+      payload: {
+        event: 'messages',
+        data: {
+          id: 'PAUSED-1',
+          from: '5511777777777@s.whatsapp.net',
+          fromMe: false,
+          type: 'conversation',
+          text: 'Ainda esta ai?',
+        },
+      },
+    });
+
+    const aiRuns = await aiRunRepository.list();
+
+    expect(response.statusCode).toBe(200);
+    expect(aiCalls).toEqual([]);
+    expect(aiRuns).toEqual([]);
+    expect(uazapiCalls).toEqual([]);
+  });
+
+  it('triggers AI again after human pause expires', async () => {
+    const aiCalls: string[] = [];
+    const uazapiCalls: string[] = [];
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const conversationRepository = createMemoryConversationRepository();
+    const webhookEventRepository = createMemoryWebhookEventRepository();
+    const aiRunRepository = createMemoryAiRunRepository();
+    const company = await companyRepository.create({
+      name: 'Insumo Smart',
+      legalName: null,
+      cnpj: null,
+      segment: 'Gastronomia',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'sdr-insumo-smart',
+      displayName: 'Franciely',
+      isActive: true,
+      openaiApiKeyEncrypted: encryptSecret('openai-key'),
+      uazapiBaseUrl: 'https://api.uazapi.com',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+    });
+    const lead = await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511666666666',
+      companyName: 'Restaurante Expirado',
+      cnpj: null,
+      tradeName: null,
+      segment: 'Gastronomia',
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'initial_sent',
+      source: 'manual',
+    });
+    await leadRepository.markHumanPaused(
+      lead.id,
+      new Date('2026-05-20T10:00:00.000Z'),
+      new Date(Date.now() - 60 * 1000),
+      'manual_whatsapp_message',
+    );
+
+    app = buildApp({
+      aiClient: createMockAiClient(aiCalls, JSON.stringify({ mensagem_usuario: 'Voltei a responder.', nao_responder: false, actions: [] })),
+      aiRunRepository,
+      companyRepository,
+      conversationRepository,
+      leadRepository,
+      sdrAgentRepository,
+      uazapiClient: createMockUazapiClient(uazapiCalls),
+      webhookEventRepository,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/webhooks/uazapi/${agent.id}`,
+      payload: {
+        event: 'messages',
+        data: {
+          id: 'EXPIRED-1',
+          from: '5511666666666@s.whatsapp.net',
+          fromMe: false,
+          type: 'conversation',
+          text: 'Pode continuar?',
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(aiCalls[0]).toContain('Pode continuar?');
+    expect(uazapiCalls).toContain('text:5511666666666:Voltei a responder.:instance-token');
+  });
+
+  it('generates and sends an AI response for inbound messages on active SDRs', async () => {
+    const aiCalls: string[] = [];
+    const uazapiCalls: string[] = [];
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const conversationRepository = createMemoryConversationRepository();
+    const webhookEventRepository = createMemoryWebhookEventRepository();
+    const aiRunRepository = createMemoryAiRunRepository();
+    const company = await companyRepository.create({
+      name: 'Insumo Smart',
+      legalName: null,
+      cnpj: null,
+      segment: 'Gastronomia',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'sdr-insumo-smart',
+      displayName: 'Franciely',
+      isActive: true,
+      prompt: 'Responda de forma breve.',
+      openaiApiKeyEncrypted: encryptSecret('openai-key'),
+      uazapiBaseUrl: 'https://api.uazapi.com',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+    });
+    await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511999999999',
+      companyName: 'Restaurante A',
+      cnpj: null,
+      tradeName: null,
+      segment: 'Gastronomia',
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'initial_sent',
+      source: 'manual',
+    });
+
+    app = buildApp({
+      aiClient: createMockAiClient(
+        aiCalls,
+        JSON.stringify({ mensagem_usuario: 'Claro, posso te fazer uma pergunta rápida?', nao_responder: false, actions: [] }),
+      ),
+      aiRunRepository,
+      companyRepository,
+      conversationRepository,
+      leadRepository,
+      sdrAgentRepository,
+      uazapiClient: createMockUazapiClient(uazapiCalls),
+      webhookEventRepository,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/webhooks/uazapi/${agent.id}`,
+      payload: {
+        event: 'messages',
+        data: {
+          id: 'MSG-IA-1',
+          from: '5511999999999@s.whatsapp.net',
+          fromMe: false,
+          type: 'conversation',
+          text: 'Pode sim',
+        },
+      },
+    });
+
+    const conversations = await conversationRepository.list();
+    const messages = conversations[0] ? await conversationRepository.listMessages(conversations[0].id) : [];
+    const aiRuns = await aiRunRepository.list();
+
+    expect(response.statusCode).toBe(200);
+    expect(aiCalls[0]).toContain('openai:gpt-4o-mini');
+    expect(uazapiCalls).toContain('text:5511999999999:Claro, posso te fazer uma pergunta rápida?:instance-token');
+    expect(aiRuns[0]?.parsedJson).toContain('mensagem_usuario');
+    expect(messages.some((message) => message.senderType === 'ai' && message.text === 'Claro, posso te fazer uma pergunta rápida?')).toBe(true);
+  });
+
+  it('notifies a human and marks the lead as transferred when AI requests handoff', async () => {
+    const aiCalls: string[] = [];
+    const uazapiCalls: string[] = [];
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const conversationRepository = createMemoryConversationRepository();
+    const webhookEventRepository = createMemoryWebhookEventRepository();
+    const aiRunRepository = createMemoryAiRunRepository();
+    const company = await companyRepository.create({
+      name: 'Insumo Smart',
+      legalName: null,
+      cnpj: null,
+      segment: 'Gastronomia',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'sdr-insumo-smart',
+      displayName: 'Franciely',
+      isActive: true,
+      openaiApiKeyEncrypted: encryptSecret('openai-key'),
+      uazapiBaseUrl: 'https://api.uazapi.com',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+      handoffName: 'Gerente',
+      handoffPhone: '(11) 98888-7777',
+      handoffMessageTemplate: 'Handoff para {{handoffName}}: {{companyName}} / {{whatsappNumber}} / {{summary}}',
+    });
+    const lead = await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511999999999',
+      companyName: 'Restaurante Handoff',
+      cnpj: null,
+      tradeName: null,
+      segment: 'Gastronomia',
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'initial_sent',
+      source: 'manual',
+    });
+
+    app = buildApp({
+      aiClient: createMockAiClient(
+        aiCalls,
+        JSON.stringify({
+          mensagem_usuario: 'Vou chamar uma pessoa do nosso time para continuar por aqui.',
+          nao_responder: false,
+          actions: [{ type: 'notify_handoff', summary: 'Lead pediu atendimento humano para negociar valores.' }],
+        }),
+      ),
+      aiRunRepository,
+      companyRepository,
+      conversationRepository,
+      leadRepository,
+      sdrAgentRepository,
+      uazapiClient: createMockUazapiClient(uazapiCalls),
+      webhookEventRepository,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/webhooks/uazapi/${agent.id}`,
+      payload: {
+        event: 'messages',
+        data: {
+          id: 'HANDOFF-1',
+          from: '5511999999999@s.whatsapp.net',
+          fromMe: false,
+          type: 'conversation',
+          text: 'Quero falar com uma pessoa.',
+        },
+      },
+    });
+
+    const updatedLead = await leadRepository.findById(lead.id);
+    const conversations = await conversationRepository.list();
+    const messages = conversations[0] ? await conversationRepository.listMessages(conversations[0].id) : [];
+
+    expect(response.statusCode).toBe(200);
+    expect(uazapiCalls).toContain(
+      'text:5511999999999:Vou chamar uma pessoa do nosso time para continuar por aqui.:instance-token',
+    );
+    expect(uazapiCalls).toContain(
+      'text:5511988887777:Handoff para Gerente: Restaurante Handoff / 5511999999999 / Lead pediu atendimento humano para negociar valores.:instance-token',
+    );
+    expect(updatedLead?.status).toBe('transferred');
+    expect(updatedLead?.handoffRequestedAt).toBeInstanceOf(Date);
+    expect(updatedLead?.handoffSummary).toBe('Lead pediu atendimento humano para negociar valores.');
+    expect(updatedLead?.followupDisabledAt).toBeInstanceOf(Date);
+    expect(messages.some((message) => message.senderType === 'ai' && message.text === 'Vou chamar uma pessoa do nosso time para continuar por aqui.')).toBe(true);
+  });
+
+  it('transcribes inbound audio before sending it to the AI response flow', async () => {
+    const aiCalls: string[] = [];
+    const uazapiCalls: string[] = [];
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const conversationRepository = createMemoryConversationRepository();
+    const webhookEventRepository = createMemoryWebhookEventRepository();
+    const aiRunRepository = createMemoryAiRunRepository();
+    const company = await companyRepository.create({
+      name: 'Insumo Smart',
+      legalName: null,
+      cnpj: null,
+      segment: 'Gastronomia',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'sdr-insumo-smart',
+      displayName: 'Franciely',
+      isActive: true,
+      openaiApiKeyEncrypted: encryptSecret('openai-key'),
+      uazapiBaseUrl: 'https://api.uazapi.com',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+    });
+    await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511666666666',
+      companyName: 'Restaurante Audio',
+      cnpj: null,
+      tradeName: null,
+      segment: 'Gastronomia',
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'initial_sent',
+      source: 'manual',
+    });
+
+    app = buildApp({
+      aiClient: createMockAiClient(
+        aiCalls,
+        JSON.stringify({ mensagem_usuario: 'Entendi seu audio.', nao_responder: false, actions: [] }),
+      ),
+      aiRunRepository,
+      companyRepository,
+      conversationRepository,
+      leadRepository,
+      sdrAgentRepository,
+      uazapiClient: createMockUazapiClient(uazapiCalls),
+      webhookEventRepository,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/webhooks/uazapi/${agent.id}`,
+      payload: {
+        event: 'messages',
+        data: {
+          id: 'AUDIO-1',
+          from: '5511666666666@s.whatsapp.net',
+          fromMe: false,
+          type: 'audio',
+          message: { audioMessage: { url: 'https://meta.example/audio.ogg' } },
+        },
+      },
+    });
+
+    const conversations = await conversationRepository.list();
+    const messages = conversations[0] ? await conversationRepository.listMessages(conversations[0].id) : [];
+
+    expect(response.statusCode).toBe(200);
+    expect(uazapiCalls).toContain('download:AUDIO-1:transcribe:instance-token');
+    expect(aiCalls[0]).toContain('Texto transcrito do audio');
+    expect(messages.some((message) => message.messageType === 'audio' && message.transcription === 'Texto transcrito do audio')).toBe(true);
+  });
+
+  it('splits long AI responses and sends each part with composing presence', async () => {
+    const aiCalls: string[] = [];
+    const uazapiCalls: string[] = [];
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const conversationRepository = createMemoryConversationRepository();
+    const webhookEventRepository = createMemoryWebhookEventRepository();
+    const aiRunRepository = createMemoryAiRunRepository();
+    const company = await companyRepository.create({
+      name: 'Insumo Smart',
+      legalName: null,
+      cnpj: null,
+      segment: 'Gastronomia',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'sdr-insumo-smart',
+      displayName: 'Franciely',
+      isActive: true,
+      openaiApiKeyEncrypted: encryptSecret('openai-key'),
+      uazapiBaseUrl: 'https://api.uazapi.com',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+      messageSplitMaxChars: 40,
+      responseDelayBaseMs: 10,
+      responseDelayPerCharMs: 2,
+      responseDelayMaxMs: 60,
+    });
+    await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511777777777',
+      companyName: 'Restaurante B',
+      cnpj: null,
+      tradeName: null,
+      segment: 'Gastronomia',
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'initial_sent',
+      source: 'manual',
+    });
+
+    app = buildApp({
+      aiClient: createMockAiClient(
+        aiCalls,
+        JSON.stringify({
+          mensagem_usuario: 'Primeira parte curta. Segunda parte tambem curta.',
+          nao_responder: false,
+          actions: [],
+        }),
+      ),
+      aiRunRepository,
+      companyRepository,
+      conversationRepository,
+      leadRepository,
+      sdrAgentRepository,
+      uazapiClient: createMockUazapiClient(uazapiCalls),
+      webhookEventRepository,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/webhooks/uazapi/${agent.id}`,
+      payload: {
+        event: 'messages',
+        data: {
+          id: 'MSG-SPLIT-1',
+          from: '5511777777777@s.whatsapp.net',
+          fromMe: false,
+          type: 'conversation',
+          text: 'Pode explicar?',
+        },
+      },
+    });
+
+    const conversations = await conversationRepository.list();
+    const messages = conversations[0] ? await conversationRepository.listMessages(conversations[0].id) : [];
+
+    expect(response.statusCode).toBe(200);
+    expect(uazapiCalls).toEqual([
+      'presence:5511777777777:composing:instance-token',
+      'text:5511777777777:Primeira parte curta.:instance-token',
+      'presence:5511777777777:composing:instance-token',
+      'text:5511777777777:Segunda parte tambem curta.:instance-token',
+    ]);
+    expect(messages.filter((message) => message.senderType === 'ai').map((message) => message.text)).toEqual([
+      'Primeira parte curta.',
+      'Segunda parte tambem curta.',
+    ]);
+  });
+});
+
+describe('IA auxiliar de prompt', () => {
+  it('renders the prompt assistant form after login', async () => {
+    const user = await createTestUser();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const companyRepository = createMemoryCompanyRepository();
+
+    await companyRepository.create({
+      name: 'Insumo Smart',
+      legalName: null,
+      cnpj: null,
+      segment: 'Gastronomia',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+
+    app = buildApp({
+      authRepository: createMemoryAuthRepository([user]),
+      companyRepository,
+      sdrAgentRepository,
+    });
+    const sessionCookie = await login();
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/prompt-assistant',
+      cookies: { sdr_portal_session: sessionCookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain('IA auxiliar de prompt');
+    expect(response.body).toContain('Selecione um SDR');
+  });
+
+  it('generates a prompt via AI with brief and can apply it', async () => {
+    const user = await createTestUser();
+    const aiCalls: string[] = [];
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const aiRunRepository = createMemoryAiRunRepository();
+    const company = await companyRepository.create({
+      name: 'Insumo Smart',
+      legalName: null,
+      cnpj: null,
+      segment: 'Gastronomia',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'sdr-insumo-smart',
+      displayName: 'Franciely',
+      isActive: true,
+      openaiApiKeyEncrypted: encryptSecret('openai-key'),
+    });
+
+    app = buildApp({
+      aiClient: createMockAiClient(aiCalls, JSON.stringify({ prompt: 'Voce e um SDR consultivo para restaurantes. Use tom amigavel.' })),
+      aiRunRepository,
+      authRepository: createMemoryAuthRepository([user]),
+      companyRepository,
+      sdrAgentRepository,
+    });
+    const sessionCookie = await login();
+
+    const generateResponse = await app.inject({
+      method: 'POST',
+      url: '/prompt-assistant/generate',
+      cookies: { sdr_portal_session: sessionCookie },
+      payload: `sdrAgentId=${agent.id}&briefing=Restaurantes em SP, tom consultivo`,
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    });
+
+    expect(generateResponse.statusCode).toBe(200);
+    expect(generateResponse.body).toContain('Voce e um SDR consultivo');
+    expect(generateResponse.body).toContain('Aplicar prompt ao SDR');
+    expect(aiCalls[0]).toContain('Restaurantes em SP');
+    expect(aiCalls[0]).toContain('(sem prompt)');
+
+    const aiRuns = await aiRunRepository.list();
+    expect(aiRuns[0]?.purpose).toBe('prompt_generation');
+    expect(aiRuns[0]?.parsedJson).toContain('SDR consultivo');
+
+    const applyResponse = await app.inject({
+      method: 'POST',
+      url: '/prompt-assistant/apply',
+      cookies: { sdr_portal_session: sessionCookie },
+      payload: `sdrAgentId=${agent.id}&prompt=${encodeURIComponent('Voce e um SDR consultivo para restaurantes. Use tom amigavel.')}`,
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    });
+
+    expect(applyResponse.statusCode).toBe(302);
+
+    const updatedAgent = await sdrAgentRepository.findById(agent.id);
+    expect(updatedAgent?.prompt).toBe('Voce e um SDR consultivo para restaurantes. Use tom amigavel.');
+  });
+});
+
+describe('telas de diagnostico', () => {
+  it('shows AI runs logs page', async () => {
+    const user = await createTestUser();
+    const aiRunRepository = createMemoryAiRunRepository();
+
+    await aiRunRepository.create({
+      sdrAgentId: null,
+      leadId: null,
+      conversationId: null,
+      provider: 'openai',
+      model: 'gpt-4o-mini',
+      purpose: 'reply_generation',
+      inputMessages: '{}',
+      outputText: '{"mensagem_usuario":"Oi"}',
+      parsedJson: null,
+      error: null,
+      promptTokens: 5,
+      completionTokens: 10,
+      totalTokens: 15,
+      latencyMs: 200,
+    });
+
+    app = buildApp({ aiRunRepository, authRepository: createMemoryAuthRepository([user]) });
+    const sessionCookie = await login();
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/ai-runs',
+      cookies: { sdr_portal_session: sessionCookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain('Logs de IA');
+    expect(response.body).toContain('reply_generation');
+    expect(response.body).toContain('gpt-4o-mini');
+    expect(response.body).toContain('5 / 10');
+  });
+
+  it('shows job logs page', async () => {
+    const user = await createTestUser();
+    const jobLogRepository = createMemoryJobLogRepository();
+
+    await jobLogRepository.create({
+      jobName: 'initial-outreach',
+      jobKey: 'test-key',
+      sdrAgentId: null,
+      leadId: null,
+      status: 'completed',
+      attempt: 1,
+      payload: '{"number":"5511"}',
+      result: '{"ok":true}',
+      error: null,
+      startedAt: new Date(),
+      finishedAt: new Date(),
+    });
+
+    app = buildApp({ authRepository: createMemoryAuthRepository([user]), jobLogRepository });
+    const sessionCookie = await login();
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/job-logs',
+      cookies: { sdr_portal_session: sessionCookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain('Logs de jobs');
+    expect(response.body).toContain('initial-outreach');
+    expect(response.body).toContain('completed');
+  });
+
+  it('shows lead detail page with AI runs and job logs', async () => {
+    const user = await createTestUser();
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const aiRunRepository = createMemoryAiRunRepository();
+    const jobLogRepository = createMemoryJobLogRepository();
+
+    const company = await companyRepository.create({
+      name: 'Insumo Smart',
+      legalName: null,
+      cnpj: null,
+      segment: 'Gastronomia',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({ companyId: company.id, name: 'sdr-insumo-smart', displayName: 'Franciely' });
+    const lead = await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511999999999',
+      companyName: 'Restaurante A',
+      cnpj: null,
+      tradeName: null,
+      segment: 'Gastronomia',
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'in_conversation',
+      source: 'manual',
+    });
+
+    await aiRunRepository.create({
+      sdrAgentId: agent.id,
+      leadId: lead.id,
+      conversationId: null,
+      provider: 'openai',
+      model: 'gpt-4o-mini',
+      purpose: 'reply_generation',
+      inputMessages: '{}',
+      outputText: '{"mensagem_usuario":"Teste"}',
+      parsedJson: null,
+      error: null,
+      promptTokens: 5,
+      completionTokens: 10,
+      totalTokens: 15,
+      latencyMs: 100,
+    });
+
+    await jobLogRepository.create({
+      jobName: 'initial-outreach',
+      jobKey: 'test',
+      sdrAgentId: agent.id,
+      leadId: lead.id,
+      status: 'completed',
+      attempt: 1,
+      payload: '{}',
+      result: null,
+      error: null,
+      startedAt: new Date(),
+      finishedAt: new Date(),
+    });
+
+    app = buildApp({
+      aiRunRepository,
+      authRepository: createMemoryAuthRepository([user]),
+      companyRepository,
+      jobLogRepository,
+      leadRepository,
+      sdrAgentRepository,
+    });
+    const sessionCookie = await login();
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/leads/${lead.id}`,
+      cookies: { sdr_portal_session: sessionCookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain('Restaurante A');
+    expect(response.body).toContain('reply_generation');
+    expect(response.body).toContain('initial-outreach');
+    expect(response.body).toContain('Dados do lead');
+    expect(response.body).toContain('Chamadas de IA');
+    expect(response.body).toContain('Jobs');
+  });
+});

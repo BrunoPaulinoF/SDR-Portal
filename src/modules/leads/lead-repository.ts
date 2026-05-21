@@ -1,0 +1,280 @@
+import { randomUUID } from 'node:crypto';
+
+import type { Lead, LeadImport, NewLead, NewLeadImport } from '../../db/schema.js';
+
+export type LeadInput = Pick<
+  NewLead,
+  | 'companyId'
+  | 'sdrAgentId'
+  | 'whatsappNumber'
+  | 'cnpj'
+  | 'companyName'
+  | 'tradeName'
+  | 'segment'
+  | 'city'
+  | 'state'
+  | 'contactName'
+  | 'extraData'
+  | 'status'
+  | 'source'
+>;
+
+export type LeadImportInput = Pick<
+  NewLeadImport,
+  'companyId' | 'sdrAgentId' | 'fileName' | 'totalRows' | 'successRows' | 'errorRows' | 'mapping' | 'errors'
+>;
+
+export interface LeadRepository {
+  countFollowupSentForSdrSince(sdrAgentId: string, since: Date): Promise<number>;
+  countInitialSentForSdrSince(sdrAgentId: string, since: Date): Promise<number>;
+  create(input: LeadInput): Promise<Lead>;
+  createImport(input: LeadImportInput): Promise<LeadImport>;
+  delete(id: string): Promise<void>;
+  findById(id: string): Promise<Lead | null>;
+  findLastFollowupSentForSdr(sdrAgentId: string): Promise<Lead | null>;
+  findLastInitialSentForSdr(sdrAgentId: string): Promise<Lead | null>;
+  findNextFollowupDueForSdr(sdrAgentId: string, now: Date): Promise<Lead | null>;
+  findNextPendingForSdr(sdrAgentId: string): Promise<Lead | null>;
+  findBySdrAndWhatsapp(sdrAgentId: string, whatsappNumber: string): Promise<Lead | null>;
+  list(): Promise<Lead[]>;
+  listImports(): Promise<LeadImport[]>;
+  markHumanPaused(id: string, pausedAt: Date, pausedUntil: Date, reason: string): Promise<Lead | null>;
+  markInboundReceived(id: string, receivedAt: Date): Promise<Lead | null>;
+  markFollowupSent(id: string, sentAt: Date): Promise<Lead | null>;
+  markTransferred(id: string, transferredAt: Date, summary: string): Promise<Lead | null>;
+  markInitialSent(id: string, sentAt: Date, followupDueAt?: Date | null): Promise<Lead | null>;
+  update(id: string, input: LeadInput): Promise<Lead | null>;
+}
+
+function normalize(input: LeadInput): Omit<Lead, 'id' | 'createdAt' | 'updatedAt'> {
+  return {
+    companyId: input.companyId,
+    sdrAgentId: input.sdrAgentId,
+    whatsappNumber: input.whatsappNumber,
+    cnpj: input.cnpj ?? null,
+    companyName: input.companyName,
+    tradeName: input.tradeName ?? null,
+    segment: input.segment ?? null,
+    city: input.city ?? null,
+    state: input.state ?? null,
+    contactName: input.contactName ?? null,
+    extraData: input.extraData ?? null,
+    status: input.status ?? 'pending',
+    source: input.source ?? 'manual',
+    firstMessageSentAt: null,
+    lastInboundAt: null,
+    lastOutboundAt: null,
+    followupDueAt: null,
+    followupSentAt: null,
+    followupDisabledAt: null,
+    humanPausedUntil: null,
+    aiPausedAt: null,
+    aiPauseReason: null,
+    handoffRequestedAt: null,
+    handoffSummary: null,
+    notInterestedAt: null,
+  };
+}
+
+export function createMemoryLeadRepository(seedLeads: Lead[] = []): LeadRepository {
+  const rows = new Map<string, Lead>();
+  const imports = new Map<string, LeadImport>();
+
+  for (const lead of seedLeads) {
+    rows.set(lead.id, lead);
+  }
+
+  return {
+    async countFollowupSentForSdrSince(sdrAgentId, since) {
+      return [...rows.values()].filter(
+        (lead) => lead.sdrAgentId === sdrAgentId && lead.followupSentAt !== null && lead.followupSentAt >= since,
+      ).length;
+    },
+
+    async countInitialSentForSdrSince(sdrAgentId, since) {
+      return [...rows.values()].filter(
+        (lead) => lead.sdrAgentId === sdrAgentId && lead.firstMessageSentAt !== null && lead.firstMessageSentAt >= since,
+      ).length;
+    },
+
+    async create(input) {
+      const now = new Date();
+      const lead: Lead = { id: randomUUID(), ...normalize(input), createdAt: now, updatedAt: now };
+      rows.set(lead.id, lead);
+      return lead;
+    },
+
+    async createImport(input) {
+      const leadImport: LeadImport = {
+        id: randomUUID(),
+        companyId: input.companyId,
+        sdrAgentId: input.sdrAgentId,
+        fileName: input.fileName,
+        totalRows: input.totalRows ?? 0,
+        successRows: input.successRows ?? 0,
+        errorRows: input.errorRows ?? 0,
+        mapping: input.mapping ?? null,
+        errors: input.errors ?? null,
+        createdAt: new Date(),
+      };
+
+      imports.set(leadImport.id, leadImport);
+      return leadImport;
+    },
+
+    async delete(id) {
+      rows.delete(id);
+    },
+
+    async findById(id) {
+      return rows.get(id) ?? null;
+    },
+
+    async findLastFollowupSentForSdr(sdrAgentId) {
+      return (
+        [...rows.values()]
+          .filter((lead) => lead.sdrAgentId === sdrAgentId && lead.followupSentAt !== null)
+          .sort((a, b) => (b.followupSentAt?.getTime() ?? 0) - (a.followupSentAt?.getTime() ?? 0))[0] ?? null
+      );
+    },
+
+    async findLastInitialSentForSdr(sdrAgentId) {
+      return (
+        [...rows.values()]
+          .filter((lead) => lead.sdrAgentId === sdrAgentId && lead.firstMessageSentAt !== null)
+          .sort((a, b) => (b.firstMessageSentAt?.getTime() ?? 0) - (a.firstMessageSentAt?.getTime() ?? 0))[0] ?? null
+      );
+    },
+
+    async findNextFollowupDueForSdr(sdrAgentId, now) {
+      return (
+        [...rows.values()]
+          .filter(
+            (lead) =>
+              lead.sdrAgentId === sdrAgentId &&
+              lead.status === 'initial_sent' &&
+              lead.followupDueAt !== null &&
+              lead.followupDueAt <= now &&
+              lead.followupSentAt === null &&
+              lead.followupDisabledAt === null,
+          )
+          .sort((a, b) => (a.followupDueAt?.getTime() ?? 0) - (b.followupDueAt?.getTime() ?? 0))[0] ?? null
+      );
+    },
+
+    async findNextPendingForSdr(sdrAgentId) {
+      return (
+        [...rows.values()]
+          .filter((lead) => lead.sdrAgentId === sdrAgentId && lead.status === 'pending')
+          .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())[0] ?? null
+      );
+    },
+
+    async findBySdrAndWhatsapp(sdrAgentId, whatsappNumber) {
+      return [...rows.values()].find((lead) => lead.sdrAgentId === sdrAgentId && lead.whatsappNumber === whatsappNumber) ?? null;
+    },
+
+    async list() {
+      return [...rows.values()].sort((a, b) => a.companyName.localeCompare(b.companyName));
+    },
+
+    async listImports() {
+      return [...imports.values()].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    },
+
+    async markHumanPaused(id, pausedAt, pausedUntil, reason) {
+      const current = rows.get(id);
+      if (!current) return null;
+      const lead: Lead = {
+        ...current,
+        status: 'human_paused',
+        lastOutboundAt: pausedAt,
+        followupDisabledAt: current.followupDisabledAt ?? pausedAt,
+        humanPausedUntil: pausedUntil,
+        aiPausedAt: pausedAt,
+        aiPauseReason: reason,
+        updatedAt: pausedAt,
+      };
+      rows.set(id, lead);
+      return lead;
+    },
+
+    async markInboundReceived(id, receivedAt) {
+      const current = rows.get(id);
+      if (!current) return null;
+      const lead: Lead = {
+        ...current,
+        status: current.status === 'transferred' ? 'transferred' : 'in_conversation',
+        lastInboundAt: receivedAt,
+        followupDisabledAt: receivedAt,
+        updatedAt: receivedAt,
+      };
+      rows.set(id, lead);
+      return lead;
+    },
+
+    async markFollowupSent(id, sentAt) {
+      const current = rows.get(id);
+      if (!current) {
+        return null;
+      }
+
+      const lead: Lead = {
+        ...current,
+        status: 'followup_sent',
+        followupSentAt: sentAt,
+        followupDisabledAt: sentAt,
+        lastOutboundAt: sentAt,
+        updatedAt: sentAt,
+      };
+      rows.set(id, lead);
+      return lead;
+    },
+
+    async markTransferred(id, transferredAt, summary) {
+      const current = rows.get(id);
+      if (!current) return null;
+      const lead: Lead = {
+        ...current,
+        status: 'transferred',
+        handoffRequestedAt: transferredAt,
+        handoffSummary: summary,
+        followupDisabledAt: current.followupDisabledAt ?? transferredAt,
+        aiPausedAt: transferredAt,
+        aiPauseReason: 'handoff_requested_by_ai',
+        updatedAt: transferredAt,
+      };
+      rows.set(id, lead);
+      return lead;
+    },
+
+    async markInitialSent(id, sentAt, followupDueAt = null) {
+      const current = rows.get(id);
+      if (!current) {
+        return null;
+      }
+
+      const lead: Lead = {
+        ...current,
+        status: 'initial_sent',
+        firstMessageSentAt: sentAt,
+        followupDueAt,
+        lastOutboundAt: sentAt,
+        updatedAt: sentAt,
+      };
+      rows.set(id, lead);
+      return lead;
+    },
+
+    async update(id, input) {
+      const current = rows.get(id);
+      if (!current) {
+        return null;
+      }
+
+      const lead: Lead = { ...current, ...normalize(input), updatedAt: new Date() };
+      rows.set(id, lead);
+      return lead;
+    },
+  };
+}

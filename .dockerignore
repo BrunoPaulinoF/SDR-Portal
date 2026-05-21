@@ -1,0 +1,14 @@
+node_modules
+dist
+.env
+.env.*
+*.log
+coverage
+.git
+.gitignore
+tests
+PLANO_SDR_PORTAL.md
+docker-compose.yml
+Dockerfile
+.dockerignore
+npm-debug.log*
