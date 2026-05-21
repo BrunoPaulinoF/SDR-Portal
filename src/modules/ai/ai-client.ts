@@ -29,36 +29,100 @@ interface ChatCompletionResponse {
   usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
 }
 
-async function readResponseBody(response: Response): Promise<ChatCompletionResponse> {
+interface ResponsesApiResponse {
+  error?: { message?: string; type?: string; code?: string };
+  incomplete_details?: { reason?: string };
+  output?: Array<{ type?: string; content?: Array<{ type?: string; text?: string }> }>;
+  output_text?: string;
+  status?: string;
+  usage?: { input_tokens?: number; output_tokens?: number; total_tokens?: number };
+}
+
+type AiProviderResponse = ChatCompletionResponse & ResponsesApiResponse;
+
+async function readResponseBody(response: Response): Promise<AiProviderResponse> {
   try {
-    return (await response.json()) as ChatCompletionResponse;
+    return (await response.json()) as AiProviderResponse;
   } catch {
     return {};
   }
 }
 
-function endpointFor(provider: string): string {
+function isOpenAiReasoningModel(provider: string, model: string): boolean {
+  return provider === 'openai' && (/^gpt-5/i.test(model) || /^o\d/i.test(model));
+}
+
+function endpointFor(provider: string, model: string): string {
   if (provider === 'openrouter') return 'https://openrouter.ai/api/v1/chat/completions';
+  if (isOpenAiReasoningModel(provider, model)) return 'https://api.openai.com/v1/responses';
   return 'https://api.openai.com/v1/chat/completions';
+}
+
+function buildRequestBody(input: AiGenerateInput): Record<string, unknown> {
+  if (isOpenAiReasoningModel(input.provider, input.model)) {
+    return {
+      model: input.model,
+      input: input.messages,
+      reasoning: { effort: 'low' },
+      max_output_tokens: Math.max(input.maxTokens, 2000),
+      text: { format: { type: 'json_object' } },
+    };
+  }
+
+  return {
+    model: input.model,
+    messages: input.messages,
+    temperature: input.temperature,
+    max_tokens: input.maxTokens,
+    response_format: { type: 'json_object' },
+  };
+}
+
+function outputTextFromResponsesApi(body: ResponsesApiResponse): string {
+  if (typeof body.output_text === 'string') return body.output_text;
+
+  return (body.output ?? [])
+    .filter((item) => item.type === 'message')
+    .flatMap((item) => item.content ?? [])
+    .filter((content) => content.type === 'output_text' && typeof content.text === 'string')
+    .map((content) => content.text)
+    .join('');
+}
+
+function resultFromResponse(input: AiGenerateInput, body: AiProviderResponse): AiGenerateResult {
+  if (isOpenAiReasoningModel(input.provider, input.model)) {
+    const outputText = outputTextFromResponsesApi(body);
+    if (!outputText && body.status === 'incomplete') {
+      throw new Error(`AI provider response incomplete: ${body.incomplete_details?.reason ?? 'unknown reason'}`);
+    }
+
+    return {
+      outputText,
+      promptTokens: body.usage?.input_tokens ?? null,
+      completionTokens: body.usage?.output_tokens ?? null,
+      totalTokens: body.usage?.total_tokens ?? null,
+    };
+  }
+
+  return {
+    outputText: body.choices?.[0]?.message?.content ?? '',
+    promptTokens: body.usage?.prompt_tokens ?? null,
+    completionTokens: body.usage?.completion_tokens ?? null,
+    totalTokens: body.usage?.total_tokens ?? null,
+  };
 }
 
 export function createHttpAiClient(): AiClient {
   return {
     async generate(input) {
-      const response = await fetch(endpointFor(input.provider), {
+      const response = await fetch(endpointFor(input.provider, input.model), {
         method: 'POST',
         headers: {
           authorization: `Bearer ${input.apiKey}`,
           'content-type': 'application/json',
           ...(input.provider === 'openrouter' ? { 'HTTP-Referer': 'https://sdr-portal.local', 'X-Title': 'SDR Portal' } : {}),
         },
-        body: JSON.stringify({
-          model: input.model,
-          messages: input.messages,
-          temperature: input.temperature,
-          max_tokens: input.maxTokens,
-          response_format: { type: 'json_object' },
-        }),
+        body: JSON.stringify(buildRequestBody(input)),
       });
 
       const body = await readResponseBody(response);
@@ -67,12 +131,7 @@ export function createHttpAiClient(): AiClient {
         throw new Error(`AI provider returned HTTP ${response.status}${detail}`);
       }
 
-      return {
-        outputText: body.choices?.[0]?.message?.content ?? '',
-        promptTokens: body.usage?.prompt_tokens ?? null,
-        completionTokens: body.usage?.completion_tokens ?? null,
-        totalTokens: body.usage?.total_tokens ?? null,
-      };
+      return resultFromResponse(input, body);
     },
   };
 }
