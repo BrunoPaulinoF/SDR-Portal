@@ -44,6 +44,7 @@ export interface DashboardCompanyRow {
   activeSdrs: number;
   companyId: string;
   companyName: string;
+  discarded: number;
   followupsSent: number;
   handoffs: number;
   leadsTotal: number;
@@ -69,6 +70,7 @@ export interface DashboardViewModel {
   statusRows: DashboardFunnelRow[];
   totals: {
     aiErrors: number;
+    discarded: number;
     followupsDue: number;
     handoffs: number;
     initialSent: number;
@@ -97,6 +99,7 @@ export const leadStatusOptions = [
   { value: 'followup_sent', label: 'Follow-up enviado' },
   { value: 'transferred', label: 'Handoff feito' },
   { value: 'not_interested', label: 'Sem interesse' },
+  { value: 'discarded', label: 'Descartado' },
   { value: 'human_paused', label: 'Pausado por humano' },
 ];
 
@@ -108,6 +111,7 @@ export const stageOptions = [
   { value: 'handoff_offer', label: 'Oferta de handoff' },
   { value: 'handoff_done', label: 'Handoff feito' },
   { value: 'not_interested', label: 'Sem interesse' },
+  { value: 'discarded', label: 'Descartado' },
 ];
 
 interface BuildDashboardInput {
@@ -377,6 +381,7 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
   const followupsSent = scopedLeads.filter((lead) => isDateInPeriod(lead.followupSentAt, start, now)).length;
   const handoffs = scopedLeads.filter((lead) => isDateInPeriod(lead.handoffRequestedAt, start, now)).length;
   const notInterested = scopedLeads.filter((lead) => isDateInPeriod(lead.notInterestedAt, start, now)).length;
+  const discarded = scopedLeads.filter((lead) => lead.status === 'discarded' && isDateInPeriod(lead.updatedAt, start, now)).length;
   const created = scopedLeads.filter((lead) => isDateInPeriod(lead.createdAt, start, now)).length;
   const outboundMessages = messagesInPeriod.filter((message) => message.direction === 'outbound').length;
   const inboundMessages = messagesInPeriod.filter((message) => message.direction === 'inbound').length;
@@ -417,6 +422,7 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
     { value: 'responded', label: 'Responderam' },
     { value: 'in_conversation', label: 'Em conversa agora' },
     { value: 'transferred', label: 'Handoffs' },
+    { value: 'discarded', label: 'Descartados' },
     { value: 'not_interested', label: 'Sem interesse' },
   ];
   const funnelValues = new Map<string, number>([
@@ -425,6 +431,7 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
     ['responded', respondedLeadIds.size],
     ['in_conversation', scopedLeads.filter((lead) => lead.status === 'in_conversation').length],
     ['transferred', handoffs],
+    ['discarded', discarded],
     ['not_interested', notInterested],
   ]);
   const funnelBase = Math.max(created, initialSent, scopedLeads.length, 1);
@@ -447,6 +454,7 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
         activeSdrs: companyAgents.filter((agent) => agent.isActive).length,
         companyId: company.id,
         companyName: company.name,
+        discarded: companyLeads.filter((lead) => lead.status === 'discarded' && isDateInPeriod(lead.updatedAt, start, now)).length,
         followupsSent: companyLeads.filter((lead) => isDateInPeriod(lead.followupSentAt, start, now)).length,
         handoffs: companyLeads.filter((lead) => isDateInPeriod(lead.handoffRequestedAt, start, now)).length,
         leadsTotal: companyLeads.length,
@@ -484,6 +492,7 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
       { label: 'Handoffs', value: String(handoffs), help: `Taxa sobre abordagens: ${formatPercent(handoffs, initialSent)}.` },
       { label: 'Follow-ups feitos', value: String(followupsSent), help: `${followupsDue} follow-up(s) vencido(s) agora.` },
       { label: 'Taxa de resposta', value: responseRate, help: 'Leads que responderam / abordagens iniciais.' },
+      { label: 'Descartados', value: String(discarded), help: 'Leads bloqueados antes do primeiro contato por baixo fit.' },
       { label: 'Fila pendente', value: String(pending), help: `${readyCount} SDR(s) pronto(s), ${blockedCount} bloqueado(s).` },
       { label: 'Conversas abertas', value: String(activeConversations), help: 'Conversas com status open no filtro atual.' },
       { label: 'Tokens IA', value: String(totalTokens), help: `${aiRunsInPeriod.length} chamada(s), ${aiErrors} erro(s).` },
@@ -494,6 +503,7 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
     statusRows: countRows(leadStatusOptions.filter((option) => option.value), scopedLeads.length, statusCounts),
     totals: {
       aiErrors,
+      discarded,
       followupsDue,
       handoffs,
       initialSent,

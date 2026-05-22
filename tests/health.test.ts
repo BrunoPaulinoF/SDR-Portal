@@ -262,12 +262,28 @@ describe('auth routes', () => {
       status: 'pending',
       source: 'manual',
     });
+    const discardedLead = await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511666666666',
+      companyName: 'Contato Descartado',
+      cnpj: null,
+      tradeName: null,
+      segment: 'MEI',
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'pending',
+      source: 'manual',
+    });
     const now = new Date();
     await leadRepository.markInitialSent(handoffLead.id, new Date(now.getTime() - 90 * 60 * 1000), null);
     await leadRepository.markInboundReceived(handoffLead.id, new Date(now.getTime() - 80 * 60 * 1000));
     await leadRepository.markTransferred(handoffLead.id, new Date(now.getTime() - 60 * 60 * 1000), 'Lead pediu contato comercial.');
     await leadRepository.markInitialSent(followupLead.id, new Date(now.getTime() - 48 * 60 * 60 * 1000), new Date(now.getTime() - 60 * 60 * 1000));
     await leadRepository.markFollowupSent(followupLead.id, new Date(now.getTime() - 30 * 60 * 1000));
+    await leadRepository.markDiscarded(discardedLead.id, new Date(now.getTime() - 20 * 60 * 1000));
     const conversation = await conversationRepository.create({
       companyId: company.id,
       sdrAgentId: agent.id,
@@ -327,6 +343,7 @@ describe('auth routes', () => {
     expect(response.body).toContain('Responderam');
     expect(response.body).toContain('Handoffs');
     expect(response.body).toContain('Follow-ups feitos');
+    expect(response.body).toContain('Descartados');
     expect(response.body).toContain('Proximos disparos por SDR');
     expect(response.body).toContain('Restaurante Pendente');
     expect(response.body).toContain(`/leads/${pendingLead.id}`);
@@ -1027,6 +1044,105 @@ describe('initial outreach scheduler', () => {
     expect(aiRuns[0]?.purpose).toBe('first_message_generation');
     expect(aiRuns[0]?.leadId).toBe(lead.id);
     expect(aiRuns[0]?.error).toBeNull();
+  });
+
+  it('discards low-fit researched leads before sending the first message', async () => {
+    const user = await createTestUser();
+    const calls: string[] = [];
+    const aiCalls: string[] = [];
+    const researchCalls: string[] = [];
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const leadResearchRepository = createMemoryLeadResearchRepository();
+    const aiRunRepository = createMemoryAiRunRepository();
+    const jobLogRepository = createMemoryJobLogRepository();
+    const company = await companyRepository.create({
+      name: 'Kybernan',
+      legalName: null,
+      cnpj: null,
+      segment: 'Consultoria',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'kyane',
+      displayName: 'Kyane',
+      isActive: true,
+      productName: 'Mentoria de Planejamento Estrategico',
+      firstMessagePrompt: 'Crie uma abordagem personalizada para {{companyName}}.',
+      openaiApiKeyEncrypted: encryptSecret('openai-key'),
+      uazapiBaseUrl: 'https://api.uazapi.com',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+      sendDaysOfWeek: '0,1,2,3,4,5,6',
+      sendWindowStart: '00:00',
+      sendWindowEnd: '23:59',
+      initialCooldownMinMinutes: 0,
+      initialCooldownMaxMinutes: 0,
+      dailyInitialSendLimit: 10,
+    });
+    const lead = await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511555555555',
+      companyName: 'Contato Individual',
+      cnpj: null,
+      tradeName: null,
+      segment: 'Servico individual',
+      city: 'Leme',
+      state: 'SP',
+      contactName: 'Maria',
+      extraData: null,
+      status: 'pending',
+      source: 'manual',
+    });
+
+    app = buildApp({
+      aiClient: createMockAiClient(
+        aiCalls,
+        JSON.stringify({ qualified: false, reason: 'Atuacao individual sem operacao empresarial estruturada.' }),
+      ),
+      aiRunRepository,
+      authRepository: createMemoryAuthRepository([user]),
+      companyRepository,
+      jobLogRepository,
+      leadResearchProvider: createMockLeadResearchProvider(researchCalls, {
+        summary: 'Maria atua sozinha em uma atividade local, sem sinais de equipe, estrutura empresarial ou crescimento operacional.',
+        sources: ['https://example.com/maria'],
+      }),
+      leadResearchRepository,
+      leadRepository,
+      sdrAgentRepository,
+      uazapiClient: createMockUazapiClient(calls),
+    });
+    const sessionCookie = await login();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/scheduler/initial-outreach/run',
+      cookies: { sdr_portal_session: sessionCookie },
+    });
+
+    const updatedLead = await leadRepository.findById(lead.id);
+    const logs = await jobLogRepository.list();
+    const aiRuns = await aiRunRepository.list();
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain('Enviadas: 0');
+    expect(response.body).toContain('Ignoradas: 1');
+    expect(updatedLead?.status).toBe('discarded');
+    expect(updatedLead?.conversationStage).toBe('discarded');
+    expect(updatedLead?.followupDisabledAt).toBeInstanceOf(Date);
+    expect(calls).toEqual([]);
+    expect(aiCalls).toHaveLength(1);
+    expect(aiCalls[0]).toContain('lead deve receber abordagem fria');
+    expect(aiCalls[0]).not.toContain('Crie uma primeira mensagem para este lead.');
+    expect(aiRuns[0]?.purpose).toBe('lead_fit_assessment');
+    expect(logs[0]?.status).toBe('skipped');
+    expect(logs[0]?.result).toContain('Atuacao individual sem operacao empresarial estruturada.');
   });
 
   it('falls back to a safe first message when AI generation fails', async () => {

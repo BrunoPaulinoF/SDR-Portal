@@ -315,6 +315,11 @@ function createLazyDbLeadRepository(): LeadRepository {
       return createDbLeadRepository().markFollowupSent(id, sentAt);
     },
 
+    async markDiscarded(id, discardedAt) {
+      const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
+      return createDbLeadRepository().markDiscarded(id, discardedAt);
+    },
+
     async markNotInterested(id, markedAt) {
       const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
       return createDbLeadRepository().markNotInterested(id, markedAt);

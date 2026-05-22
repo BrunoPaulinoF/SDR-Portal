@@ -141,6 +141,7 @@ function renderCompanyTable(model: DashboardViewModel): string {
         <td>${row.activeSdrs}/${row.totalSdrs}</td>
         <td>${row.leadsTotal}</td>
         <td>${row.pending}</td>
+        <td>${row.discarded}</td>
         <td>${row.sent}</td>
         <td>${row.outboundMessages}</td>
         <td>${row.responded}</td>
@@ -149,12 +150,12 @@ function renderCompanyTable(model: DashboardViewModel): string {
       </tr>`,
     )
     .join('');
-  const body = rows || '<tr><td colspan="9" class="muted">Nenhuma empresa com dados para os filtros atuais.</td></tr>';
+  const body = rows || '<tr><td colspan="10" class="muted">Nenhuma empresa com dados para os filtros atuais.</td></tr>';
 
   return `<section class="page-section">
     <div class="section-heading"><h2>Empresas</h2><p class="muted">Resumo por empresa no periodo selecionado.</p></div>
     <div class="table-wrap"><table>
-      <thead><tr><th>Empresa</th><th>SDRs ativos</th><th>Leads</th><th>Pendentes</th><th>Abordagens</th><th>Msgs conversa</th><th>Responderam</th><th>Follow-ups</th><th>Handoffs</th></tr></thead>
+      <thead><tr><th>Empresa</th><th>SDRs ativos</th><th>Leads</th><th>Pendentes</th><th>Descartados</th><th>Abordagens</th><th>Msgs conversa</th><th>Responderam</th><th>Follow-ups</th><th>Handoffs</th></tr></thead>
       <tbody>${body}</tbody>
     </table></div>
   </section>`;

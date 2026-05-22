@@ -21,7 +21,9 @@ interface LeadResearchDependencies {
 }
 
 function buildQuery(lead: Lead): string {
-  return [lead.companyName, lead.tradeName, lead.city, lead.state, lead.segment].filter(Boolean).join(' ');
+  return [lead.companyName, lead.tradeName, lead.cnpj, lead.contactName, lead.city, lead.state, lead.segment, lead.extraData]
+    .filter(Boolean)
+    .join(' ');
 }
 
 function resultFromRecord(record: LeadResearch): LeadResearchResult | null {
@@ -55,7 +57,10 @@ export function createHttpLeadResearchProvider(): LeadResearchProvider {
         body: JSON.stringify({
           query: input.query,
           lead: {
+            cnpj: input.lead.cnpj,
             companyName: input.lead.companyName,
+            contactName: input.lead.contactName,
+            extraData: input.lead.extraData,
             tradeName: input.lead.tradeName,
             segment: input.lead.segment,
             city: input.lead.city,

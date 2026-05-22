@@ -160,6 +160,20 @@ export function createDbLeadRepository(): LeadRepository {
       return lead ?? null;
     },
 
+    async markDiscarded(id, discardedAt) {
+      const [lead] = await db
+        .update(leads)
+        .set({
+          status: 'discarded',
+          conversationStage: 'discarded',
+          followupDisabledAt: discardedAt,
+          updatedAt: discardedAt,
+        })
+        .where(eq(leads.id, id))
+        .returning();
+      return lead ?? null;
+    },
+
     async markFollowupSent(id, sentAt) {
       const [lead] = await db
         .update(leads)
