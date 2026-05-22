@@ -3,6 +3,16 @@ export interface AiChatMessage {
   content: string;
 }
 
+export interface AiWebSearchOptions {
+  searchContextSize?: 'low' | 'medium' | 'high';
+  userLocation?: {
+    city?: string;
+    country?: string;
+    region?: string;
+    timezone?: string;
+  };
+}
+
 export interface AiGenerateInput {
   apiKey: string;
   maxTokens: number;
@@ -10,6 +20,7 @@ export interface AiGenerateInput {
   model: string;
   provider: string;
   temperature: number;
+  webSearch?: AiWebSearchOptions;
 }
 
 export interface AiGenerateResult {
@@ -58,14 +69,34 @@ function endpointFor(provider: string, model: string): string {
   return 'https://api.openai.com/v1/chat/completions';
 }
 
+function webSearchTool(input: AiGenerateInput): Record<string, unknown> | null {
+  if (!input.webSearch || !isOpenAiReasoningModel(input.provider, input.model)) return null;
+
+  const tool: Record<string, unknown> = {
+    type: 'web_search',
+    search_context_size: input.webSearch.searchContextSize ?? 'low',
+  };
+
+  if (input.webSearch.userLocation) {
+    tool.user_location = {
+      type: 'approximate',
+      ...input.webSearch.userLocation,
+    };
+  }
+
+  return tool;
+}
+
 function buildRequestBody(input: AiGenerateInput): Record<string, unknown> {
   if (isOpenAiReasoningModel(input.provider, input.model)) {
+    const tool = webSearchTool(input);
     return {
       model: input.model,
       input: input.messages,
       reasoning: { effort: 'low' },
       max_output_tokens: Math.max(input.maxTokens, 2000),
       text: { format: { type: 'json_object' } },
+      ...(tool ? { tools: [tool], tool_choice: 'auto' } : {}),
     };
   }
 

@@ -75,6 +75,33 @@ describe('HTTP AI client', () => {
     expect(result.completionTokens).toBe(9);
   });
 
+  it('enables Responses API web search when requested', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      mockJsonResponse({
+        output_text: '{"mensagem_usuario":"Oi com pesquisa","nao_responder":false,"actions":[]}',
+        status: 'completed',
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await createHttpAiClient().generate({
+      ...baseInput,
+      model: 'gpt-5.4-mini',
+      webSearch: { searchContextSize: 'medium', userLocation: { country: 'BR' } },
+    });
+    const [, request] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(request.body)) as Record<string, unknown>;
+
+    expect(body.tools).toEqual([
+      {
+        type: 'web_search',
+        search_context_size: 'medium',
+        user_location: { type: 'approximate', country: 'BR' },
+      },
+    ]);
+    expect(body.tool_choice).toBe('auto');
+  });
+
   it('keeps Chat Completions payload for OpenRouter', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       mockJsonResponse({ choices: [{ message: { content: '{"mensagem_usuario":"Oi","nao_responder":false}' } }] }),

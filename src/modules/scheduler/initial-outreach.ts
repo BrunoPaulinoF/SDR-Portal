@@ -143,6 +143,10 @@ function apiKeyFor(agent: SdrAgent): string | null {
   return agent.openaiApiKeyEncrypted ? decryptSecret(agent.openaiApiKeyEncrypted) : (env.OPENAI_API_KEY ?? null);
 }
 
+function webSearchOptions(searchContextSize: 'low' | 'medium' | 'high') {
+  return { searchContextSize, userLocation: { country: 'BR' } };
+}
+
 function leadQualificationMessages(agent: SdrAgent, lead: Lead, research: LeadResearchResult | null): AiChatMessage[] {
   const qualificationPrompt = agent.leadQualificationPrompt?.trim() || DEFAULT_LEAD_QUALIFICATION_PROMPT;
   return [
@@ -161,6 +165,7 @@ Campos obrigatorios:
 Use o prompt configurado para decidir o fit.
 Use "qualified": false somente quando houver evidencia forte de que o lead nao se encaixa no perfil desejado.
 Se os dados forem insuficientes, mantenha "qualified": true para evitar descarte indevido.
+Antes de decidir, use a ferramenta de pesquisa web de forma rapida e economica para validar se ha sinais de empresa real, produto, operacao, dono, equipe, unidade, setor ou atividade individual.
 
 Prompt configurado para este SDR:
 ${qualificationPrompt}`,
@@ -175,7 +180,7 @@ Contato/dono: ${lead.contactName ?? ''}
 Segmento: ${lead.segment ?? ''}
 Cidade/UF: ${[lead.city, lead.state].filter(Boolean).join('/')}
 Dados extras: ${truncate(lead.extraData ?? '', 600)}
-Pesquisa web: ${truncate(research?.summary ?? '', 1200)}
+Pesquisa web ja existente, se houver: ${truncate(research?.summary ?? '', 1200)}
 Fontes: ${research?.sources.join(', ') ?? ''}`,
     },
   ];
@@ -195,8 +200,6 @@ async function assessLeadForInitialOutreach(
   lead: Lead,
   research: LeadResearchResult | null,
 ): Promise<LeadFitAssessment> {
-  if (!research?.summary.trim()) return { qualified: true, reason: 'Sem pesquisa suficiente para descartar com seguranca.' };
-
   const apiKey = apiKeyFor(agent);
   if (!apiKey) return { qualified: true, reason: 'Sem chave de IA para avaliar fit; lead mantido por seguranca.' };
 
@@ -211,6 +214,7 @@ async function assessLeadForInitialOutreach(
       model: agent.aiModel,
       provider: agent.aiProvider,
       temperature: 0.1,
+      webSearch: webSearchOptions('low'),
     });
     const parsed = parseLeadFitAssessment(aiResult.outputText);
     await deps.aiRunRepository.create({
@@ -261,6 +265,8 @@ Regras:
 - Use somente as instrucoes e dados fornecidos nesta chamada.
 - Personalize com pesquisa real quando houver: nome da pessoa, nome da empresa, setor, cidade, produto, servico ou movimento concreto encontrado.
 - Mostre que houve pesquisa sem parecer invasivo, exagerado ou generico.
+- Antes de escrever, use a ferramenta de pesquisa web para buscar informacoes reais sobre o lead pelo CNPJ, nome da empresa, nome fantasia, cidade, setor, site, LinkedIn, Instagram e produtos/servicos.
+- Use a pesquisa para encontrar um gancho genuino: o que a empresa faz, produtos/servicos, setor, cidade, unidade, movimento recente, crescimento, contratacao, premio, lancamento ou algo operacional concreto.
 - Se nao houver contato/dono, fale com a empresa de forma natural.
 - Faca apenas uma pergunta simples sobre a operacao no fim.
 - Nao invente informacoes sobre produto, empresa, preco, agenda ou disponibilidade.
@@ -334,6 +340,7 @@ export async function buildFirstMessage(
       model: agent.aiModel,
       provider: agent.aiProvider,
       temperature: agent.aiTemperature,
+      webSearch: webSearchOptions('medium'),
     });
     const parsed = parseAiResponse(aiResult.outputText);
     await deps.aiRunRepository.create({

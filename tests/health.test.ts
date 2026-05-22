@@ -85,7 +85,8 @@ function createMockUazapiClient(calls: string[]): UazapiClient {
 function createMockAiClient(calls: string[], outputText: string): AiClient {
   return {
     async generate(input) {
-      calls.push(`${input.provider}:${input.model}:${input.messages.map((message) => message.content).join('\n---\n')}`);
+      const webSearch = input.webSearch ? `web:${input.webSearch.searchContextSize ?? 'low'}` : 'web:none';
+      calls.push(`${input.provider}:${input.model}:${webSearch}:${input.messages.map((message) => message.content).join('\n---\n')}`);
       return {
         outputText,
         promptTokens: 10,
@@ -100,7 +101,8 @@ function createSequencedMockAiClient(calls: string[], outputTexts: string[]): Ai
   let index = 0;
   return {
     async generate(input) {
-      calls.push(`${input.provider}:${input.model}:${input.messages.map((message) => message.content).join('\n---\n')}`);
+      const webSearch = input.webSearch ? `web:${input.webSearch.searchContextSize ?? 'low'}` : 'web:none';
+      calls.push(`${input.provider}:${input.model}:${webSearch}:${input.messages.map((message) => message.content).join('\n---\n')}`);
       const outputText = outputTexts[Math.min(index, outputTexts.length - 1)] ?? outputTexts[0] ?? '{}';
       index += 1;
       return {
@@ -1016,10 +1018,10 @@ describe('initial outreach scheduler', () => {
     });
 
     app = buildApp({
-      aiClient: createMockAiClient(
-        aiCalls,
+      aiClient: createSequencedMockAiClient(aiCalls, [
+        JSON.stringify({ qualified: true, reason: 'Empresa com operacao real.' }),
         '{"mensagem_usuario":"Oi, tudo bem? Vi a Restaurante IA e queria entender a operação de vocês. Posso fazer uma pergunta rápida?","nao_responder":false,"status_sugerido":"initial_sent","actions":[]}',
-      ),
+      ]),
       aiRunRepository,
       authRepository: createMemoryAuthRepository([user]),
       companyRepository,
@@ -1039,20 +1041,24 @@ describe('initial outreach scheduler', () => {
 
     expect(response.statusCode).toBe(200);
     expect(aiCalls[0]).toContain('openai:gpt-5.4-mini');
-    expect(aiCalls[0]).toContain('Voce escreve apenas a primeira mensagem de abordagem para WhatsApp.');
-    expect(aiCalls[0]).toContain('Use um tom consultivo para Restaurante IA.');
-    expect(aiCalls[0]).not.toContain('Comandos internos disponiveis');
-    expect(aiCalls[0]).not.toContain('PROMPT PRINCIPAL PESADO NAO DEVE ENTRAR NA PRIMEIRA MENSAGEM.');
-    expect(aiCalls[0]).not.toContain('OFERTA LONGA NAO DEVE ENTRAR NA PRIMEIRA MENSAGEM.');
+    expect(aiCalls[0]).toContain('web:low');
+    expect(aiCalls[1]).toContain('openai:gpt-5.4-mini');
+    expect(aiCalls[1]).toContain('web:medium');
+    expect(aiCalls[1]).toContain('Voce escreve apenas a primeira mensagem de abordagem para WhatsApp.');
+    expect(aiCalls[1]).toContain('Use um tom consultivo para Restaurante IA.');
+    expect(aiCalls[1]).not.toContain('Comandos internos disponiveis');
+    expect(aiCalls[1]).not.toContain('PROMPT PRINCIPAL PESADO NAO DEVE ENTRAR NA PRIMEIRA MENSAGEM.');
+    expect(aiCalls[1]).not.toContain('OFERTA LONGA NAO DEVE ENTRAR NA PRIMEIRA MENSAGEM.');
     expect(calls).toContain(
       'text:5511777777777:Oi, tudo bem? Vi a Restaurante IA e queria entender a operação de vocês. Posso fazer uma pergunta rápida?:instance-token',
     );
-    expect(aiRuns[0]?.purpose).toBe('first_message_generation');
-    expect(aiRuns[0]?.leadId).toBe(lead.id);
-    expect(aiRuns[0]?.error).toBeNull();
+    expect(aiRuns.map((run) => run.purpose).sort()).toEqual(['first_message_generation', 'lead_fit_assessment']);
+    const firstMessageRun = aiRuns.find((run) => run.purpose === 'first_message_generation');
+    expect(firstMessageRun?.leadId).toBe(lead.id);
+    expect(firstMessageRun?.error).toBeNull();
   });
 
-  it('discards low-fit researched leads before sending the first message', async () => {
+  it('uses web search to discard low-fit leads before sending the first message', async () => {
     const user = await createTestUser();
     const calls: string[] = [];
     const aiCalls: string[] = [];
@@ -1116,10 +1122,7 @@ describe('initial outreach scheduler', () => {
       authRepository: createMemoryAuthRepository([user]),
       companyRepository,
       jobLogRepository,
-      leadResearchProvider: createMockLeadResearchProvider(researchCalls, {
-        summary: 'Maria atua sozinha em uma atividade local, sem sinais de equipe, estrutura empresarial ou crescimento operacional.',
-        sources: ['https://example.com/maria'],
-      }),
+      leadResearchProvider: createMockLeadResearchProvider(researchCalls, null),
       leadResearchRepository,
       leadRepository,
       sdrAgentRepository,
@@ -1145,6 +1148,7 @@ describe('initial outreach scheduler', () => {
     expect(updatedLead?.followupDisabledAt).toBeInstanceOf(Date);
     expect(calls).toEqual([]);
     expect(aiCalls).toHaveLength(1);
+    expect(aiCalls[0]).toContain('web:low');
     expect(aiCalls[0]).toContain('lead deve receber abordagem fria');
     expect(aiCalls[0]).toContain('Descartar perfis individuais sem operacao empresarial clara.');
     expect(aiCalls[0]).not.toContain('Crie uma primeira mensagem para este lead.');
@@ -1851,6 +1855,7 @@ describe('UAZAPI webhook routes', () => {
 
     expect(response.statusCode).toBe(200);
     expect(aiCalls[0]).toContain('openai:gpt-5.4-mini');
+    expect(aiCalls[0]).toContain('web:none');
     expect(aiCalls[0]).toContain('notify_handoff');
     expect(aiCalls[0]).toContain('Responda de forma breve.');
     expect(aiCalls[0]).not.toContain('PROMPT DA PRIMEIRA MENSAGEM NAO DEVE ENTRAR EM RESPOSTAS.');
