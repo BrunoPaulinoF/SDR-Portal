@@ -837,6 +837,7 @@ describe('initial outreach scheduler', () => {
     const companyRepository = createMemoryCompanyRepository();
     const sdrAgentRepository = createMemorySdrAgentRepository();
     const leadRepository = createMemoryLeadRepository();
+    const conversationRepository = createMemoryConversationRepository();
     const jobLogRepository = createMemoryJobLogRepository();
     const company = await companyRepository.create({
       name: 'Insumo Smart',
@@ -882,6 +883,7 @@ describe('initial outreach scheduler', () => {
     app = buildApp({
       authRepository: createMemoryAuthRepository([user]),
       companyRepository,
+      conversationRepository,
       jobLogRepository,
       leadRepository,
       sdrAgentRepository,
@@ -897,6 +899,10 @@ describe('initial outreach scheduler', () => {
 
     const updatedLead = await leadRepository.findById(lead.id);
     const logs = await jobLogRepository.list();
+    const conversationsAfterInitial = await conversationRepository.list();
+    const initialMessages = conversationsAfterInitial[0]
+      ? await conversationRepository.listMessages(conversationsAfterInitial[0].id)
+      : [];
 
     expect(response.statusCode).toBe(200);
     expect(response.body).toContain('Enviadas: 1');
@@ -908,8 +914,42 @@ describe('initial outreach scheduler', () => {
       'presence:5511999999999:composing:instance-token',
       'text:5511999999999:Olá, tudo bem? Aqui é Franciely. Estava olhando empresas do setor de Gastronomia e encontrei a Restaurante A. Posso te fazer uma pergunta rápida sobre o dia a dia da Restaurante A?:instance-token',
     ]);
+    expect(conversationsAfterInitial).toHaveLength(1);
+    expect(conversationsAfterInitial[0]?.leadId).toBe(lead.id);
+    expect(initialMessages).toHaveLength(1);
+    expect(initialMessages[0]?.leadId).toBe(lead.id);
+    expect(initialMessages[0]?.direction).toBe('outbound');
+    expect(initialMessages[0]?.senderType).toBe('ai');
+    expect(initialMessages[0]?.sentByApi).toBe(true);
+    expect(initialMessages[0]?.text).toBe('Olá, tudo bem? Aqui é Franciely. Estava olhando empresas do setor de Gastronomia e encontrei a Restaurante A. Posso te fazer uma pergunta rápida sobre o dia a dia da Restaurante A?');
     expect(logs[0]?.status).toBe('completed');
     expect(logs[0]?.leadId).toBe(lead.id);
+
+    await app.inject({
+      method: 'POST',
+      url: `/webhooks/uazapi/${agent.id}`,
+      payload: {
+        event: 'messages',
+        data: {
+          id: 'INBOUND-AFTER-INITIAL',
+          from: `${lead.whatsappNumber}@s.whatsapp.net`,
+          fromMe: false,
+          type: 'conversation',
+          text: 'Pode sim',
+        },
+      },
+    });
+
+    const conversationsAfterInbound = await conversationRepository.list();
+    const messagesAfterInbound = await conversationRepository.listMessages(conversationsAfterInitial[0]?.id ?? 'missing');
+    const leadAfterInbound = await leadRepository.findById(lead.id);
+
+    expect(conversationsAfterInbound).toHaveLength(1);
+    expect(messagesAfterInbound).toHaveLength(2);
+    expect(messagesAfterInbound[1]?.leadId).toBe(lead.id);
+    expect(messagesAfterInbound[1]?.direction).toBe('inbound');
+    expect(messagesAfterInbound[1]?.text).toBe('Pode sim');
+    expect(leadAfterInbound?.status).toBe('in_conversation');
   });
 
   it('uses lead research in the first message when research is available', async () => {
@@ -2524,13 +2564,13 @@ describe('UAZAPI webhook routes', () => {
       sdrAgentId: agent.id,
       whatsappNumber: '5511999999999',
       companyName: 'Lead Teste',
-      cnpj: null,
-      tradeName: null,
+      cnpj: '12345678000190',
+      tradeName: 'Lead Teste Fantasia',
       segment: 'Servicos',
-      city: null,
-      state: null,
-      contactName: null,
-      extraData: null,
+      city: 'Leme',
+      state: 'SP',
+      contactName: 'Maria',
+      extraData: 'Cliente antigo com dados completos',
       status: 'in_conversation',
       source: 'manual',
     });
@@ -2592,6 +2632,14 @@ describe('UAZAPI webhook routes', () => {
     expect(resetResponse.statusCode).toBe(200);
     expect(latestLead?.id).not.toBe(oldLead.id);
     expect(latestLead?.source).toBe('reset_command');
+    expect(latestLead?.companyName).toBe(oldLead.companyName);
+    expect(latestLead?.tradeName).toBe(oldLead.tradeName);
+    expect(latestLead?.cnpj).toBe(oldLead.cnpj);
+    expect(latestLead?.segment).toBe(oldLead.segment);
+    expect(latestLead?.city).toBe(oldLead.city);
+    expect(latestLead?.state).toBe(oldLead.state);
+    expect(latestLead?.contactName).toBe(oldLead.contactName);
+    expect(latestLead?.extraData).toBe(oldLead.extraData);
     expect(latestLead?.status).toBe('initial_sent');
     expect(latestLead?.conversationStage).toBe('permission');
     expect(latestConversation?.id).not.toBe(oldConversation.id);
@@ -2656,7 +2704,13 @@ describe('UAZAPI webhook routes', () => {
     });
 
     app = buildApp({
-      aiClient: createMockAiClient(aiCalls, JSON.stringify({ mensagem_usuario: 'Mensagem IA sem telefone.', nao_responder: false, actions: [] })),
+      aiClient: {
+        async generate(input) {
+          const webSearch = input.webSearch ? `web:${input.webSearch.searchContextSize ?? 'low'}` : 'web:none';
+          aiCalls.push(`${input.provider}:${input.model}:${webSearch}:${input.messages.map((message) => message.content).join('\n---\n')}`);
+          throw new Error('AI provider returned HTTP 400');
+        },
+      },
       companyRepository,
       conversationRepository,
       leadRepository,
@@ -2689,7 +2743,7 @@ describe('UAZAPI webhook routes', () => {
     expect(aiCalls).toHaveLength(1);
     expect(aiCalls[0]).not.toContain('Empresa: 553499969911');
     expect(aiCalls[0]).not.toContain('Empresa lead: 553499969911');
-    expect(sentText).toBe('Mensagem IA sem telefone.');
+    expect(sentText).toBe('Olá, tudo bem? Aqui é Kyane. Posso te fazer uma pergunta rápida sobre o dia a dia da sua empresa?');
     expect(sentText).not.toContain('553499969911');
     expect(sentText).not.toContain('Mentoria Presencial em Planejamento Estrategico');
   });

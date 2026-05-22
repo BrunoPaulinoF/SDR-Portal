@@ -93,7 +93,10 @@ export function registerUazapiWebhookRoutes(
         return reply.send({ ok: true, command: 'reset' });
       }
 
-      let lead = await leadRepository.findBySdrAndWhatsapp(agent.id, whatsappNumber);
+      let conversation = await conversationRepository.findBySdrAndWhatsapp(agent.id, whatsappNumber);
+      let lead = conversation ? await leadRepository.findById(conversation.leadId) : null;
+      lead = lead ?? await leadRepository.findBySdrAndWhatsapp(agent.id, whatsappNumber);
+
       if (!lead) {
         lead = await leadRepository.create({
           companyId: agent.companyId,
@@ -112,8 +115,7 @@ export function registerUazapiWebhookRoutes(
         });
       }
 
-      let conversation = await conversationRepository.findBySdrAndWhatsapp(agent.id, whatsappNumber);
-      if (!conversation) {
+      if (!conversation || conversation.leadId !== lead.id) {
         conversation = await conversationRepository.create({
           companyId: agent.companyId,
           sdrAgentId: agent.id,

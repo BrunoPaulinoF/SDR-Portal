@@ -3,6 +3,7 @@ import type { Lead, SdrAgent } from '../../db/schema.js';
 import type { AiChatMessage, AiClient } from '../ai/ai-client.js';
 import type { AiRunRepository } from '../ai/ai-run-repository.js';
 import { parseAiResponse } from '../ai/ai-response.js';
+import type { ConversationRepository } from '../conversations/conversation-repository.js';
 import type { JobLogRepository } from '../jobs/job-log-repository.js';
 import { DEFAULT_LEAD_QUALIFICATION_PROMPT } from '../leads/lead-qualification-prompt.js';
 import type { LeadResearchResult, LeadResearchService } from '../leads/lead-research-service.js';
@@ -24,6 +25,7 @@ export interface FirstMessageDependencies {
 }
 
 interface InitialOutreachDependencies extends FirstMessageDependencies {
+  conversationRepository: ConversationRepository;
   jobLogRepository: JobLogRepository;
   leadResearchService: LeadResearchService;
   leadRepository: LeadRepository;
@@ -489,6 +491,33 @@ async function checkWhatsappExists(
 }
 
 export function createInitialOutreachService(deps: InitialOutreachDependencies) {
+  async function createInitialConversation(lead: Lead, agent: SdrAgent, text: string, rawPayload: unknown, sentAt: Date): Promise<void> {
+    const conversation = await deps.conversationRepository.create({
+      companyId: lead.companyId,
+      sdrAgentId: lead.sdrAgentId,
+      leadId: lead.id,
+      whatsappNumber: lead.whatsappNumber,
+      status: 'open',
+      lastMessageAt: sentAt,
+    });
+
+    await deps.conversationRepository.createMessage({
+      conversationId: conversation.id,
+      leadId: lead.id,
+      sdrAgentId: agent.id,
+      direction: 'outbound',
+      senderType: 'ai',
+      whatsappMessageId: null,
+      messageType: 'conversation',
+      text,
+      transcription: null,
+      mediaUrl: null,
+      rawPayload: JSON.stringify(rawPayload),
+      sentByApi: true,
+      fromMe: true,
+    });
+  }
+
   async function processAgent(agent: SdrAgent, now: Date, details: string[]): Promise<ProcessAgentResult> {
     const startedAt = new Date();
 
@@ -595,7 +624,9 @@ export function createInitialOutreachService(deps: InitialOutreachDependencies) 
           throw new Error(`UAZAPI returned HTTP ${result.status}`);
         }
 
-        await deps.leadRepository.markInitialSent(lead.id, now, followupDueAt(agent, now));
+        const sentAt = new Date();
+        await createInitialConversation(lead, agent, text, result.body, sentAt);
+        await deps.leadRepository.markInitialSent(lead.id, sentAt, followupDueAt(agent, sentAt));
         await deps.jobLogRepository.create({
           jobName: 'initial-outreach',
           jobKey: `initial-${lead.id}`,

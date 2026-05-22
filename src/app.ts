@@ -413,6 +413,7 @@ export function buildApp(options: AppOptions = {}): AppInstance {
   const initialOutreach = createInitialOutreachService({
     aiClient: ai,
     aiRunRepository: aiRuns,
+    conversationRepository: conversations,
     jobLogRepository: jobLogs,
     leadResearchService: researchService,
     leadRepository: leads,
