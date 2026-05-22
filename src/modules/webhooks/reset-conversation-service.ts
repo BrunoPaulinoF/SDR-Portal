@@ -4,6 +4,7 @@ import type { ConversationRepository } from '../conversations/conversation-repos
 import type { JobLogRepository } from '../jobs/job-log-repository.js';
 import type { LeadResearchService } from '../leads/lead-research-service.js';
 import type { LeadRepository } from '../leads/lead-repository.js';
+import { whatsappIdentityFromUazapiSendResult, whatsappNumberFromUazapiSendResult } from '../phone/whatsapp-number.js';
 import { buildFirstMessage, followupDueAt } from '../scheduler/initial-outreach.js';
 import { decryptSecret } from '../security/secrets.js';
 import type { UazapiClient } from '../uazapi/uazapi-client.js';
@@ -61,6 +62,8 @@ export function createResetConversationService(deps: ResetConversationDependenci
         companyId: input.agent.companyId,
         sdrAgentId: input.agent.id,
         whatsappNumber: input.whatsappNumber,
+        whatsappJid: input.previousLead?.whatsappJid ?? null,
+        whatsappLid: input.previousLead?.whatsappLid ?? null,
         cnpj: input.previousLead?.cnpj ?? null,
         companyName: resetCompanyName(input.previousLead, input.whatsappNumber),
         tradeName: input.previousLead?.tradeName ?? null,
@@ -72,15 +75,6 @@ export function createResetConversationService(deps: ResetConversationDependenci
         status: 'pending',
         source: 'reset_command',
       });
-      const conversation = await deps.conversationRepository.create({
-        companyId: lead.companyId,
-        sdrAgentId: lead.sdrAgentId,
-        leadId: lead.id,
-        whatsappNumber: lead.whatsappNumber,
-        status: 'open',
-        lastMessageAt: now,
-      });
-
       const research = await deps.leadResearchService.researchLead({ agent: input.agent, lead });
       const text = await buildFirstMessage(deps, input.agent, lead, research);
 
@@ -94,6 +88,19 @@ export function createResetConversationService(deps: ResetConversationDependenci
         trackId: `reset-${lead.id}`,
       });
       if (!result.ok) throw new Error(`UAZAPI returned HTTP ${result.status}`);
+
+      const sentAt = new Date();
+      const identity = whatsappIdentityFromUazapiSendResult(result.body);
+      await deps.leadRepository.updateWhatsappIdentity(lead.id, identity, sentAt);
+      const conversationWhatsappNumber = whatsappNumberFromUazapiSendResult(result.body, lead.whatsappNumber);
+      const conversation = await deps.conversationRepository.create({
+        companyId: lead.companyId,
+        sdrAgentId: lead.sdrAgentId,
+        leadId: lead.id,
+        whatsappNumber: conversationWhatsappNumber,
+        status: 'open',
+        lastMessageAt: sentAt,
+      });
 
       await deps.conversationRepository.createMessage({
         conversationId: conversation.id,
@@ -110,9 +117,8 @@ export function createResetConversationService(deps: ResetConversationDependenci
         sentByApi: true,
         fromMe: true,
       });
-      await deps.conversationRepository.touch(conversation.id, new Date());
-      await deps.leadRepository.markInitialSent(lead.id, now, followupDueAt(input.agent, now));
-      await deps.leadRepository.updateStage(lead.id, 'permission', now);
+      await deps.leadRepository.markInitialSent(lead.id, sentAt, followupDueAt(input.agent, sentAt));
+      await deps.leadRepository.updateStage(lead.id, 'permission', sentAt);
       await deps.jobLogRepository.create({
         jobName: 'reset-conversation',
         jobKey: `reset-${lead.id}`,

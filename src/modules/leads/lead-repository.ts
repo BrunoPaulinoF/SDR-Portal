@@ -17,7 +17,7 @@ export type LeadInput = Pick<
   | 'extraData'
   | 'status'
   | 'source'
->;
+> & Partial<Pick<NewLead, 'whatsappJid' | 'whatsappLid'>>;
 
 export type LeadImportInput = Pick<
   NewLeadImport,
@@ -31,6 +31,7 @@ export interface LeadRepository {
   createImport(input: LeadImportInput): Promise<LeadImport>;
   delete(id: string): Promise<void>;
   findById(id: string): Promise<Lead | null>;
+  findBySdrAndWhatsappIdentity(sdrAgentId: string, identity: { jid?: string | null; lid?: string | null }): Promise<Lead | null>;
   findLastFollowupSentForSdr(sdrAgentId: string): Promise<Lead | null>;
   findLastInitialSentForSdr(sdrAgentId: string): Promise<Lead | null>;
   findNextFollowupDueForSdr(sdrAgentId: string, now: Date): Promise<Lead | null>;
@@ -46,6 +47,7 @@ export interface LeadRepository {
   markNotInterested(id: string, markedAt: Date): Promise<Lead | null>;
   markTransferred(id: string, transferredAt: Date, summary: string): Promise<Lead | null>;
   markInitialSent(id: string, sentAt: Date, followupDueAt?: Date | null): Promise<Lead | null>;
+  updateWhatsappIdentity(id: string, identity: { jid?: string | null; lid?: string | null }, updatedAt: Date): Promise<Lead | null>;
   disableFollowup(id: string, disabledAt: Date): Promise<Lead | null>;
   updateStage(id: string, stage: string, updatedAt: Date): Promise<Lead | null>;
   update(id: string, input: LeadInput): Promise<Lead | null>;
@@ -56,6 +58,8 @@ function normalize(input: LeadInput): Omit<Lead, 'id' | 'createdAt' | 'updatedAt
     companyId: input.companyId,
     sdrAgentId: input.sdrAgentId,
     whatsappNumber: input.whatsappNumber,
+    whatsappJid: input.whatsappJid ?? null,
+    whatsappLid: input.whatsappLid ?? null,
     cnpj: input.cnpj ?? null,
     companyName: input.companyName,
     tradeName: input.tradeName ?? null,
@@ -134,6 +138,15 @@ export function createMemoryLeadRepository(seedLeads: Lead[] = []): LeadReposito
 
     async findById(id) {
       return rows.get(id) ?? null;
+    },
+
+    async findBySdrAndWhatsappIdentity(sdrAgentId, identity) {
+      const matches = [...rows.values()].filter(
+        (lead) =>
+          lead.sdrAgentId === sdrAgentId &&
+          ((identity.jid && lead.whatsappJid === identity.jid) || (identity.lid && lead.whatsappLid === identity.lid)),
+      );
+      return matches.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0] ?? null;
     },
 
     async findLastFollowupSentForSdr(sdrAgentId) {
@@ -313,6 +326,19 @@ export function createMemoryLeadRepository(seedLeads: Lead[] = []): LeadReposito
         followupDueAt,
         lastOutboundAt: sentAt,
         updatedAt: sentAt,
+      };
+      rows.set(id, lead);
+      return lead;
+    },
+
+    async updateWhatsappIdentity(id, identity, updatedAt) {
+      const current = rows.get(id);
+      if (!current) return null;
+      const lead: Lead = {
+        ...current,
+        whatsappJid: identity.jid ?? current.whatsappJid,
+        whatsappLid: identity.lid ?? current.whatsappLid,
+        updatedAt,
       };
       rows.set(id, lead);
       return lead;

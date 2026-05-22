@@ -14,6 +14,8 @@ export interface NormalizedWebhookMessage {
   toNumber: string | null;
   transcription: string | null;
   whatsappMessageId: string | null;
+  whatsappJid: string | null;
+  whatsappLid: string | null;
   whatsappNumber: string | null;
 }
 
@@ -57,6 +59,21 @@ function normalizeNumber(value: string | null): string | null {
   return digits.length >= 10 ? digits : null;
 }
 
+function normalizeJid(value: string | null): string | null {
+  if (!value) return null;
+  const normalized = value.trim().toLowerCase();
+  if (normalized.includes('@g.us')) return null;
+  return normalized.includes('@s.whatsapp.net') || normalized.includes('@c.us') || normalized.includes('@lid') ? normalized : null;
+}
+
+function firstJid(...values: unknown[]): string | null {
+  for (const value of values) {
+    const normalized = normalizeJid(firstString(value));
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
 function firstNormalizedNumber(...values: unknown[]): string | null {
   for (const value of values) {
     const normalized = normalizeNumber(firstString(value));
@@ -83,6 +100,8 @@ export function normalizeUazapiWebhook(body: unknown): NormalizedWebhookMessage 
   const remoteJid = firstString(key.remoteJid, data.chatid, data.chatId, data.from, data.remoteJid, root.from);
   const participant = firstString(key.participant, data.sender, data.participant);
   const fromMe = firstBoolean(data.fromMe, key.fromMe, root.fromMe);
+  const whatsappJid = firstJid(data.sender_pn, data.senderPn, data.senderPhone, data.chatid, data.chatId, remoteJid);
+  const whatsappLid = firstJid(data.chatlid, data.chatLid, data.sender_lid, data.senderLid, data.lid, participant);
   const whatsappNumber = fromMe
     ? firstNormalizedNumber(remoteJid, data.chatid, data.chatId)
     : firstNormalizedNumber(data.sender_pn, data.senderPn, data.senderPhone, data.chatid, data.chatId, remoteJid, participant);
@@ -126,6 +145,8 @@ export function normalizeUazapiWebhook(body: unknown): NormalizedWebhookMessage 
     toNumber: normalizeNumber(firstString(data.to, data.toNumber, root.to)),
     transcription: firstString(data.transcription, data.transcribedText),
     whatsappMessageId: firstString(data.id, data.messageId, data.messageid, key.id),
+    whatsappJid: whatsappJid?.includes('@lid') ? null : whatsappJid,
+    whatsappLid: whatsappLid?.includes('@lid') ? whatsappLid : null,
     whatsappNumber,
   };
 }

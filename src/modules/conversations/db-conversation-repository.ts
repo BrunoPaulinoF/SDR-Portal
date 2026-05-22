@@ -23,6 +23,16 @@ export function createDbConversationRepository(): ConversationRepository {
       return conversation ?? null;
     },
 
+    async findByLeadId(leadId) {
+      const [conversation] = await db
+        .select()
+        .from(conversations)
+        .where(eq(conversations.leadId, leadId))
+        .orderBy(desc(conversations.createdAt))
+        .limit(1);
+      return conversation ?? null;
+    },
+
     async findBySdrAndWhatsapp(sdrAgentId, whatsappNumber) {
       const [conversation] = await db
         .select()

@@ -8,6 +8,7 @@ import type { JobLogRepository } from '../jobs/job-log-repository.js';
 import { DEFAULT_LEAD_QUALIFICATION_PROMPT } from '../leads/lead-qualification-prompt.js';
 import type { LeadResearchResult, LeadResearchService } from '../leads/lead-research-service.js';
 import type { LeadRepository } from '../leads/lead-repository.js';
+import { normalizeWhatsappJid, whatsappIdentityFromUazapiSendResult, whatsappNumberFromUazapiSendResult } from '../phone/whatsapp-number.js';
 import { decryptSecret } from '../security/secrets.js';
 import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
 import type { UazapiClient } from '../uazapi/uazapi-client.js';
@@ -480,23 +481,30 @@ async function checkWhatsappExists(
   deps: InitialOutreachDependencies,
   credentials: { baseUrl: string; token: string },
   whatsappNumber: string,
-): Promise<{ body: unknown; exists: boolean }> {
+): Promise<{ body: unknown; exists: boolean; jid: string | null }> {
   const result = await deps.uazapiClient.checkChats({ ...credentials, numbers: [whatsappNumber] });
   if (!result.ok) throw new Error(`UAZAPI chat check returned HTTP ${result.status}`);
 
   const item = chatCheckItem(result.body);
   if (typeof item?.isInWhatsapp !== 'boolean') throw new Error('UAZAPI chat check returned invalid payload');
 
-  return { body: result.body, exists: item.isInWhatsapp };
+  return { body: result.body, exists: item.isInWhatsapp, jid: normalizeWhatsappJid(item.jid) };
 }
 
 export function createInitialOutreachService(deps: InitialOutreachDependencies) {
-  async function createInitialConversation(lead: Lead, agent: SdrAgent, text: string, rawPayload: unknown, sentAt: Date): Promise<void> {
+  async function createInitialConversation(
+    lead: Lead,
+    agent: SdrAgent,
+    text: string,
+    rawPayload: unknown,
+    sentAt: Date,
+    whatsappNumber: string,
+  ): Promise<void> {
     const conversation = await deps.conversationRepository.create({
       companyId: lead.companyId,
       sdrAgentId: lead.sdrAgentId,
       leadId: lead.id,
-      whatsappNumber: lead.whatsappNumber,
+      whatsappNumber,
       status: 'open',
       lastMessageAt: sentAt,
     });
@@ -625,7 +633,14 @@ export function createInitialOutreachService(deps: InitialOutreachDependencies) 
         }
 
         const sentAt = new Date();
-        await createInitialConversation(lead, agent, text, result.body, sentAt);
+        const identity = whatsappIdentityFromUazapiSendResult(result.body);
+        await deps.leadRepository.updateWhatsappIdentity(
+          lead.id,
+          { jid: identity.jid ?? phoneCheck.jid, lid: identity.lid },
+          sentAt,
+        );
+        const conversationWhatsappNumber = whatsappNumberFromUazapiSendResult(result.body, lead.whatsappNumber);
+        await createInitialConversation(lead, agent, text, result.body, sentAt, conversationWhatsappNumber);
         await deps.leadRepository.markInitialSent(lead.id, sentAt, followupDueAt(agent, sentAt));
         await deps.jobLogRepository.create({
           jobName: 'initial-outreach',

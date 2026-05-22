@@ -2,8 +2,10 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
 import { env } from '../../config/env.js';
+import type { Conversation, Lead } from '../../db/schema.js';
 import type { ConversationRepository } from '../conversations/conversation-repository.js';
 import type { LeadRepository } from '../leads/lead-repository.js';
+import { whatsappNumberVariants } from '../phone/whatsapp-number.js';
 import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
 import type { createAiResponseService } from '../ai/ai-response-service.js';
 import type { createAudioTranscriptionService } from '../audio/audio-transcription-service.js';
@@ -33,6 +35,57 @@ function hasReplyableContent(text: string | null, transcription: string | null):
 
 function isResetCommand(text: string | null): boolean {
   return text?.trim().toLowerCase() === '!reset';
+}
+
+function leadMatchScore(lead: Lead | null): number {
+  if (!lead) return 0;
+  let score = 1;
+  if (lead.source !== 'inbound_unknown') score += 4;
+  if (lead.firstMessageSentAt) score += 4;
+  if (lead.status !== 'in_conversation' || lead.source !== 'inbound_unknown') score += 1;
+  return score;
+}
+
+async function findLeadByWhatsappIdentity(
+  leadRepository: LeadRepository,
+  sdrAgentId: string,
+  identity: { jid?: string | null; lid?: string | null },
+): Promise<Lead | null> {
+  if (!identity.jid && !identity.lid) return null;
+  return leadRepository.findBySdrAndWhatsappIdentity(sdrAgentId, identity);
+}
+
+async function findLeadByWhatsappVariants(
+  leadRepository: LeadRepository,
+  sdrAgentId: string,
+  whatsappNumber: string,
+): Promise<Lead | null> {
+  const matches: Lead[] = [];
+  for (const candidate of whatsappNumberVariants(whatsappNumber)) {
+    const lead = await leadRepository.findBySdrAndWhatsapp(sdrAgentId, candidate);
+    if (lead) matches.push(lead);
+  }
+
+  return matches.sort((a, b) => leadMatchScore(b) - leadMatchScore(a) || b.createdAt.getTime() - a.createdAt.getTime())[0] ?? null;
+}
+
+async function findConversationByWhatsappVariants(
+  conversationRepository: ConversationRepository,
+  leadRepository: LeadRepository,
+  sdrAgentId: string,
+  whatsappNumber: string,
+): Promise<{ conversation: Conversation; lead: Lead } | null> {
+  const matches: Array<{ conversation: Conversation; lead: Lead }> = [];
+  for (const candidate of whatsappNumberVariants(whatsappNumber)) {
+    const conversation = await conversationRepository.findBySdrAndWhatsapp(sdrAgentId, candidate);
+    const lead = conversation ? await leadRepository.findById(conversation.leadId) : null;
+    if (conversation && lead) matches.push({ conversation, lead });
+  }
+
+  return matches.sort((a, b) => {
+    const scoreDiff = leadMatchScore(b.lead) - leadMatchScore(a.lead);
+    return scoreDiff || b.conversation.createdAt.getTime() - a.conversation.createdAt.getTime();
+  })[0] ?? null;
 }
 
 export function registerUazapiWebhookRoutes(
@@ -75,7 +128,11 @@ export function registerUazapiWebhookRoutes(
       const now = new Date();
 
       if (!normalized.fromMe && isResetCommand(normalized.text)) {
-        const previousLead = await leadRepository.findBySdrAndWhatsapp(agent.id, whatsappNumber);
+        const previousLead =
+          (await findLeadByWhatsappIdentity(leadRepository, agent.id, {
+            jid: normalized.whatsappJid,
+            lid: normalized.whatsappLid,
+          })) ?? (await findLeadByWhatsappVariants(leadRepository, agent.id, whatsappNumber));
         await resetConversationService.reset({ agent, previousLead, whatsappNumber });
         await webhookEventRepository.updateProcessing(event.id, {
           eventType: normalized.eventType,
@@ -93,9 +150,18 @@ export function registerUazapiWebhookRoutes(
         return reply.send({ ok: true, command: 'reset' });
       }
 
-      let conversation = await conversationRepository.findBySdrAndWhatsapp(agent.id, whatsappNumber);
-      let lead = conversation ? await leadRepository.findById(conversation.leadId) : null;
-      lead = lead ?? await leadRepository.findBySdrAndWhatsapp(agent.id, whatsappNumber);
+      let lead = await findLeadByWhatsappIdentity(leadRepository, agent.id, {
+        jid: normalized.whatsappJid,
+        lid: normalized.whatsappLid,
+      });
+      lead = lead ?? (await findLeadByWhatsappVariants(leadRepository, agent.id, whatsappNumber));
+      let conversation = lead ? await conversationRepository.findByLeadId(lead.id) : null;
+
+      const existing = !lead && !conversation
+        ? await findConversationByWhatsappVariants(conversationRepository, leadRepository, agent.id, whatsappNumber)
+        : null;
+      conversation = conversation ?? existing?.conversation ?? null;
+      lead = lead ?? existing?.lead ?? null;
 
       if (!lead) {
         lead = await leadRepository.create({
@@ -155,6 +221,7 @@ export function registerUazapiWebhookRoutes(
       await conversationRepository.touch(conversation.id, now);
 
       if (!normalized.fromMe) {
+        await leadRepository.updateWhatsappIdentity(lead.id, { jid: normalized.whatsappJid, lid: normalized.whatsappLid }, now);
         await leadRepository.markInboundReceived(lead.id, now);
         if (hasReplyableContent(normalized.text, transcription)) {
           await aiResponseService.respondToInbound({ agent, conversation, lead });

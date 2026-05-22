@@ -92,6 +92,10 @@ function createLazyDbConversationRepository(): ConversationRepository {
       const { createDbConversationRepository } = await import('./modules/conversations/db-conversation-repository.js');
       return createDbConversationRepository().findById(id);
     },
+    async findByLeadId(leadId) {
+      const { createDbConversationRepository } = await import('./modules/conversations/db-conversation-repository.js');
+      return createDbConversationRepository().findByLeadId(leadId);
+    },
     async findBySdrAndWhatsapp(sdrAgentId, whatsappNumber) {
       const { createDbConversationRepository } = await import('./modules/conversations/db-conversation-repository.js');
       return createDbConversationRepository().findBySdrAndWhatsapp(sdrAgentId, whatsappNumber);
@@ -265,6 +269,11 @@ function createLazyDbLeadRepository(): LeadRepository {
       return createDbLeadRepository().findById(id);
     },
 
+    async findBySdrAndWhatsappIdentity(sdrAgentId, identity) {
+      const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
+      return createDbLeadRepository().findBySdrAndWhatsappIdentity(sdrAgentId, identity);
+    },
+
     async findLastFollowupSentForSdr(sdrAgentId) {
       const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
       return createDbLeadRepository().findLastFollowupSentForSdr(sdrAgentId);
@@ -338,6 +347,11 @@ function createLazyDbLeadRepository(): LeadRepository {
     async markInitialSent(id, sentAt, followupDueAt) {
       const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
       return createDbLeadRepository().markInitialSent(id, sentAt, followupDueAt);
+    },
+
+    async updateWhatsappIdentity(id, identity, updatedAt) {
+      const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
+      return createDbLeadRepository().updateWhatsappIdentity(id, identity, updatedAt);
     },
 
     async disableFollowup(id, disabledAt) {

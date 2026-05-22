@@ -24,6 +24,7 @@ export interface ConversationRepository {
   create(input: ConversationInput): Promise<Conversation>;
   createMessage(input: MessageInput): Promise<Message>;
   findById(id: string): Promise<Conversation | null>;
+  findByLeadId(leadId: string): Promise<Conversation | null>;
   findBySdrAndWhatsapp(sdrAgentId: string, whatsappNumber: string): Promise<Conversation | null>;
   list(): Promise<Conversation[]>;
   listAllMessages(): Promise<Message[]>;
@@ -80,6 +81,12 @@ export function createMemoryConversationRepository(seedConversations: Conversati
 
     async findById(id) {
       return conversations.get(id) ?? null;
+    },
+
+    async findByLeadId(leadId) {
+      return [...conversations.values()]
+        .filter((item) => item.leadId === leadId)
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0] ?? null;
     },
 
     async findBySdrAndWhatsapp(sdrAgentId, whatsappNumber) {

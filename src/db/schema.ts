@@ -110,6 +110,8 @@ export const leads = pgTable(
       .notNull()
       .references(() => sdrAgents.id, { onDelete: 'cascade' }),
     whatsappNumber: text('whatsapp_number').notNull(),
+    whatsappJid: text('whatsapp_jid'),
+    whatsappLid: text('whatsapp_lid'),
     cnpj: text('cnpj'),
     companyName: text('company_name').notNull(),
     tradeName: text('trade_name'),

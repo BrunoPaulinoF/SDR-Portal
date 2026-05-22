@@ -51,7 +51,11 @@ function formPayload(values: Record<string, string>): string {
   return new URLSearchParams(values).toString();
 }
 
-function createMockUazapiClient(calls: string[], whatsappExistsByNumber: Record<string, boolean> = {}): UazapiClient {
+function createMockUazapiClient(
+  calls: string[],
+  whatsappExistsByNumber: Record<string, boolean> = {},
+  sentChatIdByNumber: Record<string, string> = {},
+): UazapiClient {
   const ok = (body: unknown): UazapiResult => ({ status: 200, ok: true, body });
 
   return {
@@ -89,7 +93,7 @@ function createMockUazapiClient(calls: string[], whatsappExistsByNumber: Record<
 
     async sendText(input) {
       calls.push(`text:${input.number}:${input.text}:${input.token}`);
-      return ok({ response: 'message sent' });
+      return ok({ chatid: `${sentChatIdByNumber[input.number] ?? input.number}@s.whatsapp.net`, response: 'message sent' });
     },
   };
 }
@@ -234,7 +238,7 @@ describe('auth routes', () => {
     const pendingLead = await leadRepository.create({
       companyId: company.id,
       sdrAgentId: agent.id,
-      whatsappNumber: '5511999999999',
+      whatsappNumber: '5534999969911',
       companyName: 'Restaurante Pendente',
       cnpj: null,
       tradeName: null,
@@ -867,7 +871,7 @@ describe('initial outreach scheduler', () => {
     const lead = await leadRepository.create({
       companyId: company.id,
       sdrAgentId: agent.id,
-      whatsappNumber: '5511999999999',
+      whatsappNumber: '5534999969911',
       companyName: 'Restaurante A',
       cnpj: null,
       tradeName: null,
@@ -887,7 +891,7 @@ describe('initial outreach scheduler', () => {
       jobLogRepository,
       leadRepository,
       sdrAgentRepository,
-      uazapiClient: createMockUazapiClient(calls),
+      uazapiClient: createMockUazapiClient(calls, {}, { '5534999969911': '553499969911' }),
     });
     const sessionCookie = await login();
 
@@ -910,12 +914,13 @@ describe('initial outreach scheduler', () => {
     expect(updatedLead?.firstMessageSentAt).toBeInstanceOf(Date);
     expect(updatedLead?.followupDueAt).toBeInstanceOf(Date);
     expect(calls).toEqual([
-      'check:5511999999999:instance-token',
-      'presence:5511999999999:composing:instance-token',
-      'text:5511999999999:Olá, tudo bem? Aqui é Franciely. Estava olhando empresas do setor de Gastronomia e encontrei a Restaurante A. Posso te fazer uma pergunta rápida sobre o dia a dia da Restaurante A?:instance-token',
+      'check:5534999969911:instance-token',
+      'presence:5534999969911:composing:instance-token',
+      'text:5534999969911:Olá, tudo bem? Aqui é Franciely. Estava olhando empresas do setor de Gastronomia e encontrei a Restaurante A. Posso te fazer uma pergunta rápida sobre o dia a dia da Restaurante A?:instance-token',
     ]);
     expect(conversationsAfterInitial).toHaveLength(1);
     expect(conversationsAfterInitial[0]?.leadId).toBe(lead.id);
+    expect(conversationsAfterInitial[0]?.whatsappNumber).toBe('553499969911');
     expect(initialMessages).toHaveLength(1);
     expect(initialMessages[0]?.leadId).toBe(lead.id);
     expect(initialMessages[0]?.direction).toBe('outbound');
@@ -932,7 +937,7 @@ describe('initial outreach scheduler', () => {
         event: 'messages',
         data: {
           id: 'INBOUND-AFTER-INITIAL',
-          from: `${lead.whatsappNumber}@s.whatsapp.net`,
+          from: '553499969911@s.whatsapp.net',
           fromMe: false,
           type: 'conversation',
           text: 'Pode sim',
@@ -945,6 +950,7 @@ describe('initial outreach scheduler', () => {
     const leadAfterInbound = await leadRepository.findById(lead.id);
 
     expect(conversationsAfterInbound).toHaveLength(1);
+    expect(updatedLead?.whatsappJid).toBe('553499969911@s.whatsapp.net');
     expect(messagesAfterInbound).toHaveLength(2);
     expect(messagesAfterInbound[1]?.leadId).toBe(lead.id);
     expect(messagesAfterInbound[1]?.direction).toBe('inbound');
@@ -1789,6 +1795,206 @@ describe('UAZAPI webhook routes', () => {
     expect(webhookLogsPage.body).toContain('Oi, pode falar');
   });
 
+  it('matches inbound replies by stored UAZAPI JID before number fallback', async () => {
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const conversationRepository = createMemoryConversationRepository();
+    const webhookEventRepository = createMemoryWebhookEventRepository();
+    const company = await companyRepository.create({
+      name: 'Insumo Smart',
+      legalName: null,
+      cnpj: null,
+      segment: 'Gastronomia',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({ companyId: company.id, name: 'sdr-insumo-smart', displayName: 'Franciely' });
+    const realLead = await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511888888888',
+      whatsappJid: '553499969911@s.whatsapp.net',
+      companyName: 'Leley Gelato',
+      cnpj: null,
+      tradeName: null,
+      segment: 'Gelateria',
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'initial_sent',
+      source: 'manual',
+    });
+    await leadRepository.markInitialSent(realLead.id, new Date(), null);
+    const realConversation = await conversationRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      leadId: realLead.id,
+      whatsappNumber: realLead.whatsappNumber,
+      status: 'open',
+      lastMessageAt: new Date(),
+    });
+    const unknownLead = await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '553499969911',
+      companyName: '553499969911',
+      cnpj: null,
+      tradeName: null,
+      segment: null,
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'in_conversation',
+      source: 'inbound_unknown',
+    });
+    const unknownConversation = await conversationRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      leadId: unknownLead.id,
+      whatsappNumber: unknownLead.whatsappNumber,
+      status: 'open',
+      lastMessageAt: new Date(),
+    });
+
+    app = buildApp({
+      companyRepository,
+      conversationRepository,
+      leadRepository,
+      sdrAgentRepository,
+      webhookEventRepository,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/webhooks/uazapi/${agent.id}`,
+      payload: {
+        event: 'messages',
+        data: {
+          id: 'CANONICAL-REPLY',
+          from: '553499969911@s.whatsapp.net',
+          fromMe: false,
+          type: 'conversation',
+          text: 'Boa tarde. Pode sim',
+        },
+      },
+    });
+
+    const realMessages = await conversationRepository.listMessages(realConversation.id);
+    const unknownMessages = await conversationRepository.listMessages(unknownConversation.id);
+    const updatedRealLead = await leadRepository.findById(realLead.id);
+
+    expect(response.statusCode).toBe(200);
+    expect(realMessages).toHaveLength(1);
+    expect(realMessages[0]?.leadId).toBe(realLead.id);
+    expect(realMessages[0]?.text).toBe('Boa tarde. Pode sim');
+    expect(unknownMessages).toHaveLength(0);
+    expect(updatedRealLead?.status).toBe('in_conversation');
+  });
+
+  it('prefers the contacted lead over a previous inbound_unknown when matching number variants', async () => {
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const conversationRepository = createMemoryConversationRepository();
+    const webhookEventRepository = createMemoryWebhookEventRepository();
+    const company = await companyRepository.create({
+      name: 'Insumo Smart',
+      legalName: null,
+      cnpj: null,
+      segment: 'Gastronomia',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({ companyId: company.id, name: 'sdr-insumo-smart', displayName: 'Franciely' });
+    const contactedLead = await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5534999969911',
+      companyName: 'Leley Gelato',
+      cnpj: null,
+      tradeName: null,
+      segment: 'Gelateria',
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'initial_sent',
+      source: 'manual',
+    });
+    await leadRepository.markInitialSent(contactedLead.id, new Date(), null);
+    const contactedConversation = await conversationRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      leadId: contactedLead.id,
+      whatsappNumber: '553499969911',
+      status: 'open',
+      lastMessageAt: new Date(),
+    });
+    await waitMs(1);
+    const unknownLead = await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '553499969911',
+      companyName: '553499969911',
+      cnpj: null,
+      tradeName: null,
+      segment: null,
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'in_conversation',
+      source: 'inbound_unknown',
+    });
+    const unknownConversation = await conversationRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      leadId: unknownLead.id,
+      whatsappNumber: unknownLead.whatsappNumber,
+      status: 'open',
+      lastMessageAt: new Date(),
+    });
+
+    app = buildApp({
+      companyRepository,
+      conversationRepository,
+      leadRepository,
+      sdrAgentRepository,
+      webhookEventRepository,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/webhooks/uazapi/${agent.id}`,
+      payload: {
+        event: 'messages',
+        data: {
+          id: 'VARIANT-REPLY',
+          from: '553499969911@s.whatsapp.net',
+          fromMe: false,
+          type: 'conversation',
+          text: 'Boa tarde. Pode sim',
+        },
+      },
+    });
+
+    const contactedMessages = await conversationRepository.listMessages(contactedConversation.id);
+    const unknownMessages = await conversationRepository.listMessages(unknownConversation.id);
+
+    expect(response.statusCode).toBe(200);
+    expect(contactedMessages).toHaveLength(1);
+    expect(contactedMessages[0]?.leadId).toBe(contactedLead.id);
+    expect(contactedMessages[0]?.text).toBe('Boa tarde. Pode sim');
+    expect(unknownMessages).toHaveLength(0);
+  });
+
   it('creates an inbound unknown lead when the number is not registered', async () => {
     const companyRepository = createMemoryCompanyRepository();
     const sdrAgentRepository = createMemorySdrAgentRepository();
@@ -2562,7 +2768,9 @@ describe('UAZAPI webhook routes', () => {
     const oldLead = await leadRepository.create({
       companyId: company.id,
       sdrAgentId: agent.id,
-      whatsappNumber: '5511999999999',
+      whatsappNumber: '5534999969911',
+      whatsappJid: '553499969911@s.whatsapp.net',
+      whatsappLid: '137499217248386@lid',
       companyName: 'Lead Teste',
       cnpj: '12345678000190',
       tradeName: 'Lead Teste Fantasia',
@@ -2617,7 +2825,7 @@ describe('UAZAPI webhook routes', () => {
         event: 'messages',
         data: {
           id: 'RESET-1',
-          from: '5511999999999@s.whatsapp.net',
+          from: '553499969911@s.whatsapp.net',
           fromMe: false,
           type: 'conversation',
           text: '!reset',
@@ -2625,14 +2833,16 @@ describe('UAZAPI webhook routes', () => {
       },
     });
 
-    const latestLead = await leadRepository.findBySdrAndWhatsapp(agent.id, oldLead.whatsappNumber);
-    const latestConversation = await conversationRepository.findBySdrAndWhatsapp(agent.id, oldLead.whatsappNumber);
+    const latestLead = await leadRepository.findBySdrAndWhatsapp(agent.id, '553499969911');
+    const latestConversation = await conversationRepository.findBySdrAndWhatsapp(agent.id, '553499969911');
     const conversations = await conversationRepository.list();
 
     expect(resetResponse.statusCode).toBe(200);
     expect(latestLead?.id).not.toBe(oldLead.id);
     expect(latestLead?.source).toBe('reset_command');
     expect(latestLead?.companyName).toBe(oldLead.companyName);
+    expect(latestLead?.whatsappJid).toBe(oldLead.whatsappJid);
+    expect(latestLead?.whatsappLid).toBe(oldLead.whatsappLid);
     expect(latestLead?.tradeName).toBe(oldLead.tradeName);
     expect(latestLead?.cnpj).toBe(oldLead.cnpj);
     expect(latestLead?.segment).toBe(oldLead.segment);
@@ -2646,7 +2856,7 @@ describe('UAZAPI webhook routes', () => {
     expect(latestConversation?.leadId).toBe(latestLead?.id);
     expect(conversations).toHaveLength(2);
     expect(aiCalls).toHaveLength(0);
-    expect(uazapiCalls.some((call) => call.startsWith('text:5511999999999:Olá, tudo bem? Aqui é Kyane.'))).toBe(true);
+    expect(uazapiCalls.some((call) => call.startsWith('text:553499969911:Olá, tudo bem? Aqui é Kyane.'))).toBe(true);
 
     await app.inject({
       method: 'POST',
@@ -2655,7 +2865,7 @@ describe('UAZAPI webhook routes', () => {
         event: 'messages',
         data: {
           id: 'RESET-2',
-          from: '5511999999999@s.whatsapp.net',
+          from: '553499969911@s.whatsapp.net',
           fromMe: false,
           type: 'conversation',
           text: 'Agora vou responder o novo teste',

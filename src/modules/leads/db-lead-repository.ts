@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte, isNotNull, isNull, lte } from 'drizzle-orm';
+import { and, count, desc, eq, gte, isNotNull, isNull, lte, or, type SQL } from 'drizzle-orm';
 
 import { db } from '../../db/client.js';
 import { leadImports, leads } from '../../db/schema.js';
@@ -44,6 +44,22 @@ export function createDbLeadRepository(): LeadRepository {
 
     async findById(id) {
       const [lead] = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
+      return lead ?? null;
+    },
+
+    async findBySdrAndWhatsappIdentity(sdrAgentId, identity) {
+      const conditions: SQL[] = [];
+      if (identity.jid) conditions.push(eq(leads.whatsappJid, identity.jid));
+      if (identity.lid) conditions.push(eq(leads.whatsappLid, identity.lid));
+
+      if (conditions.length === 0) return null;
+
+      const [lead] = await db
+        .select()
+        .from(leads)
+        .where(and(eq(leads.sdrAgentId, sdrAgentId), or(...conditions)))
+        .orderBy(desc(leads.createdAt))
+        .limit(1);
       return lead ?? null;
     },
 
@@ -219,6 +235,15 @@ export function createDbLeadRepository(): LeadRepository {
         .set({ status: 'initial_sent', firstMessageSentAt: sentAt, followupDueAt, lastOutboundAt: sentAt, updatedAt: sentAt })
         .where(eq(leads.id, id))
         .returning();
+      return lead ?? null;
+    },
+
+    async updateWhatsappIdentity(id, identity, updatedAt) {
+      const values: Partial<typeof leads.$inferInsert> = { updatedAt };
+      if (identity.jid) values.whatsappJid = identity.jid;
+      if (identity.lid) values.whatsappLid = identity.lid;
+
+      const [lead] = await db.update(leads).set(values).where(eq(leads.id, id)).returning();
       return lead ?? null;
     },
 
