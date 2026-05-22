@@ -404,6 +404,9 @@ describe('auth routes', () => {
     expect(response.body).toContain('Telefone inexistente');
     expect(response.body).toContain('Tel. inexistente');
     expect(response.body).toContain('Proximos disparos por SDR');
+    expect(response.body).toContain('Pendentes');
+    expect(response.body).toContain('1 SDR(s) com menos de 100 leads pendentes');
+    expect(response.body).toContain('abaixo de 100');
     expect(response.body).toContain('Restaurante Pendente');
     expect(response.body).toContain(`/leads/${pendingLead.id}`);
     expect(response.body).toContain('pronto agora');

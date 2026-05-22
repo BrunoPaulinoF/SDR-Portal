@@ -1,5 +1,5 @@
 import { escapeHtml, renderLayout } from '../web/html.js';
-import { leadStatusOptions, periodOptions, stageOptions, type DashboardDispatchRow, type DashboardViewModel } from './dashboard-view-model.js';
+import { leadStatusOptions, pendingLeadLowThreshold, periodOptions, stageOptions, type DashboardDispatchRow, type DashboardViewModel } from './dashboard-view-model.js';
 
 function renderOption(value: string, label: string, selected: string): string {
   return `<option value="${escapeHtml(value)}"${value === selected ? ' selected' : ''}>${escapeHtml(label)}</option>`;
@@ -22,6 +22,14 @@ function dispatchStatusClass(status: DashboardDispatchRow['status']): string {
   if (status === 'warning') return 'status-warn';
   if (status === 'blocked') return 'status-danger';
   return 'status-off';
+}
+
+function renderPendingCount(row: DashboardDispatchRow): string {
+  if (row.pendingCount < pendingLeadLowThreshold) {
+    return `<span class="status-pill status-danger">${row.pendingCount}</span><br><span class="muted">abaixo de ${pendingLeadLowThreshold}</span>`;
+  }
+
+  return `<span class="status-pill status-on">${row.pendingCount}</span>`;
 }
 
 function renderMetricCards(model: DashboardViewModel): string {
@@ -93,7 +101,7 @@ function renderDispatchTable(model: DashboardViewModel): string {
         <td>${escapeHtml(row.sdrName)}</td>
         <td><span class="status-pill ${dispatchStatusClass(row.status)}">${escapeHtml(row.statusLabel)}</span></td>
         <td>${row.nextLeadId ? `<a href="/leads/${escapeHtml(row.nextLeadId)}">${escapeHtml(row.nextLeadName)}</a>` : escapeHtml(row.nextLeadName)}</td>
-        <td>${row.pendingCount}</td>
+        <td>${renderPendingCount(row)}</td>
         <td>${escapeHtml(row.etaLabel)}<br><span class="muted">${escapeHtml(row.detail)}</span></td>
         <td>${escapeHtml(row.lastSentLabel)}</td>
         <td>${escapeHtml(row.sendLimitLabel)}</td>
@@ -110,7 +118,7 @@ function renderDispatchTable(model: DashboardViewModel): string {
       <p class="muted">Mostra quando cada SDR pode chamar o proximo lead, usando fila real, janela, limite e cooldown configurados.</p>
     </div>
     <div class="table-wrap"><table>
-      <thead><tr><th>Empresa</th><th>SDR</th><th>Status</th><th>Proximo lead</th><th>Fila</th><th>Proximo disparo</th><th>Ultimo envio</th><th>Limite hoje</th><th>Follow-ups vencidos</th><th>Follow-ups hoje</th></tr></thead>
+      <thead><tr><th>Empresa</th><th>SDR</th><th>Status</th><th>Proximo lead</th><th>Pendentes</th><th>Proximo disparo</th><th>Ultimo envio</th><th>Limite hoje</th><th>Follow-ups vencidos</th><th>Follow-ups hoje</th></tr></thead>
       <tbody>${body}</tbody>
     </table></div>
   </section>`;

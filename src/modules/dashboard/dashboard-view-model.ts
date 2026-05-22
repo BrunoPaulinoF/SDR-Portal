@@ -2,6 +2,8 @@ import type { AiRun, Company, Conversation, JobLog, Lead, Message, SdrAgent } fr
 
 export type DashboardPeriod = 'today' | '7d' | '30d' | 'all';
 
+export const pendingLeadLowThreshold = 100;
+
 export interface DashboardFilters {
   activeOnly: boolean;
   companyId: string;
@@ -414,6 +416,7 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
   );
   const readyCount = dispatchRows.filter((row) => row.statusLabel === 'Pronto').length;
   const blockedCount = dispatchRows.filter((row) => row.status === 'blocked').length;
+  const lowPendingCount = dispatchRows.filter((row) => row.pendingCount < pendingLeadLowThreshold).length;
   const statusCounts = new Map<string, number>();
   const stageCounts = new Map<string, number>();
   for (const lead of scopedLeads) {
@@ -477,6 +480,7 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
     .sort((a, b) => b.leadsTotal - a.leadsTotal || a.companyName.localeCompare(b.companyName));
   const alerts = [
     readyCount > 0 ? `${readyCount} SDR(s) pronto(s) para chamar o proximo lead.` : null,
+    lowPendingCount > 0 ? `${lowPendingCount} SDR(s) com menos de ${pendingLeadLowThreshold} leads pendentes. Importe mais leads para evitar fila vazia.` : null,
     followupsDue > 0 ? `${followupsDue} follow-up(s) vencido(s) aguardando envio.` : null,
     blockedCount > 0 ? `${blockedCount} SDR(s) bloqueado(s) por limite, janela ou configuracao.` : null,
     jobErrors > 0 ? `${jobErrors} erro(s) de job no periodo selecionado.` : null,
