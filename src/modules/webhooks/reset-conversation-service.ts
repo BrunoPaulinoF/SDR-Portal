@@ -25,6 +25,26 @@ interface ResetInput {
   whatsappNumber: string;
 }
 
+function onlyDigits(value: string): string {
+  return value.replace(/\D/g, '');
+}
+
+function hasLetters(value: string): boolean {
+  return /[A-Za-z\u00C0-\u00FF]/.test(value);
+}
+
+function resetCompanyName(previousLead: Lead | null, whatsappNumber: string): string {
+  const companyName = previousLead?.companyName.trim();
+  if (!companyName) return 'Lead sem cadastro';
+
+  const digits = onlyDigits(companyName);
+  if ((!hasLetters(companyName) && digits.length >= 8) || digits === onlyDigits(whatsappNumber)) {
+    return 'Lead sem cadastro';
+  }
+
+  return companyName;
+}
+
 function uazapiCredentials(agent: SdrAgent): { baseUrl: string; token: string } | null {
   if (!agent.uazapiBaseUrl || !agent.uazapiInstanceTokenEncrypted) return null;
   return { baseUrl: agent.uazapiBaseUrl, token: decryptSecret(agent.uazapiInstanceTokenEncrypted) };
@@ -42,7 +62,7 @@ export function createResetConversationService(deps: ResetConversationDependenci
         sdrAgentId: input.agent.id,
         whatsappNumber: input.whatsappNumber,
         cnpj: input.previousLead?.cnpj ?? null,
-        companyName: input.previousLead?.companyName ?? input.whatsappNumber,
+        companyName: resetCompanyName(input.previousLead, input.whatsappNumber),
         tradeName: input.previousLead?.tradeName ?? null,
         segment: input.previousLead?.segment ?? null,
         city: input.previousLead?.city ?? null,

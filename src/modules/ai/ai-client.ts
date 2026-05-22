@@ -95,8 +95,8 @@ function buildRequestBody(input: AiGenerateInput): Record<string, unknown> {
       input: input.messages,
       reasoning: { effort: 'low' },
       max_output_tokens: Math.max(input.maxTokens, 2000),
-      text: { format: { type: 'json_object' } },
       ...(tool ? { tools: [tool], tool_choice: 'auto' } : {}),
+      ...(tool ? {} : { text: { format: { type: 'json_object' } } }),
     };
   }
 

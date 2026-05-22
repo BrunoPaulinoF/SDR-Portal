@@ -75,7 +75,7 @@ describe('HTTP AI client', () => {
     expect(result.completionTokens).toBe(9);
   });
 
-  it('enables Responses API web search when requested', async () => {
+  it('enables Responses API web search without JSON mode when requested', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       mockJsonResponse({
         output_text: '{"mensagem_usuario":"Oi com pesquisa","nao_responder":false,"actions":[]}',
@@ -100,6 +100,7 @@ describe('HTTP AI client', () => {
       },
     ]);
     expect(body.tool_choice).toBe('auto');
+    expect(body).not.toHaveProperty('text');
   });
 
   it('keeps Chat Completions payload for OpenRouter', async () => {

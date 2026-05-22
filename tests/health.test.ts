@@ -906,7 +906,7 @@ describe('initial outreach scheduler', () => {
     expect(calls).toEqual([
       'check:5511999999999:instance-token',
       'presence:5511999999999:composing:instance-token',
-      'text:5511999999999:Olá, tudo bem? Aqui é Franciely. Estava olhando empresas do setor de Gastronomia e queria entender um pouco melhor a operação da Restaurante A. Posso te fazer uma pergunta rápida?:instance-token',
+      'text:5511999999999:Olá, tudo bem? Aqui é Franciely. Estava olhando empresas do setor de Gastronomia e encontrei a Restaurante A. Posso te fazer uma pergunta rápida sobre o dia a dia da Restaurante A?:instance-token',
     ]);
     expect(logs[0]?.status).toBe('completed');
     expect(logs[0]?.leadId).toBe(lead.id);
@@ -989,7 +989,7 @@ describe('initial outreach scheduler', () => {
     expect(researchCalls[0]).toContain('Restaurante Pesquisa');
     expect(researchCalls[0]).toContain('Campinas');
     expect(calls).toContain(
-      'text:5511888888888:Olá, tudo bem? Aqui é Franciely. Vi que o restaurante abriu uma nova unidade em Campinas. Queria entender um pouco melhor a operação da Restaurante Pesquisa. Posso te fazer uma pergunta rápida?:instance-token',
+      'text:5511888888888:Olá, tudo bem? Aqui é Franciely. Vi que o restaurante abriu uma nova unidade em Campinas. Posso te fazer uma pergunta rápida sobre o dia a dia da Restaurante Pesquisa?:instance-token',
     );
     expect(research?.status).toBe('completed');
     expect(research?.summary).toBe('o restaurante abriu uma nova unidade em Campinas');
@@ -1287,7 +1287,7 @@ describe('initial outreach scheduler', () => {
       'check:5511444444444:instance-token',
       'check:5511333333333:instance-token',
       'presence:5511333333333:composing:instance-token',
-      'text:5511333333333:Olá, tudo bem? Aqui é Franciely. Estava olhando empresas do setor de Gastronomia e queria entender um pouco melhor a operação da Restaurante Valido. Posso te fazer uma pergunta rápida?:instance-token',
+      'text:5511333333333:Olá, tudo bem? Aqui é Franciely. Estava olhando empresas do setor de Gastronomia e encontrei a Restaurante Valido. Posso te fazer uma pergunta rápida sobre o dia a dia da Restaurante Valido?:instance-token',
     ]);
     expect(logByKey.get(`invalid-phone-${invalidLead.id}`)?.status).toBe('skipped');
     expect(logByKey.get(`invalid-phone-${invalidLead.id}`)?.result).toContain('phoneExists');
@@ -1428,6 +1428,7 @@ describe('initial outreach scheduler', () => {
       name: 'sdr-insumo-smart',
       displayName: 'Franciely',
       isActive: true,
+      productName: 'Mentoria de Planejamento Estrategico',
       firstMessagePrompt: 'Nao envie este prompt literal.',
       openaiApiKeyEncrypted: encryptSecret('openai-key'),
       uazapiBaseUrl: 'https://api.uazapi.com',
@@ -1480,9 +1481,10 @@ describe('initial outreach scheduler', () => {
 
     expect(response.statusCode).toBe(200);
     expect(calls).toContain(
-      'text:5511666666666:Olá, tudo bem? Aqui é Franciely. Estava olhando empresas do setor de Gastronomia e queria entender um pouco melhor a operação da Restaurante Fallback. Posso te fazer uma pergunta rápida?:instance-token',
+      'text:5511666666666:Olá, tudo bem? Aqui é Franciely. Estava olhando empresas do setor de Gastronomia e encontrei a Restaurante Fallback. Posso te fazer uma pergunta rápida sobre o dia a dia da Restaurante Fallback?:instance-token',
     );
     expect(calls.join('\n')).not.toContain('Nao envie este prompt literal.');
+    expect(calls.join('\n')).not.toContain('Mentoria de Planejamento Estrategico');
     expect(aiRuns[0]?.error).toBe('AI provider returned HTTP 400');
   });
 });
@@ -2621,6 +2623,75 @@ describe('UAZAPI webhook routes', () => {
     expect(latestMessages.some((message) => message.text === 'Agora vou responder o novo teste')).toBe(true);
     expect(oldMessages.some((message) => message.text === 'Mensagem antiga')).toBe(true);
     expect(oldMessages.some((message) => message.text === 'Agora vou responder o novo teste')).toBe(false);
+  });
+
+  it('does not use the WhatsApp number as company name when reset has no previous lead', async () => {
+    const aiCalls: string[] = [];
+    const uazapiCalls: string[] = [];
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const conversationRepository = createMemoryConversationRepository();
+    const webhookEventRepository = createMemoryWebhookEventRepository();
+    const company = await companyRepository.create({
+      name: 'Kybernan',
+      legalName: null,
+      cnpj: null,
+      segment: 'Consultoria',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'kyane',
+      displayName: 'Kyane',
+      isActive: true,
+      productName: 'Mentoria Presencial em Planejamento Estrategico',
+      firstMessagePrompt: 'Empresa: {{companyName}}. Fantasia: {{tradeName}}.',
+      openaiApiKeyEncrypted: encryptSecret('openai-key'),
+      uazapiBaseUrl: 'https://api.uazapi.com',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+    });
+
+    app = buildApp({
+      aiClient: createMockAiClient(aiCalls, JSON.stringify({ mensagem_usuario: 'Mensagem IA sem telefone.', nao_responder: false, actions: [] })),
+      companyRepository,
+      conversationRepository,
+      leadRepository,
+      sdrAgentRepository,
+      uazapiClient: createMockUazapiClient(uazapiCalls),
+      webhookEventRepository,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/webhooks/uazapi/${agent.id}`,
+      payload: {
+        event: 'messages',
+        data: {
+          id: 'RESET-NO-LEAD',
+          from: '553499969911@s.whatsapp.net',
+          fromMe: false,
+          type: 'conversation',
+          text: '!reset',
+        },
+      },
+    });
+
+    const latestLead = await leadRepository.findBySdrAndWhatsapp(agent.id, '553499969911');
+    const sentCall = uazapiCalls.find((call) => call.startsWith('text:553499969911:')) ?? '';
+    const sentText = sentCall.replace(/^text:553499969911:/, '').replace(/:instance-token$/, '');
+
+    expect(response.statusCode).toBe(200);
+    expect(latestLead?.companyName).toBe('Lead sem cadastro');
+    expect(aiCalls).toHaveLength(1);
+    expect(aiCalls[0]).not.toContain('Empresa: 553499969911');
+    expect(aiCalls[0]).not.toContain('Empresa lead: 553499969911');
+    expect(sentText).toBe('Mensagem IA sem telefone.');
+    expect(sentText).not.toContain('553499969911');
+    expect(sentText).not.toContain('Mentoria Presencial em Planejamento Estrategico');
   });
 
   it('transcribes inbound audio before sending it to the AI response flow', async () => {

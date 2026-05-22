@@ -108,6 +108,40 @@ function truncate(value: string, maxLength: number): string {
   return value.length > maxLength ? `${value.slice(0, maxLength - 3).trim()}...` : value;
 }
 
+function onlyDigits(value: string): string {
+  return value.replace(/\D/g, '');
+}
+
+function hasLetters(value: string): boolean {
+  return /[A-Za-z\u00C0-\u00FF]/.test(value);
+}
+
+function isUnsafeLeadName(value: string | null | undefined, whatsappNumber: string): boolean {
+  const trimmed = value?.trim() ?? '';
+  if (!trimmed) return true;
+
+  const normalized = trimmed.toLowerCase();
+  if (['lead sem cadastro', 'contato sem cadastro', 'sua empresa', 'sem cadastro'].includes(normalized)) return true;
+
+  const digits = onlyDigits(trimmed);
+  if (!hasLetters(trimmed) && digits.length >= 8) return true;
+
+  return digits.length > 0 && digits === onlyDigits(whatsappNumber);
+}
+
+function leadNameForPrompt(lead: Lead, value: string | null | undefined): string {
+  return isUnsafeLeadName(value, lead.whatsappNumber) ? '' : value?.trim() ?? '';
+}
+
+function leadDisplayName(lead: Lead): string | null {
+  return leadNameForPrompt(lead, lead.tradeName) || leadNameForPrompt(lead, lead.companyName) || null;
+}
+
+function operationTarget(lead: Lead): string {
+  const displayName = leadDisplayName(lead);
+  return displayName ? `da ${displayName}` : 'da sua empresa';
+}
+
 function parseJsonObject(value: string): Record<string, unknown> {
   const trimmed = value.trim();
   const jsonStart = trimmed.indexOf('{');
@@ -121,8 +155,8 @@ function interpolate(template: string, agent: SdrAgent, lead: Lead, research: Le
   const replacements: Record<string, string> = {
     city: lead.city ?? '',
     cnpj: lead.cnpj ?? '',
-    companyName: lead.companyName,
-    company_name: lead.companyName,
+    companyName: leadNameForPrompt(lead, lead.companyName),
+    company_name: leadNameForPrompt(lead, lead.companyName),
     contactName: lead.contactName ?? '',
     contact_name: lead.contactName ?? '',
     extraData: lead.extraData ?? '',
@@ -130,8 +164,8 @@ function interpolate(template: string, agent: SdrAgent, lead: Lead, research: Le
     researchSummary: research?.summary ?? '',
     segment: lead.segment ?? '',
     state: lead.state ?? '',
-    tradeName: lead.tradeName ?? '',
-    trade_name: lead.tradeName ?? '',
+    tradeName: leadNameForPrompt(lead, lead.tradeName),
+    trade_name: leadNameForPrompt(lead, lead.tradeName),
     whatsappNumber: lead.whatsappNumber,
     sdrName: agent.displayName,
     productName: agent.productName ?? '',
@@ -142,12 +176,17 @@ function interpolate(template: string, agent: SdrAgent, lead: Lead, research: Le
 
 function buildFallbackFirstMessage(agent: SdrAgent, lead: Lead, research: LeadResearchResult | null): string {
   const segment = lead.segment ? ` do setor de ${lead.segment}` : '';
-  const product = agent.productName ? ` sobre ${agent.productName}` : '';
+  const city = lead.city ? ` em ${lead.city}` : '';
+  const displayName = leadDisplayName(lead);
+  const companyMention = displayName ? ` e encontrei a ${displayName}` : '';
+  const context = segment || city || companyMention ? ` Estava olhando empresas${segment}${city}${companyMention}.` : '';
+  const target = operationTarget(lead);
+
   if (research?.summary) {
-    return `Olá, tudo bem? Aqui é ${agent.displayName}. Vi que ${summarizeForMessage(research.summary)}. Queria entender um pouco melhor a operação da ${lead.companyName}${product}. Posso te fazer uma pergunta rápida?`;
+    return `Olá, tudo bem? Aqui é ${agent.displayName}. Vi que ${summarizeForMessage(research.summary)}. Posso te fazer uma pergunta rápida sobre o dia a dia ${target}?`;
   }
 
-  return `Olá, tudo bem? Aqui é ${agent.displayName}. Estava olhando empresas${segment} e queria entender um pouco melhor a operação da ${lead.companyName}${product}. Posso te fazer uma pergunta rápida?`;
+  return `Olá, tudo bem? Aqui é ${agent.displayName}.${context} Posso te fazer uma pergunta rápida sobre o dia a dia ${target}?`;
 }
 
 function apiKeyFor(agent: SdrAgent): string | null {
@@ -187,8 +226,8 @@ ${qualificationPrompt}`,
     {
       role: 'user',
       content: `Produto/servico: ${agent.productName ?? ''}
-Empresa lead: ${lead.companyName}
-Nome fantasia: ${lead.tradeName ?? ''}
+Empresa lead: ${leadNameForPrompt(lead, lead.companyName)}
+Nome fantasia: ${leadNameForPrompt(lead, lead.tradeName)}
 CNPJ: ${lead.cnpj ?? ''}
 Contato/dono: ${lead.contactName ?? ''}
 Segmento: ${lead.segment ?? ''}
@@ -317,8 +356,8 @@ ${configuredPrompt || 'Abordagem consultiva e curta.'}
 
 Nome do SDR: ${agent.displayName}
 Produto/servico: ${agent.productName ?? ''}
-Empresa lead: ${lead.companyName}
-Nome fantasia: ${lead.tradeName ?? ''}
+Empresa lead: ${leadNameForPrompt(lead, lead.companyName)}
+Nome fantasia: ${leadNameForPrompt(lead, lead.tradeName)}
 Contato/dono: ${lead.contactName ?? ''}
 CNPJ: ${lead.cnpj ?? ''}
 Segmento lead: ${lead.segment ?? ''}
