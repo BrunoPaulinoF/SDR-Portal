@@ -963,6 +963,8 @@ describe('initial outreach scheduler', () => {
       name: 'sdr-insumo-smart',
       displayName: 'Franciely',
       isActive: true,
+      prompt: 'PROMPT PRINCIPAL PESADO NAO DEVE ENTRAR NA PRIMEIRA MENSAGEM.',
+      offerDescription: 'OFERTA LONGA NAO DEVE ENTRAR NA PRIMEIRA MENSAGEM.',
       firstMessagePrompt: 'Use um tom consultivo para {{companyName}}.',
       openaiApiKeyEncrypted: encryptSecret('openai-key'),
       uazapiBaseUrl: 'https://api.uazapi.com',
@@ -1014,8 +1016,11 @@ describe('initial outreach scheduler', () => {
 
     expect(response.statusCode).toBe(200);
     expect(aiCalls[0]).toContain('openai:gpt-4o-mini');
-    expect(aiCalls[0]).toContain('Comandos internos disponiveis');
+    expect(aiCalls[0]).toContain('Voce escreve apenas a primeira mensagem de abordagem para WhatsApp.');
     expect(aiCalls[0]).toContain('Use um tom consultivo para Restaurante IA.');
+    expect(aiCalls[0]).not.toContain('Comandos internos disponiveis');
+    expect(aiCalls[0]).not.toContain('PROMPT PRINCIPAL PESADO NAO DEVE ENTRAR NA PRIMEIRA MENSAGEM.');
+    expect(aiCalls[0]).not.toContain('OFERTA LONGA NAO DEVE ENTRAR NA PRIMEIRA MENSAGEM.');
     expect(calls).toContain(
       'text:5511777777777:Oi, tudo bem? Vi a Restaurante IA e queria entender a operação de vocês. Posso fazer uma pergunta rápida?:instance-token',
     );
@@ -1666,6 +1671,7 @@ describe('UAZAPI webhook routes', () => {
       displayName: 'Franciely',
       isActive: true,
       prompt: 'Responda de forma breve.',
+      firstMessagePrompt: 'PROMPT DA PRIMEIRA MENSAGEM NAO DEVE ENTRAR EM RESPOSTAS.',
       openaiApiKeyEncrypted: encryptSecret('openai-key'),
       uazapiBaseUrl: 'https://api.uazapi.com',
       uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
@@ -1722,6 +1728,8 @@ describe('UAZAPI webhook routes', () => {
     expect(response.statusCode).toBe(200);
     expect(aiCalls[0]).toContain('openai:gpt-4o-mini');
     expect(aiCalls[0]).toContain('notify_handoff');
+    expect(aiCalls[0]).toContain('Responda de forma breve.');
+    expect(aiCalls[0]).not.toContain('PROMPT DA PRIMEIRA MENSAGEM NAO DEVE ENTRAR EM RESPOSTAS.');
     expect(uazapiCalls).toContain('text:5511999999999:Claro, posso te fazer uma pergunta rápida?:instance-token');
     expect(aiRuns[0]?.parsedJson).toContain('mensagem_usuario');
     expect(messages.some((message) => message.senderType === 'ai' && message.text === 'Claro, posso te fazer uma pergunta rápida?')).toBe(true);
