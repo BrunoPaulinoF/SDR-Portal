@@ -51,6 +51,29 @@ function formPayload(values: Record<string, string>): string {
   return new URLSearchParams(values).toString();
 }
 
+function multipartPayload(
+  boundary: string,
+  parts: Array<{ contentType?: string; data?: Buffer; filename?: string; name: string; value?: string }>,
+): Buffer {
+  const chunks: Buffer[] = [];
+
+  for (const part of parts) {
+    chunks.push(Buffer.from(`--${boundary}\r\n`));
+
+    if (part.filename) {
+      chunks.push(Buffer.from(`Content-Disposition: form-data; name="${part.name}"; filename="${part.filename}"\r\n`));
+      chunks.push(Buffer.from(`Content-Type: ${part.contentType ?? 'application/octet-stream'}\r\n\r\n`));
+      chunks.push(part.data ?? Buffer.alloc(0));
+      chunks.push(Buffer.from('\r\n'));
+    } else {
+      chunks.push(Buffer.from(`Content-Disposition: form-data; name="${part.name}"\r\n\r\n${part.value ?? ''}\r\n`));
+    }
+  }
+
+  chunks.push(Buffer.from(`--${boundary}--\r\n`));
+  return Buffer.concat(chunks);
+}
+
 function createMockUazapiClient(
   calls: string[],
   whatsappExistsByNumber: Record<string, boolean> = {},
@@ -831,6 +854,91 @@ describe('lead routes and import', () => {
     expect(leads).toHaveLength(2);
     expect(leads[0]?.whatsappNumber).toBe('5511999999999');
     expect(leads[0]?.source).toBe('import:leads.xlsx');
+  });
+
+  it('imports leads from Excel rows with manual column mapping', async () => {
+    const leadRepository = createMemoryLeadRepository();
+    const companyId = '56e5c1d4-bdb2-45ff-8cf4-23282a1969e5';
+    const sdrAgentId = '59ecb448-9f01-4f65-a728-b925db6ed082';
+    const buffer = await writeXlsxFile([
+      ['Cliente', 'Fone principal', 'Ramo'],
+      ['Mercado Central', '(11) 97777-7777', 'Varejo'],
+    ]).toBuffer();
+
+    const result = await importLeadsFromExcel({
+      buffer,
+      companyId,
+      fileName: 'leads-custom.xlsx',
+      leadRepository,
+      mapping: { companyName: 0, whatsappNumber: 1, segment: 2 },
+      sdrAgentId,
+    });
+    const [lead] = await leadRepository.list();
+
+    expect(result.successRows).toBe(1);
+    expect(result.errorRows).toBe(0);
+    expect(lead?.companyName).toBe('Mercado Central');
+    expect(lead?.whatsappNumber).toBe('5511977777777');
+    expect(lead?.segment).toBe('Varejo');
+  });
+
+  it('shows a column mapping screen before importing uploaded Excel leads', async () => {
+    const user = await createTestUser();
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const company = await companyRepository.create({
+      name: 'Insumo Smart',
+      legalName: null,
+      cnpj: null,
+      segment: 'Gastronomia',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({ companyId: company.id, name: 'sdr-insumo-smart', displayName: 'Franciely' });
+    const buffer = await writeXlsxFile([
+      ['Cliente', 'Fone principal'],
+      ['Padaria Centro', '(11) 96666-6666'],
+    ]).toBuffer();
+
+    app = buildApp({ authRepository: createMemoryAuthRepository([user]), companyRepository, sdrAgentRepository, leadRepository });
+    const sessionCookie = await login();
+    const boundary = '----sdrportaltestboundary';
+    const uploadResponse = await app.inject({
+      method: 'POST',
+      url: '/leads/import',
+      payload: multipartPayload(boundary, [
+        { name: 'companyId', value: company.id },
+        { name: 'sdrAgentId', value: agent.id },
+        { name: 'file', filename: 'leads.xlsx', contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', data: buffer },
+      ]),
+      headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+      cookies: { sdr_portal_session: sessionCookie },
+    });
+
+    expect(uploadResponse.statusCode).toBe(200);
+    expect(uploadResponse.body).toContain('Mapear colunas');
+    expect(uploadResponse.body).toContain('Cliente');
+    expect(await leadRepository.list()).toHaveLength(0);
+
+    const token = uploadResponse.body.match(/name="token" value="([^"]+)"/)?.[1];
+    expect(token).toBeTruthy();
+
+    const confirmResponse = await app.inject({
+      method: 'POST',
+      url: '/leads/import/confirm',
+      payload: formPayload({ token: token ?? '', companyName: '0', whatsappNumber: '1' }),
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      cookies: { sdr_portal_session: sessionCookie },
+    });
+    const [lead] = await leadRepository.list();
+
+    expect(confirmResponse.statusCode).toBe(200);
+    expect(confirmResponse.body).toContain('Importacao concluida');
+    expect(lead?.companyName).toBe('Padaria Centro');
+    expect(lead?.whatsappNumber).toBe('5511966666666');
   });
 });
 

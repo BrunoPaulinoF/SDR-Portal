@@ -1,5 +1,6 @@
 import type { AiRun, Company, JobLog, Lead, LeadImport, SdrAgent } from '../../db/schema.js';
 import { escapeHtml, renderLayout } from '../web/html.js';
+import { leadImportFields, type LeadExcelPreview, type LeadImportMapping } from './lead-importer.js';
 
 interface LeadFormData {
   companyId: string;
@@ -73,6 +74,32 @@ function renderSdrSelect(agents: SdrAgent[], selectedId: string): string {
     .map((agent) => `<option value="${agent.id}"${agent.id === selectedId ? ' selected' : ''}>${escapeHtml(agent.name)}</option>`)
     .join('');
   return `<div class="field"><label for="sdrAgentId">SDR</label><select id="sdrAgentId" name="sdrAgentId" required>${options}</select></div>`;
+}
+
+function renderColumnLabel(index: number, header: string): string {
+  return `${index + 1}. ${header || `Coluna ${index + 1}`}`;
+}
+
+function renderColumnSelect(preview: LeadExcelPreview, mapping: LeadImportMapping, field: (typeof leadImportFields)[number]): string {
+  const selectedIndex = mapping[field.key];
+  const emptyLabel = field.required ? 'Selecione uma coluna' : 'Nao importar';
+  const requiredAttribute = field.required ? ' required' : '';
+  const options = preview.headers
+    .map((header, index) => `<option value="${index}"${selectedIndex === index ? ' selected' : ''}>${escapeHtml(renderColumnLabel(index, header))}</option>`)
+    .join('');
+
+  return `<div class="field"><label for="${field.key}">${escapeHtml(field.label)}${field.required ? ' *' : ''}</label><select id="${field.key}" name="${field.key}"${requiredAttribute}><option value="">${emptyLabel}</option>${options}</select></div>`;
+}
+
+function renderExcelPreviewTable(preview: LeadExcelPreview): string {
+  const headerRow = preview.headers.map((header, index) => `<th>${escapeHtml(renderColumnLabel(index, header))}</th>`).join('');
+  const rows = preview.sampleRows.length
+    ? preview.sampleRows
+        .map((row) => `<tr>${preview.headers.map((_, index) => `<td>${escapeHtml(row[index] ?? '')}</td>`).join('')}</tr>`)
+        .join('')
+    : `<tr><td colspan="${Math.max(preview.headers.length, 1)}" class="muted">Nenhuma linha de dados encontrada na planilha.</td></tr>`;
+
+  return `<div class="table-wrap spacing-top"><table><thead><tr>${headerRow}</tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 function renderLeadForm(action: string, companies: Company[], agents: SdrAgent[], lead?: Lead, error?: string): string {
@@ -158,7 +185,27 @@ export function renderImportLeadsPage(companies: Company[], agents: SdrAgent[], 
 
   return renderLayout({
     title: 'Importar leads - SDR Portal',
-    body: `<main class="app-shell"><header class="topbar"><div><h1>Importar leads</h1><p class="muted">Envie um Excel com WhatsApp, CNPJ, empresa e segmento.</p></div><a class="button button-secondary" href="/leads">Voltar</a></header><section class="panel">${errorHtml}<form method="post" action="/leads/import" enctype="multipart/form-data" class="form-grid">${renderCompanySelect(companies, companies[0]?.id ?? '')}${renderSdrSelect(agents, agents[0]?.id ?? '')}<div class="field field-full"><label for="file">Arquivo .xlsx</label><input id="file" name="file" type="file" accept=".xlsx" required></div><div class="actions field-full"><button type="submit">Importar</button></div></form></section>${importTable}</main>`,
+    body: `<main class="app-shell"><header class="topbar"><div><h1>Importar leads</h1><p class="muted">Envie um Excel para conferir e mapear as colunas antes de importar.</p></div><a class="button button-secondary" href="/leads">Voltar</a></header><section class="panel">${errorHtml}<form method="post" action="/leads/import" enctype="multipart/form-data" class="form-grid">${renderCompanySelect(companies, companies[0]?.id ?? '')}${renderSdrSelect(agents, agents[0]?.id ?? '')}<div class="field field-full"><label for="file">Arquivo .xlsx</label><input id="file" name="file" type="file" accept=".xlsx" required></div><div class="actions field-full"><button type="submit">Continuar para mapeamento</button></div></form></section>${importTable}</main>`,
+  });
+}
+
+interface ImportMappingPageOptions {
+  agentName: string;
+  companyName: string;
+  error?: string;
+  fileName: string;
+  mapping: LeadImportMapping;
+  preview: LeadExcelPreview;
+  token: string;
+}
+
+export function renderImportMappingPage(options: ImportMappingPageOptions): string {
+  const errorHtml = options.error ? `<div class="alert-error">${escapeHtml(options.error)}</div>` : '';
+  const mappingFields = leadImportFields.map((field) => renderColumnSelect(options.preview, options.mapping, field)).join('');
+
+  return renderLayout({
+    title: 'Mapear colunas - SDR Portal',
+    body: `<main class="app-shell"><header class="topbar"><div><h1>Mapear colunas</h1><p class="muted">Arquivo: ${escapeHtml(options.fileName)} | Empresa: ${escapeHtml(options.companyName)} | SDR: ${escapeHtml(options.agentName)}</p></div><a class="button button-secondary" href="/leads/import">Cancelar</a></header><section class="panel">${errorHtml}<p class="muted">Escolha qual coluna do Excel corresponde a cada campo do lead. WhatsApp e nome da empresa sao obrigatorios.</p><form method="post" action="/leads/import/confirm" class="form-grid"><input type="hidden" name="token" value="${escapeHtml(options.token)}">${mappingFields}<div class="actions field-full"><button type="submit">Confirmar importacao</button><a class="button button-secondary" href="/leads/import">Enviar outro arquivo</a></div></form></section><section class="panel spacing-top"><h2>Previa da planilha</h2><p class="muted">${options.preview.totalRows} linha(s) de dados. Mostrando ate 5 linhas para conferencia.</p>${renderExcelPreviewTable(options.preview)}</section></main>`,
   });
 }
 

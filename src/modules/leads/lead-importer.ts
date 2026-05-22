@@ -1,24 +1,46 @@
 import { readSheet } from 'read-excel-file/node';
 
-import type { LeadInput, LeadRepository } from './lead-repository.js';
+import type { LeadRepository } from './lead-repository.js';
+
+export const leadImportFields = [
+  { key: 'whatsappNumber', label: 'WhatsApp', required: true },
+  { key: 'companyName', label: 'Nome da empresa', required: true },
+  { key: 'cnpj', label: 'CNPJ', required: false },
+  { key: 'tradeName', label: 'Nome fantasia', required: false },
+  { key: 'segment', label: 'Segmento', required: false },
+  { key: 'city', label: 'Cidade', required: false },
+  { key: 'state', label: 'Estado/UF', required: false },
+  { key: 'contactName', label: 'Nome do contato', required: false },
+] as const;
+
+export type LeadImportField = (typeof leadImportFields)[number]['key'];
+export type LeadImportMapping = Partial<Record<LeadImportField, number>>;
 
 interface ImportLeadsInput {
   buffer: Buffer;
   companyId: string;
   fileName: string;
   leadRepository: LeadRepository;
+  mapping?: LeadImportMapping;
   sdrAgentId: string;
 }
 
 interface ImportLeadsResult {
   errorRows: number;
   errors: string[];
-  mapping: Record<string, number>;
+  mapping: LeadImportMapping;
   successRows: number;
   totalRows: number;
 }
 
-const aliases: Record<keyof Pick<LeadInput, 'whatsappNumber' | 'cnpj' | 'companyName' | 'tradeName' | 'segment' | 'city' | 'state' | 'contactName'>, string[]> = {
+export interface LeadExcelPreview {
+  headers: string[];
+  mapping: LeadImportMapping;
+  sampleRows: string[][];
+  totalRows: number;
+}
+
+const aliases: Record<LeadImportField, string[]> = {
   whatsappNumber: ['numero whatsapp', 'numero do whatsapp', 'whatsapp', 'telefone', 'celular', 'numero', 'phone'],
   cnpj: ['cnpj', 'documento'],
   companyName: ['nome da empresa', 'empresa', 'razao social', 'company name', 'nome empresa'],
@@ -52,25 +74,59 @@ function normalizePhone(value: unknown): string {
   return digits;
 }
 
-function buildMapping(headers: unknown[]): Record<string, number> {
+function buildMapping(headers: unknown[]): LeadImportMapping {
   const normalizedHeaders = headers.map(normalizeHeader);
-  const mapping: Record<string, number> = {};
+  const mapping: LeadImportMapping = {};
 
-  for (const [field, fieldAliases] of Object.entries(aliases)) {
+  for (const field of leadImportFields) {
+    const fieldAliases = aliases[field.key];
     const normalizedAliases = fieldAliases.map(normalizeHeader);
     const index = normalizedHeaders.findIndex((header) => normalizedAliases.includes(header));
 
     if (index >= 0) {
-      mapping[field] = index;
+      mapping[field.key] = index;
     }
   }
 
   return mapping;
 }
 
-function valueByMapping(row: unknown[], mapping: Record<string, number>, field: string): string {
+function sanitizeMapping(mapping: LeadImportMapping, headerCount: number): LeadImportMapping {
+  const sanitized: LeadImportMapping = {};
+
+  for (const field of leadImportFields) {
+    const index = mapping[field.key];
+
+    if (Number.isInteger(index) && typeof index === 'number' && index >= 0 && index < headerCount) {
+      sanitized[field.key] = index;
+    }
+  }
+
+  return sanitized;
+}
+
+function valueByMapping(row: unknown[], mapping: LeadImportMapping, field: LeadImportField): string {
   const index = mapping[field];
   return typeof index === 'number' ? cellToString(row[index]) : '';
+}
+
+export async function inspectLeadExcel(buffer: Buffer): Promise<LeadExcelPreview> {
+  const rows = await readSheet(buffer);
+  const [headers, ...dataRows] = rows;
+
+  if (!headers) {
+    return { headers: [], mapping: {}, sampleRows: [], totalRows: 0 };
+  }
+
+  const stringHeaders = headers.map(cellToString);
+  const sampleRows = dataRows.slice(0, 5).map((row) => stringHeaders.map((_, index) => cellToString(row[index])));
+
+  return {
+    headers: stringHeaders,
+    mapping: buildMapping(headers),
+    sampleRows,
+    totalRows: dataRows.length,
+  };
 }
 
 export async function importLeadsFromExcel(input: ImportLeadsInput): Promise<ImportLeadsResult> {
@@ -82,7 +138,7 @@ export async function importLeadsFromExcel(input: ImportLeadsInput): Promise<Imp
     return { errorRows: 0, errors: ['Planilha vazia.'], mapping: {}, successRows: 0, totalRows: 0 };
   }
 
-  const mapping = buildMapping(headers);
+  const mapping = input.mapping ? sanitizeMapping(input.mapping, headers.length) : buildMapping(headers);
 
   if (typeof mapping.whatsappNumber !== 'number' || typeof mapping.companyName !== 'number') {
     return {
