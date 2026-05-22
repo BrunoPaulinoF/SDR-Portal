@@ -33,6 +33,10 @@ export interface DownloadMessageInput extends UazapiCredentials {
   openaiApiKey?: string;
 }
 
+export interface CheckChatsInput extends UazapiCredentials {
+  numbers: string[];
+}
+
 export interface UazapiResult {
   status: number;
   ok: boolean;
@@ -40,6 +44,7 @@ export interface UazapiResult {
 }
 
 export interface UazapiClient {
+  checkChats(input: CheckChatsInput): Promise<UazapiResult>;
   configureWebhook(input: ConfigureWebhookInput): Promise<UazapiResult>;
   downloadMessage(input: DownloadMessageInput): Promise<UazapiResult>;
   getInstanceStatus(input: UazapiCredentials): Promise<UazapiResult>;
@@ -84,6 +89,13 @@ async function request(path: string, credentials: UazapiCredentials, init: Reque
 
 export function createHttpUazapiClient(): UazapiClient {
   return {
+    checkChats(input) {
+      return request('/chat/check', input, {
+        method: 'POST',
+        body: JSON.stringify({ numbers: input.numbers }),
+      });
+    },
+
     configureWebhook(input) {
       return request('/webhook', input, {
         method: 'POST',

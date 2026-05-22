@@ -42,6 +42,7 @@ export interface LeadRepository {
   markInboundReceived(id: string, receivedAt: Date): Promise<Lead | null>;
   markFollowupSent(id: string, sentAt: Date): Promise<Lead | null>;
   markDiscarded(id: string, discardedAt: Date): Promise<Lead | null>;
+  markInvalidPhone(id: string, markedAt: Date): Promise<Lead | null>;
   markNotInterested(id: string, markedAt: Date): Promise<Lead | null>;
   markTransferred(id: string, transferredAt: Date, summary: string): Promise<Lead | null>;
   markInitialSent(id: string, sentAt: Date, followupDueAt?: Date | null): Promise<Lead | null>;
@@ -249,6 +250,20 @@ export function createMemoryLeadRepository(seedLeads: Lead[] = []): LeadReposito
         conversationStage: 'discarded',
         followupDisabledAt: current.followupDisabledAt ?? discardedAt,
         updatedAt: discardedAt,
+      };
+      rows.set(id, lead);
+      return lead;
+    },
+
+    async markInvalidPhone(id, markedAt) {
+      const current = rows.get(id);
+      if (!current) return null;
+      const lead: Lead = {
+        ...current,
+        status: 'invalid_phone',
+        conversationStage: 'discarded',
+        followupDisabledAt: current.followupDisabledAt ?? markedAt,
+        updatedAt: markedAt,
       };
       rows.set(id, lead);
       return lead;

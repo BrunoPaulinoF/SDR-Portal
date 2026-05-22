@@ -47,6 +47,7 @@ export interface DashboardCompanyRow {
   discarded: number;
   followupsSent: number;
   handoffs: number;
+  invalidPhone: number;
   leadsTotal: number;
   outboundMessages: number;
   pending: number;
@@ -74,6 +75,7 @@ export interface DashboardViewModel {
     followupsDue: number;
     handoffs: number;
     initialSent: number;
+    invalidPhone: number;
     jobErrors: number;
     outboundMessages: number;
     pending: number;
@@ -100,6 +102,7 @@ export const leadStatusOptions = [
   { value: 'transferred', label: 'Handoff feito' },
   { value: 'not_interested', label: 'Sem interesse' },
   { value: 'discarded', label: 'Descartado' },
+  { value: 'invalid_phone', label: 'Telefone inexistente' },
   { value: 'human_paused', label: 'Pausado por humano' },
 ];
 
@@ -382,6 +385,7 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
   const handoffs = scopedLeads.filter((lead) => isDateInPeriod(lead.handoffRequestedAt, start, now)).length;
   const notInterested = scopedLeads.filter((lead) => isDateInPeriod(lead.notInterestedAt, start, now)).length;
   const discarded = scopedLeads.filter((lead) => lead.status === 'discarded' && isDateInPeriod(lead.updatedAt, start, now)).length;
+  const invalidPhone = scopedLeads.filter((lead) => lead.status === 'invalid_phone' && isDateInPeriod(lead.updatedAt, start, now)).length;
   const created = scopedLeads.filter((lead) => isDateInPeriod(lead.createdAt, start, now)).length;
   const outboundMessages = messagesInPeriod.filter((message) => message.direction === 'outbound').length;
   const inboundMessages = messagesInPeriod.filter((message) => message.direction === 'inbound').length;
@@ -423,6 +427,7 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
     { value: 'in_conversation', label: 'Em conversa agora' },
     { value: 'transferred', label: 'Handoffs' },
     { value: 'discarded', label: 'Descartados' },
+    { value: 'invalid_phone', label: 'Telefone inexistente' },
     { value: 'not_interested', label: 'Sem interesse' },
   ];
   const funnelValues = new Map<string, number>([
@@ -432,6 +437,7 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
     ['in_conversation', scopedLeads.filter((lead) => lead.status === 'in_conversation').length],
     ['transferred', handoffs],
     ['discarded', discarded],
+    ['invalid_phone', invalidPhone],
     ['not_interested', notInterested],
   ]);
   const funnelBase = Math.max(created, initialSent, scopedLeads.length, 1);
@@ -457,6 +463,7 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
         discarded: companyLeads.filter((lead) => lead.status === 'discarded' && isDateInPeriod(lead.updatedAt, start, now)).length,
         followupsSent: companyLeads.filter((lead) => isDateInPeriod(lead.followupSentAt, start, now)).length,
         handoffs: companyLeads.filter((lead) => isDateInPeriod(lead.handoffRequestedAt, start, now)).length,
+        invalidPhone: companyLeads.filter((lead) => lead.status === 'invalid_phone' && isDateInPeriod(lead.updatedAt, start, now)).length,
         leadsTotal: companyLeads.length,
         outboundMessages: companyMessages.filter((message) => message.direction === 'outbound').length,
         pending: companyLeads.filter((lead) => lead.status === 'pending').length,
@@ -493,6 +500,7 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
       { label: 'Follow-ups feitos', value: String(followupsSent), help: `${followupsDue} follow-up(s) vencido(s) agora.` },
       { label: 'Taxa de resposta', value: responseRate, help: 'Leads que responderam / abordagens iniciais.' },
       { label: 'Descartados', value: String(discarded), help: 'Leads bloqueados antes do primeiro contato por baixo fit.' },
+      { label: 'Telefone inexistente', value: String(invalidPhone), help: 'Leads descartados porque o numero nao existe no WhatsApp.' },
       { label: 'Fila pendente', value: String(pending), help: `${readyCount} SDR(s) pronto(s), ${blockedCount} bloqueado(s).` },
       { label: 'Conversas abertas', value: String(activeConversations), help: 'Conversas com status open no filtro atual.' },
       { label: 'Tokens IA', value: String(totalTokens), help: `${aiRunsInPeriod.length} chamada(s), ${aiErrors} erro(s).` },
@@ -507,6 +515,7 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
       followupsDue,
       handoffs,
       initialSent,
+      invalidPhone,
       jobErrors,
       outboundMessages,
       pending,

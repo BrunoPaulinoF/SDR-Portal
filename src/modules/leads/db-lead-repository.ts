@@ -174,6 +174,20 @@ export function createDbLeadRepository(): LeadRepository {
       return lead ?? null;
     },
 
+    async markInvalidPhone(id, markedAt) {
+      const [lead] = await db
+        .update(leads)
+        .set({
+          status: 'invalid_phone',
+          conversationStage: 'discarded',
+          followupDisabledAt: markedAt,
+          updatedAt: markedAt,
+        })
+        .where(eq(leads.id, id))
+        .returning();
+      return lead ?? null;
+    },
+
     async markFollowupSent(id, sentAt) {
       const [lead] = await db
         .update(leads)

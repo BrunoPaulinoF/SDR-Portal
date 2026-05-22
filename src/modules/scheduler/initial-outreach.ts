@@ -36,6 +36,20 @@ interface LeadFitAssessment {
   reason: string;
 }
 
+interface ProcessAgentResult {
+  errors: number;
+  sent: number;
+  skipped: number;
+}
+
+interface UazapiChatCheckItem {
+  error?: string;
+  isInWhatsapp?: boolean;
+  jid?: string;
+  query?: string;
+  verifiedName?: string;
+}
+
 function nowParts(now: Date, timeZone: string): { day: number; minutes: number } {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone,
@@ -399,24 +413,60 @@ function getCredentials(agent: SdrAgent): { baseUrl: string; token: string } | n
   };
 }
 
+function emptyProcessResult(): ProcessAgentResult {
+  return { errors: 0, sent: 0, skipped: 0 };
+}
+
+function skippedProcessResult(): ProcessAgentResult {
+  return { errors: 0, sent: 0, skipped: 1 };
+}
+
+function errorProcessResult(skipped = 0): ProcessAgentResult {
+  return { errors: 1, sent: 0, skipped };
+}
+
+function sentProcessResult(skipped = 0): ProcessAgentResult {
+  return { errors: 0, sent: 1, skipped };
+}
+
+function chatCheckItem(body: unknown): UazapiChatCheckItem | null {
+  if (!Array.isArray(body)) return null;
+  const [first] = body;
+  return first && typeof first === 'object' ? first as UazapiChatCheckItem : null;
+}
+
+async function checkWhatsappExists(
+  deps: InitialOutreachDependencies,
+  credentials: { baseUrl: string; token: string },
+  whatsappNumber: string,
+): Promise<{ body: unknown; exists: boolean }> {
+  const result = await deps.uazapiClient.checkChats({ ...credentials, numbers: [whatsappNumber] });
+  if (!result.ok) throw new Error(`UAZAPI chat check returned HTTP ${result.status}`);
+
+  const item = chatCheckItem(result.body);
+  if (typeof item?.isInWhatsapp !== 'boolean') throw new Error('UAZAPI chat check returned invalid payload');
+
+  return { body: result.body, exists: item.isInWhatsapp };
+}
+
 export function createInitialOutreachService(deps: InitialOutreachDependencies) {
-  async function processAgent(agent: SdrAgent, now: Date, details: string[]): Promise<'sent' | 'skipped' | 'error'> {
+  async function processAgent(agent: SdrAgent, now: Date, details: string[]): Promise<ProcessAgentResult> {
     const startedAt = new Date();
 
     if (!agent.isActive) {
       details.push(`${agent.name}: SDR inativo.`);
-      return 'skipped';
+      return skippedProcessResult();
     }
 
     if (!isInsideSendWindow(agent, now)) {
       details.push(`${agent.name}: fora da janela de envio.`);
-      return 'skipped';
+      return skippedProcessResult();
     }
 
     const sentToday = await deps.leadRepository.countInitialSentForSdrSince(agent.id, startOfDayInLocalApprox(now));
     if (sentToday >= agent.dailyInitialSendLimit) {
       details.push(`${agent.name}: limite diario atingido.`);
-      return 'skipped';
+      return skippedProcessResult();
     }
 
     const lastSent = await deps.leadRepository.findLastInitialSentForSdr(agent.id);
@@ -425,14 +475,8 @@ export function createInitialOutreachService(deps: InitialOutreachDependencies) 
       const cooldownMinutes = randomCooldownMinutes(agent);
       if (elapsedMinutes < cooldownMinutes) {
         details.push(`${agent.name}: aguardando cooldown.`);
-        return 'skipped';
+        return skippedProcessResult();
       }
-    }
-
-    const lead = await deps.leadRepository.findNextPendingForSdr(agent.id);
-    if (!lead) {
-      details.push(`${agent.name}: nenhum lead pendente.`);
-      return 'skipped';
     }
 
     try {
@@ -441,58 +485,94 @@ export function createInitialOutreachService(deps: InitialOutreachDependencies) 
         throw new Error('SDR sem URL/token UAZAPI configurado.');
       }
 
-      const research = await deps.leadResearchService.researchLead({ agent, lead });
-      const assessment = await assessLeadForInitialOutreach(deps, agent, lead, research);
-      if (!assessment.qualified) {
-        await deps.leadRepository.markDiscarded(lead.id, now);
+      let skipped = 0;
+
+      while (true) {
+        const lead = await deps.leadRepository.findNextPendingForSdr(agent.id);
+        if (!lead) {
+          if (skipped === 0) {
+            details.push(`${agent.name}: nenhum lead pendente.`);
+            return skippedProcessResult();
+          }
+          details.push(`${agent.name}: nenhum outro lead pendente apos descartes.`);
+          return { ...emptyProcessResult(), skipped };
+        }
+
+        const phoneCheck = await checkWhatsappExists(deps, credentials, lead.whatsappNumber);
+        if (!phoneCheck.exists) {
+          await deps.leadRepository.markInvalidPhone(lead.id, now);
+          await deps.jobLogRepository.create({
+            jobName: 'initial-outreach',
+            jobKey: `invalid-phone-${lead.id}`,
+            sdrAgentId: agent.id,
+            leadId: lead.id,
+            status: 'skipped',
+            attempt: 1,
+            payload: JSON.stringify({ number: lead.whatsappNumber, companyName: lead.companyName }),
+            result: JSON.stringify({ phoneExists: false, uazapi: phoneCheck.body }),
+            error: null,
+            startedAt,
+            finishedAt: new Date(),
+          });
+          skipped += 1;
+          details.push(`${agent.name}: telefone inexistente no WhatsApp para ${lead.companyName}.`);
+          continue;
+        }
+
+        const research = await deps.leadResearchService.researchLead({ agent, lead });
+        const assessment = await assessLeadForInitialOutreach(deps, agent, lead, research);
+        if (!assessment.qualified) {
+          await deps.leadRepository.markDiscarded(lead.id, now);
+          await deps.jobLogRepository.create({
+            jobName: 'initial-outreach',
+            jobKey: `discarded-${lead.id}`,
+            sdrAgentId: agent.id,
+            leadId: lead.id,
+            status: 'skipped',
+            attempt: 1,
+            payload: JSON.stringify({ number: lead.whatsappNumber, companyName: lead.companyName }),
+            result: JSON.stringify({ reason: assessment.reason, researchSummary: research?.summary ?? null }),
+            error: null,
+            startedAt,
+            finishedAt: new Date(),
+          });
+          skipped += 1;
+          details.push(`${agent.name}: lead descartado antes do envio (${assessment.reason}).`);
+          continue;
+        }
+
+        const text = await buildFirstMessage(deps, agent, lead, research);
+        await deps.uazapiClient.sendPresence({ ...credentials, number: lead.whatsappNumber, presence: 'composing', delay: 1000 });
+        const result = await deps.uazapiClient.sendText({
+          ...credentials,
+          number: lead.whatsappNumber,
+          text,
+          readchat: true,
+          trackSource: 'sdr-portal-initial',
+          trackId: `initial-${lead.id}`,
+        });
+
+        if (!result.ok) {
+          throw new Error(`UAZAPI returned HTTP ${result.status}`);
+        }
+
+        await deps.leadRepository.markInitialSent(lead.id, now, followupDueAt(agent, now));
         await deps.jobLogRepository.create({
           jobName: 'initial-outreach',
-          jobKey: `discarded-${lead.id}`,
+          jobKey: `initial-${lead.id}`,
           sdrAgentId: agent.id,
           leadId: lead.id,
-          status: 'skipped',
+          status: 'completed',
           attempt: 1,
-          payload: JSON.stringify({ number: lead.whatsappNumber, companyName: lead.companyName }),
-          result: JSON.stringify({ reason: assessment.reason, researchSummary: research?.summary ?? null }),
+          payload: JSON.stringify({ number: lead.whatsappNumber, text }),
+          result: JSON.stringify(result.body),
           error: null,
           startedAt,
           finishedAt: new Date(),
         });
-        details.push(`${agent.name}: lead descartado antes do envio (${assessment.reason}).`);
-        return 'skipped';
+        details.push(`${agent.name}: mensagem enviada para ${lead.companyName}.`);
+        return sentProcessResult(skipped);
       }
-
-      const text = await buildFirstMessage(deps, agent, lead, research);
-      await deps.uazapiClient.sendPresence({ ...credentials, number: lead.whatsappNumber, presence: 'composing', delay: 1000 });
-      const result = await deps.uazapiClient.sendText({
-        ...credentials,
-        number: lead.whatsappNumber,
-        text,
-        readchat: true,
-        trackSource: 'sdr-portal-initial',
-        trackId: `initial-${lead.id}`,
-      });
-
-      if (!result.ok) {
-        throw new Error(`UAZAPI returned HTTP ${result.status}`);
-      }
-
-      await deps.leadRepository.markInitialSent(lead.id, now, followupDueAt(agent, now));
-      await deps.jobLogRepository.create({
-        jobName: 'initial-outreach',
-        jobKey: `initial-${lead.id}`,
-        sdrAgentId: agent.id,
-        leadId: lead.id,
-        status: 'completed',
-        attempt: 1,
-        payload: JSON.stringify({ number: lead.whatsappNumber, text }),
-        result: JSON.stringify(result.body),
-        error: null,
-        startedAt,
-        finishedAt: new Date(),
-      });
-      details.push(`${agent.name}: mensagem enviada para ${lead.companyName}.`);
-      return 'sent';
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro desconhecido.';
       await deps.jobLogRepository.create({
@@ -509,7 +589,7 @@ export function createInitialOutreachService(deps: InitialOutreachDependencies) 
         finishedAt: new Date(),
       });
       details.push(`${agent.name}: erro ${message}`);
-      return 'error';
+      return errorProcessResult();
     }
   }
 
@@ -519,10 +599,10 @@ export function createInitialOutreachService(deps: InitialOutreachDependencies) 
       const result: InitialOutreachResult = { sent: 0, skipped: 0, errors: 0, details: [] };
 
       for (const agent of agents) {
-        const status = await processAgent(agent, now, result.details);
-        if (status === 'sent') result.sent += 1;
-        if (status === 'skipped') result.skipped += 1;
-        if (status === 'error') result.errors += 1;
+        const agentResult = await processAgent(agent, now, result.details);
+        result.sent += agentResult.sent;
+        result.skipped += agentResult.skipped;
+        result.errors += agentResult.errors;
       }
 
       return result;

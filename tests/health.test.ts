@@ -51,10 +51,22 @@ function formPayload(values: Record<string, string>): string {
   return new URLSearchParams(values).toString();
 }
 
-function createMockUazapiClient(calls: string[]): UazapiClient {
+function createMockUazapiClient(calls: string[], whatsappExistsByNumber: Record<string, boolean> = {}): UazapiClient {
   const ok = (body: unknown): UazapiResult => ({ status: 200, ok: true, body });
 
   return {
+    async checkChats(input) {
+      calls.push(`check:${input.numbers.join(',')}:${input.token}`);
+      return ok(
+        input.numbers.map((number) => ({
+          query: number,
+          jid: whatsappExistsByNumber[number] === false ? undefined : `${number}@s.whatsapp.net`,
+          isInWhatsapp: whatsappExistsByNumber[number] ?? true,
+          verifiedName: whatsappExistsByNumber[number] === false ? undefined : 'Contato Teste',
+        })),
+      );
+    },
+
     async configureWebhook(input) {
       calls.push(`webhook:${input.url}:${input.token}`);
       return ok({ response: 'webhook configured' });
@@ -279,6 +291,21 @@ describe('auth routes', () => {
       status: 'pending',
       source: 'manual',
     });
+    const invalidPhoneLead = await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511555555555',
+      companyName: 'Contato Sem WhatsApp',
+      cnpj: null,
+      tradeName: null,
+      segment: 'Gastronomia',
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'pending',
+      source: 'manual',
+    });
     const now = new Date();
     await leadRepository.markInitialSent(handoffLead.id, new Date(now.getTime() - 90 * 60 * 1000), null);
     await leadRepository.markInboundReceived(handoffLead.id, new Date(now.getTime() - 80 * 60 * 1000));
@@ -286,6 +313,7 @@ describe('auth routes', () => {
     await leadRepository.markInitialSent(followupLead.id, new Date(now.getTime() - 48 * 60 * 60 * 1000), new Date(now.getTime() - 60 * 60 * 1000));
     await leadRepository.markFollowupSent(followupLead.id, new Date(now.getTime() - 30 * 60 * 1000));
     await leadRepository.markDiscarded(discardedLead.id, new Date(now.getTime() - 20 * 60 * 1000));
+    await leadRepository.markInvalidPhone(invalidPhoneLead.id, new Date(now.getTime() - 10 * 60 * 1000));
     const conversation = await conversationRepository.create({
       companyId: company.id,
       sdrAgentId: agent.id,
@@ -346,6 +374,8 @@ describe('auth routes', () => {
     expect(response.body).toContain('Handoffs');
     expect(response.body).toContain('Follow-ups feitos');
     expect(response.body).toContain('Descartados');
+    expect(response.body).toContain('Telefone inexistente');
+    expect(response.body).toContain('Tel. inexistente');
     expect(response.body).toContain('Proximos disparos por SDR');
     expect(response.body).toContain('Restaurante Pendente');
     expect(response.body).toContain(`/leads/${pendingLead.id}`);
@@ -874,6 +904,7 @@ describe('initial outreach scheduler', () => {
     expect(updatedLead?.firstMessageSentAt).toBeInstanceOf(Date);
     expect(updatedLead?.followupDueAt).toBeInstanceOf(Date);
     expect(calls).toEqual([
+      'check:5511999999999:instance-token',
       'presence:5511999999999:composing:instance-token',
       'text:5511999999999:Olá, tudo bem? Aqui é Franciely. Estava olhando empresas do setor de Gastronomia e queria entender um pouco melhor a operação da Restaurante A. Posso te fazer uma pergunta rápida?:instance-token',
     ]);
@@ -1146,7 +1177,7 @@ describe('initial outreach scheduler', () => {
     expect(updatedLead?.status).toBe('discarded');
     expect(updatedLead?.conversationStage).toBe('discarded');
     expect(updatedLead?.followupDisabledAt).toBeInstanceOf(Date);
-    expect(calls).toEqual([]);
+    expect(calls).toEqual(['check:5511555555555:instance-token']);
     expect(aiCalls).toHaveLength(1);
     expect(aiCalls[0]).toContain('web:low');
     expect(aiCalls[0]).toContain('lead deve receber abordagem fria');
@@ -1155,6 +1186,224 @@ describe('initial outreach scheduler', () => {
     expect(aiRuns[0]?.purpose).toBe('lead_fit_assessment');
     expect(logs[0]?.status).toBe('skipped');
     expect(logs[0]?.result).toContain('Atuacao individual sem operacao empresarial estruturada.');
+  });
+
+  it('skips invalid WhatsApp phones and sends to the next pending lead', async () => {
+    const user = await createTestUser();
+    const calls: string[] = [];
+    const researchCalls: string[] = [];
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const jobLogRepository = createMemoryJobLogRepository();
+    const company = await companyRepository.create({
+      name: 'Insumo Smart',
+      legalName: null,
+      cnpj: null,
+      segment: 'Gastronomia',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'sdr-insumo-smart',
+      displayName: 'Franciely',
+      isActive: true,
+      uazapiBaseUrl: 'https://api.uazapi.com',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+      sendDaysOfWeek: '0,1,2,3,4,5,6',
+      sendWindowStart: '00:00',
+      sendWindowEnd: '23:59',
+      initialCooldownMinMinutes: 0,
+      initialCooldownMaxMinutes: 0,
+      dailyInitialSendLimit: 10,
+    });
+    const invalidLead = await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511444444444',
+      companyName: 'Contato Sem WhatsApp',
+      cnpj: null,
+      tradeName: null,
+      segment: 'Gastronomia',
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'pending',
+      source: 'manual',
+    });
+    const validLead = await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511333333333',
+      companyName: 'Restaurante Valido',
+      cnpj: null,
+      tradeName: null,
+      segment: 'Gastronomia',
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'pending',
+      source: 'manual',
+    });
+
+    app = buildApp({
+      authRepository: createMemoryAuthRepository([user]),
+      companyRepository,
+      jobLogRepository,
+      leadResearchProvider: createMockLeadResearchProvider(researchCalls, null),
+      leadRepository,
+      sdrAgentRepository,
+      uazapiClient: createMockUazapiClient(calls, { [invalidLead.whatsappNumber]: false }),
+    });
+    const sessionCookie = await login();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/scheduler/initial-outreach/run',
+      cookies: { sdr_portal_session: sessionCookie },
+    });
+
+    const invalidUpdated = await leadRepository.findById(invalidLead.id);
+    const validUpdated = await leadRepository.findById(validLead.id);
+    const logs = await jobLogRepository.list();
+    const logByKey = new Map(logs.map((log) => [log.jobKey, log]));
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain('Enviadas: 1');
+    expect(response.body).toContain('Ignoradas: 1');
+    expect(invalidUpdated?.status).toBe('invalid_phone');
+    expect(invalidUpdated?.conversationStage).toBe('discarded');
+    expect(invalidUpdated?.followupDisabledAt).toBeInstanceOf(Date);
+    expect(validUpdated?.status).toBe('initial_sent');
+    expect(validUpdated?.firstMessageSentAt).toBeInstanceOf(Date);
+    expect(researchCalls.join('\n')).not.toContain('Contato Sem WhatsApp');
+    expect(researchCalls.join('\n')).toContain('Restaurante Valido');
+    expect(calls).toEqual([
+      'check:5511444444444:instance-token',
+      'check:5511333333333:instance-token',
+      'presence:5511333333333:composing:instance-token',
+      'text:5511333333333:Olá, tudo bem? Aqui é Franciely. Estava olhando empresas do setor de Gastronomia e queria entender um pouco melhor a operação da Restaurante Valido. Posso te fazer uma pergunta rápida?:instance-token',
+    ]);
+    expect(logByKey.get(`invalid-phone-${invalidLead.id}`)?.status).toBe('skipped');
+    expect(logByKey.get(`invalid-phone-${invalidLead.id}`)?.result).toContain('phoneExists');
+    expect(logByKey.get(`initial-${validLead.id}`)?.status).toBe('completed');
+  });
+
+  it('continues to the next lead after a low-fit discard', async () => {
+    const user = await createTestUser();
+    const calls: string[] = [];
+    const aiCalls: string[] = [];
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const aiRunRepository = createMemoryAiRunRepository();
+    const company = await companyRepository.create({
+      name: 'Kybernan',
+      legalName: null,
+      cnpj: null,
+      segment: 'Consultoria',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'kyane',
+      displayName: 'Kyane',
+      isActive: true,
+      firstMessagePrompt: 'Crie uma abordagem personalizada para {{companyName}}.',
+      openaiApiKeyEncrypted: encryptSecret('openai-key'),
+      uazapiBaseUrl: 'https://api.uazapi.com',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+      sendDaysOfWeek: '0,1,2,3,4,5,6',
+      sendWindowStart: '00:00',
+      sendWindowEnd: '23:59',
+      initialCooldownMinMinutes: 120,
+      initialCooldownMaxMinutes: 120,
+      dailyInitialSendLimit: 10,
+    });
+    const lowFitLead = await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511222222222',
+      companyName: 'Contato Individual',
+      cnpj: null,
+      tradeName: null,
+      segment: 'Servico individual',
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'pending',
+      source: 'manual',
+    });
+    const qualifiedLead = await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511111111111',
+      companyName: 'Empresa Qualificada',
+      cnpj: null,
+      tradeName: null,
+      segment: 'Industria',
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'pending',
+      source: 'manual',
+    });
+
+    app = buildApp({
+      aiClient: createSequencedMockAiClient(aiCalls, [
+        JSON.stringify({ qualified: false, reason: 'Perfil individual sem operacao empresarial.' }),
+        JSON.stringify({ qualified: true, reason: 'Empresa com operacao.' }),
+        '{"mensagem_usuario":"Oi, vi a Empresa Qualificada e queria entender a operação. Posso fazer uma pergunta rápida?","nao_responder":false,"status_sugerido":"initial_sent","actions":[]}',
+      ]),
+      aiRunRepository,
+      authRepository: createMemoryAuthRepository([user]),
+      companyRepository,
+      leadRepository,
+      sdrAgentRepository,
+      uazapiClient: createMockUazapiClient(calls),
+    });
+    const sessionCookie = await login();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/scheduler/initial-outreach/run',
+      cookies: { sdr_portal_session: sessionCookie },
+    });
+
+    const lowFitUpdated = await leadRepository.findById(lowFitLead.id);
+    const qualifiedUpdated = await leadRepository.findById(qualifiedLead.id);
+    const aiRuns = await aiRunRepository.list();
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain('Enviadas: 1');
+    expect(response.body).toContain('Ignoradas: 1');
+    expect(lowFitUpdated?.status).toBe('discarded');
+    expect(qualifiedUpdated?.status).toBe('initial_sent');
+    expect(calls).toEqual([
+      'check:5511222222222:instance-token',
+      'check:5511111111111:instance-token',
+      'presence:5511111111111:composing:instance-token',
+      'text:5511111111111:Oi, vi a Empresa Qualificada e queria entender a operação. Posso fazer uma pergunta rápida?:instance-token',
+    ]);
+    expect(aiCalls).toHaveLength(3);
+    expect(aiCalls[0]).toContain('web:low');
+    expect(aiCalls[1]).toContain('web:low');
+    expect(aiCalls[2]).toContain('web:medium');
+    expect(aiRuns.map((run) => run.purpose).sort()).toEqual([
+      'first_message_generation',
+      'lead_fit_assessment',
+      'lead_fit_assessment',
+    ]);
   });
 
   it('falls back to a safe first message when AI generation fails', async () => {
