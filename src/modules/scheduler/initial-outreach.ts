@@ -4,6 +4,7 @@ import type { AiChatMessage, AiClient } from '../ai/ai-client.js';
 import type { AiRunRepository } from '../ai/ai-run-repository.js';
 import { parseAiResponse } from '../ai/ai-response.js';
 import type { JobLogRepository } from '../jobs/job-log-repository.js';
+import { DEFAULT_LEAD_QUALIFICATION_PROMPT } from '../leads/lead-qualification-prompt.js';
 import type { LeadResearchResult, LeadResearchService } from '../leads/lead-research-service.js';
 import type { LeadRepository } from '../leads/lead-repository.js';
 import { decryptSecret } from '../security/secrets.js';
@@ -93,13 +94,6 @@ function truncate(value: string, maxLength: number): string {
   return value.length > maxLength ? `${value.slice(0, maxLength - 3).trim()}...` : value;
 }
 
-function normalizeForSearch(value: string): string {
-  return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase();
-}
-
 function parseJsonObject(value: string): Record<string, unknown> {
   const trimmed = value.trim();
   const jsonStart = trimmed.indexOf('{');
@@ -149,21 +143,8 @@ function apiKeyFor(agent: SdrAgent): string | null {
   return agent.openaiApiKeyEncrypted ? decryptSecret(agent.openaiApiKeyEncrypted) : (env.OPENAI_API_KEY ?? null);
 }
 
-function obviousLowFitReason(lead: Lead, research: LeadResearchResult | null): string | null {
-  const text = normalizeForSearch(
-    [lead.companyName, lead.tradeName, lead.segment, lead.contactName, lead.extraData, research?.summary].filter(Boolean).join(' '),
-  );
-  const lowFitPatterns = [
-    { pattern: /\bmotorista de aplicativo\b|\buber\b|\b99\b/, reason: 'Perfil parece ser motorista de aplicativo/autonomo, sem operacao empresarial clara.' },
-    { pattern: /\bfaxineir[ao]\b|\bdiarista\b|\bservico domestico\b|\bservicos domesticos\b/, reason: 'Perfil parece ser servico domestico/autonomo, sem fit para mentoria empresarial.' },
-    { pattern: /\bmicroempreendedor individual\b|\bmei\b/, reason: 'Perfil parece ser MEI individual, abaixo do fit esperado para consultoria/mentoria estrategica.' },
-    { pattern: /\bpessoa fisica\b|\bautonom[oa]\b|\bprofissional liberal\b/, reason: 'Perfil parece ser pessoa fisica/autonomo, sem empresa estruturada identificada.' },
-  ];
-
-  return lowFitPatterns.find((item) => item.pattern.test(text))?.reason ?? null;
-}
-
 function leadQualificationMessages(agent: SdrAgent, lead: Lead, research: LeadResearchResult | null): AiChatMessage[] {
+  const qualificationPrompt = agent.leadQualificationPrompt?.trim() || DEFAULT_LEAD_QUALIFICATION_PROMPT;
   return [
     {
       role: 'system',
@@ -177,8 +158,12 @@ Campos obrigatorios:
   "reason": "motivo curto"
 }
 
-Use "qualified": false somente quando houver evidencia forte de baixo fit, como MEI individual, motorista de aplicativo, faxineira/diarista, servico domestico, pessoa fisica/autonoma ou ausencia clara de operacao empresarial.
-Se os dados forem insuficientes, mantenha "qualified": true para evitar descarte indevido.`,
+Use o prompt configurado para decidir o fit.
+Use "qualified": false somente quando houver evidencia forte de que o lead nao se encaixa no perfil desejado.
+Se os dados forem insuficientes, mantenha "qualified": true para evitar descarte indevido.
+
+Prompt configurado para este SDR:
+${qualificationPrompt}`,
     },
     {
       role: 'user',
@@ -210,8 +195,6 @@ async function assessLeadForInitialOutreach(
   lead: Lead,
   research: LeadResearchResult | null,
 ): Promise<LeadFitAssessment> {
-  const lowFitReason = obviousLowFitReason(lead, research);
-  if (lowFitReason) return { qualified: false, reason: lowFitReason };
   if (!research?.summary.trim()) return { qualified: true, reason: 'Sem pesquisa suficiente para descartar com seguranca.' };
 
   const apiKey = apiKeyFor(agent);

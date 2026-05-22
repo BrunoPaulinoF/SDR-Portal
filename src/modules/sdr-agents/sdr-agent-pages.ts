@@ -1,5 +1,6 @@
 import type { Company, SdrAgent } from '../../db/schema.js';
 import { SDR_BASE_PROMPT } from '../ai/sdr-base-prompt.js';
+import { DEFAULT_LEAD_QUALIFICATION_PROMPT } from '../leads/lead-qualification-prompt.js';
 import { escapeHtml, renderLayout } from '../web/html.js';
 
 interface SdrAgentFormData {
@@ -12,6 +13,7 @@ interface SdrAgentFormData {
   offerDescription: string;
   prompt: string;
   firstMessagePrompt: string;
+  leadQualificationPrompt: string;
   followupPrompt: string;
   aiProvider: string;
   aiModel: string;
@@ -122,13 +124,14 @@ Resumo: {{summary}}`;
 
 const fieldHelp: Partial<Record<keyof SdrAgentFormData, string>> = {
   aiMaxOutputTokens: 'Limite aproximado de tokens que a IA pode gerar. Para WhatsApp, 800 a 2000 costuma ser suficiente; modelos reasoning podem usar mais internamente.',
-  aiModel: 'Modelo usado por este SDR. Ex: gpt-4o-mini para velocidade/custo, gpt-5.4-mini para reasoning com mais qualidade.',
+  aiModel: 'Modelo usado por este SDR. Padrao: gpt-5.4-mini. Pode trocar por outro modelo compativel quando quiser.',
   aiProvider: 'Escolha onde a IA sera chamada. OpenAI usa sua chave OpenAI; OpenRouter usa sua chave OpenRouter.',
   aiTemperature: 'Controla variacao/criatividade. Para SDR, valores baixos como 0.3 a 0.6 tendem a ser mais consistentes.',
   dailyFollowupSendLimit: 'Maximo de follow-ups enviados por este SDR em um dia.',
   dailyInitialSendLimit: 'Maximo de primeiras mensagens enviadas por este SDR em um dia.',
   displayName: 'Nome que a IA usa ao se apresentar na conversa. Ex: Kyane.',
   firstMessagePrompt: 'Instrucao usada pela IA para criar a primeira mensagem. Pode usar as variaveis listadas abaixo.',
+  leadQualificationPrompt: 'Prompt usado antes da primeira mensagem para decidir se o lead deve ser abordado ou descartado. A IA deve retornar qualified=false apenas quando houver baixo fit claro.',
   followupAfterHours: 'Quantidade de horas apos a primeira mensagem para tentar o follow-up unico.',
   followupCooldownMaxMinutes: 'Intervalo maximo entre follow-ups automaticos.',
   followupCooldownMinMinutes: 'Intervalo minimo entre follow-ups automaticos.',
@@ -172,9 +175,10 @@ const defaultForm: SdrAgentFormData = {
   offerDescription: exampleOfferDescription,
   prompt: exampleMainPrompt,
   firstMessagePrompt: exampleFirstMessagePrompt,
+  leadQualificationPrompt: DEFAULT_LEAD_QUALIFICATION_PROMPT,
   followupPrompt: exampleFollowupPrompt,
   aiProvider: 'openai',
-  aiModel: 'gpt-4o-mini',
+  aiModel: 'gpt-5.4-mini',
   aiTemperature: '0.4',
   aiMaxOutputTokens: '800',
   openaiApiKeyEncrypted: '',
@@ -221,6 +225,7 @@ function agentToForm(agent?: SdrAgent): SdrAgentFormData {
     offerDescription: agent.offerDescription ?? '',
     prompt: agent.prompt ?? '',
     firstMessagePrompt: agent.firstMessagePrompt ?? '',
+    leadQualificationPrompt: agent.leadQualificationPrompt ?? DEFAULT_LEAD_QUALIFICATION_PROMPT,
     followupPrompt: agent.followupPrompt ?? '',
     aiProvider: agent.aiProvider,
     aiModel: agent.aiModel,
@@ -318,7 +323,13 @@ function renderFirstMessageVariables(): string {
   const variables: Array<[string, string]> = [
     ['{{companyName}}', 'nome da empresa lead'],
     ['{{company_name}}', 'alias de companyName'],
+    ['{{tradeName}}', 'nome fantasia do lead'],
+    ['{{contactName}}', 'nome do contato/dono'],
+    ['{{cnpj}}', 'CNPJ do lead'],
     ['{{segment}}', 'segmento do lead'],
+    ['{{city}}', 'cidade do lead'],
+    ['{{state}}', 'estado do lead'],
+    ['{{extraData}}', 'dados extras importados'],
     ['{{whatsappNumber}}', 'WhatsApp do lead'],
     ['{{sdrName}}', 'nome do SDR'],
     ['{{productName}}', 'produto/servico'],
@@ -392,6 +403,7 @@ function renderSdrAgentForm(action: string, companies: Company[], agent?: SdrAge
       ${renderTextArea('prompt', 'Prompt editavel do SDR', data.prompt, 10)}
       ${renderTextArea('firstMessagePrompt', 'Prompt da primeira mensagem', data.firstMessagePrompt, 6)}
       ${renderFirstMessageVariables()}
+      ${renderTextArea('leadQualificationPrompt', 'Prompt de qualificacao e descarte do lead', data.leadQualificationPrompt, 10)}
       ${renderTextArea('followupPrompt', 'Prompt de follow-up', data.followupPrompt, 5)}
         `,
         true,

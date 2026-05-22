@@ -467,6 +467,8 @@ describe('SDR agent routes', () => {
     expect(newPageResponse.statusCode).toBe(200);
     expect(newPageResponse.body).toContain('Direcionamento estrategico gratuito');
     expect(newPageResponse.body).toContain('Prompt editavel do SDR');
+    expect(newPageResponse.body).toContain('Prompt de qualificacao e descarte do lead');
+    expect(newPageResponse.body).toContain('gpt-5.4-mini');
     expect(newPageResponse.body).toContain('{{companyName}}');
     expect(newPageResponse.body).toContain('help-tooltip');
 
@@ -478,6 +480,7 @@ describe('SDR agent routes', () => {
         name: 'sdr-insumo-smart',
         displayName: 'Franciely',
         productName: 'Consultoria CMV',
+        leadQualificationPrompt: 'Descartar apenas leads sem empresa estruturada.',
         aiProvider: 'openai',
         aiModel: 'gpt-4o-mini',
         aiTemperature: '0.4',
@@ -517,6 +520,7 @@ describe('SDR agent routes', () => {
     expect(createdAgent?.displayName).toBe('Franciely');
     expect(createdAgent?.companyId).toBe(company.id);
     expect(createdAgent?.followupEnabled).toBe(true);
+    expect(createdAgent?.leadQualificationPrompt).toBe('Descartar apenas leads sem empresa estruturada.');
 
     const listResponse = await app.inject({
       method: 'GET',
@@ -537,6 +541,7 @@ describe('SDR agent routes', () => {
         companyId: company.id,
         name: 'sdr-insumo-smart-v2',
         displayName: 'Fran',
+        leadQualificationPrompt: 'Aceitar domesticas neste SDR.',
         aiProvider: 'openrouter',
         aiModel: 'openai/gpt-4o-mini',
         aiTemperature: '0.5',
@@ -571,6 +576,7 @@ describe('SDR agent routes', () => {
     expect(updatedAgent?.displayName).toBe('Fran');
     expect(updatedAgent?.aiProvider).toBe('openrouter');
     expect(updatedAgent?.followupEnabled).toBe(false);
+    expect(updatedAgent?.leadQualificationPrompt).toBe('Aceitar domesticas neste SDR.');
 
     const toggleResponse = await app.inject({
       method: 'POST',
@@ -1032,7 +1038,7 @@ describe('initial outreach scheduler', () => {
     const aiRuns = await aiRunRepository.list();
 
     expect(response.statusCode).toBe(200);
-    expect(aiCalls[0]).toContain('openai:gpt-4o-mini');
+    expect(aiCalls[0]).toContain('openai:gpt-5.4-mini');
     expect(aiCalls[0]).toContain('Voce escreve apenas a primeira mensagem de abordagem para WhatsApp.');
     expect(aiCalls[0]).toContain('Use um tom consultivo para Restaurante IA.');
     expect(aiCalls[0]).not.toContain('Comandos internos disponiveis');
@@ -1074,6 +1080,7 @@ describe('initial outreach scheduler', () => {
       isActive: true,
       productName: 'Mentoria de Planejamento Estrategico',
       firstMessagePrompt: 'Crie uma abordagem personalizada para {{companyName}}.',
+      leadQualificationPrompt: 'Descartar perfis individuais sem operacao empresarial clara.',
       openaiApiKeyEncrypted: encryptSecret('openai-key'),
       uazapiBaseUrl: 'https://api.uazapi.com',
       uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
@@ -1139,6 +1146,7 @@ describe('initial outreach scheduler', () => {
     expect(calls).toEqual([]);
     expect(aiCalls).toHaveLength(1);
     expect(aiCalls[0]).toContain('lead deve receber abordagem fria');
+    expect(aiCalls[0]).toContain('Descartar perfis individuais sem operacao empresarial clara.');
     expect(aiCalls[0]).not.toContain('Crie uma primeira mensagem para este lead.');
     expect(aiRuns[0]?.purpose).toBe('lead_fit_assessment');
     expect(logs[0]?.status).toBe('skipped');
@@ -1842,7 +1850,7 @@ describe('UAZAPI webhook routes', () => {
     const aiRuns = await aiRunRepository.list();
 
     expect(response.statusCode).toBe(200);
-    expect(aiCalls[0]).toContain('openai:gpt-4o-mini');
+    expect(aiCalls[0]).toContain('openai:gpt-5.4-mini');
     expect(aiCalls[0]).toContain('notify_handoff');
     expect(aiCalls[0]).toContain('Responda de forma breve.');
     expect(aiCalls[0]).not.toContain('PROMPT DA PRIMEIRA MENSAGEM NAO DEVE ENTRAR EM RESPOSTAS.');
