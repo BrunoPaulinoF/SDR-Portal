@@ -3,6 +3,7 @@ import type { JobLogRepository } from '../jobs/job-log-repository.js';
 import type { LeadRepository } from '../leads/lead-repository.js';
 import { decryptSecret } from '../security/secrets.js';
 import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
+import { startOfDayInTimeZone } from '../timezone.js';
 import type { UazapiClient } from '../uazapi/uazapi-client.js';
 
 export interface FollowupOutreachResult {
@@ -49,12 +50,6 @@ function isInsideSendWindow(agent: SdrAgent, now: Date): boolean {
   if (!days.has(current.day)) return false;
   if (start <= end) return current.minutes >= start && current.minutes <= end;
   return current.minutes >= start || current.minutes <= end;
-}
-
-function startOfDayInLocalApprox(now: Date): Date {
-  const date = new Date(now);
-  date.setHours(0, 0, 0, 0);
-  return date;
 }
 
 function randomCooldownMinutes(agent: SdrAgent): number {
@@ -107,7 +102,7 @@ export function createFollowupOutreachService(deps: FollowupOutreachDependencies
       return 'skipped';
     }
 
-    const sentToday = await deps.leadRepository.countFollowupSentForSdrSince(agent.id, startOfDayInLocalApprox(now));
+    const sentToday = await deps.leadRepository.countFollowupSentForSdrSince(agent.id, startOfDayInTimeZone(now, agent.timezone));
     if (sentToday >= agent.dailyFollowupSendLimit) {
       details.push(`${agent.name}: limite diario de follow-ups atingido.`);
       return 'skipped';

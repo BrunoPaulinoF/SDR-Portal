@@ -11,6 +11,7 @@ import type { LeadRepository } from '../leads/lead-repository.js';
 import { normalizeWhatsappJid, whatsappIdentityFromUazapiSendResult, whatsappNumberFromUazapiSendResult } from '../phone/whatsapp-number.js';
 import { decryptSecret } from '../security/secrets.js';
 import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
+import { startOfDayInTimeZone } from '../timezone.js';
 import type { UazapiClient } from '../uazapi/uazapi-client.js';
 
 export interface InitialOutreachResult {
@@ -89,12 +90,6 @@ function isInsideSendWindow(agent: SdrAgent, now: Date): boolean {
   }
 
   return current.minutes >= start || current.minutes <= end;
-}
-
-function startOfDayInLocalApprox(now: Date): Date {
-  const date = new Date(now);
-  date.setHours(0, 0, 0, 0);
-  return date;
 }
 
 function randomCooldownMinutes(agent: SdrAgent): number {
@@ -539,7 +534,7 @@ export function createInitialOutreachService(deps: InitialOutreachDependencies) 
       return skippedProcessResult();
     }
 
-    const sentToday = await deps.leadRepository.countInitialSentForSdrSince(agent.id, startOfDayInLocalApprox(now));
+    const sentToday = await deps.leadRepository.countInitialSentForSdrSince(agent.id, startOfDayInTimeZone(now, agent.timezone));
     if (sentToday >= agent.dailyInitialSendLimit) {
       details.push(`${agent.name}: limite diario atingido.`);
       return skippedProcessResult();

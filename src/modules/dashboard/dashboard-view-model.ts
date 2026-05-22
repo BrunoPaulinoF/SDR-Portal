@@ -1,4 +1,5 @@
 import type { AiRun, Company, Conversation, JobLog, Lead, Message, SdrAgent } from '../../db/schema.js';
+import { formatDateTimeInTimeZone, startOfDayInTimeZone } from '../timezone.js';
 
 export type DashboardPeriod = 'today' | '7d' | '30d' | 'all';
 
@@ -167,16 +168,6 @@ function formatDuration(totalMinutes: number): string {
   return remainingHours ? `${days}d ${remainingHours}h` : `${days}d`;
 }
 
-function formatDateTime(value: Date | null | undefined): string {
-  if (!value) return '-';
-  return new Intl.DateTimeFormat('pt-BR', {
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    month: '2-digit',
-  }).format(value);
-}
-
 function nowParts(now: Date, timeZone: string): { day: number; minutes: number } {
   const parts = new Intl.DateTimeFormat('en-US', {
     hour: '2-digit',
@@ -218,12 +209,6 @@ function minutesUntilSendWindow(agent: SdrAgent, now: Date): number | null {
   return null;
 }
 
-function startOfToday(now: Date): Date {
-  const date = new Date(now);
-  date.setHours(0, 0, 0, 0);
-  return date;
-}
-
 function hasUazapiCredentials(agent: SdrAgent): boolean {
   return Boolean(agent.uazapiBaseUrl?.trim() && agent.uazapiInstanceTokenEncrypted?.trim());
 }
@@ -260,7 +245,7 @@ function isFollowupDue(lead: Lead, now: Date): boolean {
 function buildDispatchRow(agent: SdrAgent, company: Company | undefined, agentLeads: Lead[], now: Date): DashboardDispatchRow {
   const pending = agentLeads.filter((lead) => lead.status === 'pending');
   const nextLead = nextPendingLead(agentLeads);
-  const today = startOfToday(now);
+  const today = startOfDayInTimeZone(now, agent.timezone);
   const sentToday = countLeadEvents(agentLeads, 'firstMessageSentAt', today);
   const followupsSentToday = countLeadEvents(agentLeads, 'followupSentAt', today);
   const followupsDue = agentLeads.filter((lead) => isFollowupDue(lead, now)).length;
@@ -272,7 +257,7 @@ function buildDispatchRow(agent: SdrAgent, company: Company | undefined, agentLe
     companyName: company?.name ?? '-',
     followupsDue,
     followupsSentToday,
-    lastSentLabel: formatDateTime(lastSentAt),
+    lastSentLabel: formatDateTimeInTimeZone(lastSentAt, agent.timezone),
     nextLeadId: nextLead?.id ?? null,
     nextLeadName: nextLead?.companyName ?? '-',
     pendingCount: pending.length,
