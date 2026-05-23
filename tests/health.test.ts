@@ -1753,6 +1753,79 @@ describe('follow-up scheduler', () => {
     expect(logs[0]?.status).toBe('completed');
   });
 
+  it('does not send follow-up when the SDR follow-up is disabled', async () => {
+    const user = await createTestUser();
+    const calls: string[] = [];
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const company = await companyRepository.create({
+      name: 'Insumo Smart',
+      legalName: null,
+      cnpj: null,
+      segment: 'Gastronomia',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'sdr-insumo-smart',
+      displayName: 'Franciely',
+      isActive: true,
+      followupEnabled: false,
+      uazapiBaseUrl: 'https://api.uazapi.com',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+      sendDaysOfWeek: '0,1,2,3,4,5,6',
+      sendWindowStart: '00:00',
+      sendWindowEnd: '23:59',
+      followupCooldownMinMinutes: 0,
+      followupCooldownMaxMinutes: 0,
+      dailyFollowupSendLimit: 10,
+    });
+    const lead = await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511999999999',
+      companyName: 'Restaurante A',
+      cnpj: null,
+      tradeName: null,
+      segment: 'Gastronomia',
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'pending',
+      source: 'manual',
+    });
+    await leadRepository.markInitialSent(lead.id, new Date('2026-05-19T10:00:00.000Z'), new Date('2026-05-19T11:00:00.000Z'));
+
+    app = buildApp({
+      authRepository: createMemoryAuthRepository([user]),
+      companyRepository,
+      leadRepository,
+      sdrAgentRepository,
+      uazapiClient: createMockUazapiClient(calls),
+    });
+    const sessionCookie = await login();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/scheduler/followup/run',
+      cookies: { sdr_portal_session: sessionCookie },
+    });
+    const updatedLead = await leadRepository.findById(lead.id);
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain('Enviadas: 0');
+    expect(response.body).toContain('Ignoradas: 1');
+    expect(response.body).toContain('follow-up desativado');
+    expect(updatedLead?.status).toBe('initial_sent');
+    expect(updatedLead?.followupSentAt).toBeNull();
+    expect(calls).toEqual([]);
+  });
+
   it('does not send follow-up when the lead already replied', async () => {
     const user = await createTestUser();
     const calls: string[] = [];
