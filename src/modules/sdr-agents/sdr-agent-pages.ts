@@ -136,7 +136,7 @@ const fieldHelp: Partial<Record<keyof SdrAgentFormData, string>> = {
   followupCooldownMaxMinutes: 'Intervalo maximo entre follow-ups automaticos.',
   followupCooldownMinMinutes: 'Intervalo minimo entre follow-ups automaticos.',
   followupEnabled: 'Quando ativo, o sistema tenta enviar um unico follow-up se o lead nao responder.',
-  followupPrompt: 'Instrucao usada pela IA ou pelo template para criar o follow-up.',
+  followupPrompt: 'Instrucao usada pela IA para criar o follow-up. O sistema nao envia este texto literalmente.',
   handoffMessageTemplate: 'Mensagem enviada ao responsavel humano quando a IA solicita transferencia.',
   handoffName: 'Nome do responsavel ou time que recebe handoffs.',
   handoffPhone: 'WhatsApp que recebera avisos de transferencia para humano.',

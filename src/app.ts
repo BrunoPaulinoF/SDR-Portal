@@ -444,6 +444,8 @@ export function buildApp(options: AppOptions = {}): AppInstance {
     uazapiClient: uazapi,
   });
   const followupOutreach = createFollowupOutreachService({
+    aiClient: ai,
+    aiRunRepository: aiRuns,
     jobLogRepository: jobLogs,
     leadRepository: leads,
     sdrAgentRepository: sdrAgents,

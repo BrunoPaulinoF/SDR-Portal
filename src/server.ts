@@ -41,6 +41,8 @@ async function start(): Promise<void> {
     );
     const followupBoss = await startPgBossFollowupScheduler(
       createFollowupOutreachService({
+        aiClient: createHttpAiClient(),
+        aiRunRepository: createDbAiRunRepository(),
         jobLogRepository: createDbJobLogRepository(),
         leadRepository: createDbLeadRepository(),
         sdrAgentRepository: createDbSdrAgentRepository(),

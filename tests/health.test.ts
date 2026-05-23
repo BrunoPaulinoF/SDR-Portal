@@ -1669,10 +1669,12 @@ describe('follow-up scheduler', () => {
   it('sends one due follow-up and disables future follow-ups for the lead', async () => {
     const user = await createTestUser();
     const calls: string[] = [];
+    const aiCalls: string[] = [];
     const companyRepository = createMemoryCompanyRepository();
     const sdrAgentRepository = createMemorySdrAgentRepository();
     const leadRepository = createMemoryLeadRepository();
     const jobLogRepository = createMemoryJobLogRepository();
+    const aiRunRepository = createMemoryAiRunRepository();
     const company = await companyRepository.create({
       name: 'Insumo Smart',
       legalName: null,
@@ -1688,7 +1690,8 @@ describe('follow-up scheduler', () => {
       name: 'sdr-insumo-smart',
       displayName: 'Franciely',
       isActive: true,
-      followupPrompt: 'Oi {{companyName}}, posso retomar nossa conversa?',
+      followupPrompt: 'Crie um follow-up curto para {{companyName}} sem copiar esta instrucao literalmente.',
+      openaiApiKeyEncrypted: encryptSecret('openai-key'),
       uazapiBaseUrl: 'https://api.uazapi.com',
       uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
       sendDaysOfWeek: '0,1,2,3,4,5,6',
@@ -1716,6 +1719,8 @@ describe('follow-up scheduler', () => {
     await leadRepository.markInitialSent(lead.id, new Date('2026-05-19T10:00:00.000Z'), new Date('2026-05-19T11:00:00.000Z'));
 
     app = buildApp({
+      aiClient: createSequencedMockAiClient(aiCalls, ['{"mensagem_usuario":"Oi, tudo bem? Posso retomar nossa conversa rapidinho?","nao_responder":false,"actions":[]}']),
+      aiRunRepository,
       authRepository: createMemoryAuthRepository([user]),
       companyRepository,
       jobLogRepository,
@@ -1738,6 +1743,7 @@ describe('follow-up scheduler', () => {
 
     const updatedLead = await leadRepository.findById(lead.id);
     const logs = await jobLogRepository.list();
+    const aiRuns = await aiRunRepository.list();
 
     expect(response.statusCode).toBe(200);
     expect(response.body).toContain('Enviadas: 1');
@@ -1747,8 +1753,13 @@ describe('follow-up scheduler', () => {
     expect(updatedLead?.followupDisabledAt).toBeInstanceOf(Date);
     expect(calls).toEqual([
       'presence:5511999999999:composing:instance-token',
-      'text:5511999999999:Oi Restaurante A, posso retomar nossa conversa?:instance-token',
+      'text:5511999999999:Oi, tudo bem? Posso retomar nossa conversa rapidinho?:instance-token',
     ]);
+    expect(calls.join('\n')).not.toContain('Crie um follow-up curto');
+    expect(aiCalls).toHaveLength(1);
+    expect(aiCalls[0]).toContain('Crie um follow-up curto para Restaurante A');
+    expect(aiRuns[0]?.purpose).toBe('followup_message_generation');
+    expect(aiRuns[0]?.error).toBeNull();
     expect(logs[0]?.jobName).toBe('followup-outreach');
     expect(logs[0]?.status).toBe('completed');
   });
