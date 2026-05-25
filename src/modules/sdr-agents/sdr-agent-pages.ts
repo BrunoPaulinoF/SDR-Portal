@@ -105,7 +105,7 @@ Nao fale preco.
 Faca apenas uma pergunta simples para iniciar a conversa.
 Use no maximo 2 paragrafos curtos.`;
 
-const exampleFollowupPrompt = `Crie um follow-up curto e educado para um lead que recebeu a primeira mensagem, mas ainda nao respondeu.
+const exampleFollowupPrompt = `Crie um follow-up curto e educado para um lead que ja respondeu e precisa de retomada.
 
 Regras:
 Nao cobre resposta de forma agressiva.
@@ -132,10 +132,10 @@ const fieldHelp: Partial<Record<keyof SdrAgentFormData, string>> = {
   displayName: 'Nome que a IA usa ao se apresentar na conversa. Ex: Kyane.',
   firstMessagePrompt: 'Instrucao usada pela IA para criar a primeira mensagem. Pode usar as variaveis listadas abaixo.',
   leadQualificationPrompt: 'Prompt usado antes da primeira mensagem para decidir se o lead deve ser abordado ou descartado. A IA deve retornar qualified=false apenas quando houver baixo fit claro.',
-  followupAfterHours: 'Quantidade de horas apos a primeira mensagem para tentar o follow-up unico.',
+  followupAfterHours: 'Quantidade de horas apos a primeira mensagem para tentar o follow-up unico, somente se o lead ja respondeu.',
   followupCooldownMaxMinutes: 'Intervalo maximo entre follow-ups automaticos.',
   followupCooldownMinMinutes: 'Intervalo minimo entre follow-ups automaticos.',
-  followupEnabled: 'Quando ativo, o sistema tenta enviar um unico follow-up se o lead nao responder.',
+  followupEnabled: 'Quando ativo, o sistema tenta enviar um unico follow-up somente para leads que ja responderam.',
   followupPrompt: 'Instrucao usada pela IA para criar o follow-up. O sistema nao envia este texto literalmente.',
   handoffMessageTemplate: 'Mensagem enviada ao responsavel humano quando a IA solicita transferencia.',
   handoffName: 'Nome do responsavel ou time que recebe handoffs.',

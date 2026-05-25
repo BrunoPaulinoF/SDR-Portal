@@ -90,7 +90,8 @@ export function createDbLeadRepository(): LeadRepository {
         .where(
           and(
             eq(leads.sdrAgentId, sdrAgentId),
-            eq(leads.status, 'initial_sent'),
+            eq(leads.status, 'in_conversation'),
+            isNotNull(leads.lastInboundAt),
             lte(leads.followupDueAt, now),
             isNull(leads.followupSentAt),
             isNull(leads.followupDisabledAt),
@@ -153,7 +154,6 @@ export function createDbLeadRepository(): LeadRepository {
         .set({
           status: current?.status === 'transferred' || current?.status === 'not_interested' ? current.status : 'in_conversation',
           lastInboundAt: receivedAt,
-          followupDisabledAt: receivedAt,
           updatedAt: receivedAt,
         })
         .where(eq(leads.id, id))

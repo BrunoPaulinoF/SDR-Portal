@@ -1717,6 +1717,7 @@ describe('follow-up scheduler', () => {
       source: 'manual',
     });
     await leadRepository.markInitialSent(lead.id, new Date('2026-05-19T10:00:00.000Z'), new Date('2026-05-19T11:00:00.000Z'));
+    await leadRepository.markInboundReceived(lead.id, new Date('2026-05-19T10:30:00.000Z'));
 
     app = buildApp({
       aiClient: createSequencedMockAiClient(aiCalls, ['{"mensagem_usuario":"Oi, tudo bem? Posso retomar nossa conversa rapidinho?","nao_responder":false,"actions":[]}']),
@@ -1837,7 +1838,7 @@ describe('follow-up scheduler', () => {
     expect(calls).toEqual([]);
   });
 
-  it('does not send follow-up when the lead already replied', async () => {
+  it('does not send follow-up when the lead has not replied', async () => {
     const user = await createTestUser();
     const calls: string[] = [];
     const companyRepository = createMemoryCompanyRepository();
@@ -1882,7 +1883,6 @@ describe('follow-up scheduler', () => {
       source: 'manual',
     });
     await leadRepository.markInitialSent(lead.id, new Date('2026-05-19T10:00:00.000Z'), new Date('2026-05-19T11:00:00.000Z'));
-    await leadRepository.markInboundReceived(lead.id, new Date('2026-05-19T10:30:00.000Z'));
 
     app = buildApp({
       authRepository: createMemoryAuthRepository([user]),
@@ -1903,7 +1903,7 @@ describe('follow-up scheduler', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.body).toContain('Enviadas: 0');
-    expect(updatedLead?.status).toBe('in_conversation');
+    expect(updatedLead?.status).toBe('initial_sent');
     expect(updatedLead?.followupSentAt).toBeNull();
     expect(calls).toEqual([]);
   });
@@ -1981,7 +1981,7 @@ describe('UAZAPI webhook routes', () => {
     expect(messages[0]?.text).toBe('Oi, pode falar');
     expect(messages[0]?.senderType).toBe('lead');
     expect(updatedLead?.status).toBe('in_conversation');
-    expect(updatedLead?.followupDisabledAt).toBeInstanceOf(Date);
+    expect(updatedLead?.followupDisabledAt).toBeNull();
 
     const sessionCookie = await login();
     const conversationsPage = await app.inject({ method: 'GET', url: '/conversations', cookies: { sdr_portal_session: sessionCookie } });

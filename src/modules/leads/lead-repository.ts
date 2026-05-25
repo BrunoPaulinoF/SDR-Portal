@@ -171,7 +171,8 @@ export function createMemoryLeadRepository(seedLeads: Lead[] = []): LeadReposito
           .filter(
             (lead) =>
               lead.sdrAgentId === sdrAgentId &&
-              lead.status === 'initial_sent' &&
+              lead.status === 'in_conversation' &&
+              lead.lastInboundAt !== null &&
               lead.followupDueAt !== null &&
               lead.followupDueAt <= now &&
               lead.followupSentAt === null &&
@@ -229,7 +230,6 @@ export function createMemoryLeadRepository(seedLeads: Lead[] = []): LeadReposito
         ...current,
         status: current.status === 'transferred' || current.status === 'not_interested' ? current.status : 'in_conversation',
         lastInboundAt: receivedAt,
-        followupDisabledAt: receivedAt,
         updatedAt: receivedAt,
       };
       rows.set(id, lead);

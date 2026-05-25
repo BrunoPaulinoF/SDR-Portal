@@ -234,7 +234,8 @@ function lastInitialSent(leads: Lead[]): Lead | null {
 
 function isFollowupDue(lead: Lead, now: Date): boolean {
   return (
-    lead.status === 'initial_sent' &&
+    lead.status === 'in_conversation' &&
+    lead.lastInboundAt !== null &&
     lead.followupDueAt !== null &&
     lead.followupDueAt.getTime() <= now.getTime() &&
     lead.followupSentAt === null &&
