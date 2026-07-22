@@ -17,6 +17,7 @@ const envSchema = z
     DEFAULT_TIMEZONE: z.string().default('America/Sao_Paulo'),
     OPENAI_API_KEY: z.string().optional(),
     OPENROUTER_API_KEY: z.string().optional(),
+    DEEPSEEK_API_KEY: z.string().optional(),
     WEBHOOK_SHARED_SECRET: z.string().optional(),
     WEB_RESEARCH_ENDPOINT: optionalUrl,
     WEB_RESEARCH_API_KEY: z.string().optional(),
