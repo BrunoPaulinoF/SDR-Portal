@@ -57,12 +57,13 @@ export function buildSdrSystemPrompt(input: {
   productName?: string | null;
   sdrName: string;
 }): string {
-  // Ordem estavel -> volatil para maximizar o cache de prefixo do provider:
-  // 1) base global (SDR_BASE_PROMPT), 2) config estavel por SDR, 3) contexto volatil do lead.
-  // Nao mova dados do lead para cima nem injete valores volateis na regiao estavel.
+  // Ordem importa para cache de prompt: tudo que e igual em toda mensagem deste SDR
+  // (ate o fim do prompt editavel) fica antes; so o que muda por lead/turno vai depois,
+  // assim provedores com cache automatico por prefixo (DeepSeek, OpenAI, OpenRouter)
+  // reaproveitam o bloco estatico em quase todas as chamadas.
   return `${SDR_BASE_PROMPT}
 
-Configuracao do SDR:
+Contexto fixo deste SDR:
 - Nome do SDR: ${input.sdrName}
 - Produto/servico: ${input.productName ?? ''}
 - Oferta: ${input.offerDescription ?? ''}
@@ -70,7 +71,8 @@ Configuracao do SDR:
 Prompt editavel configurado pelo usuario:
 ${input.customPrompt?.trim() || 'Conduza uma conversa consultiva, objetiva e natural.'}
 
-Contexto do lead:
+---
+Dados desta conversa (mudam a cada lead/etapa, nao trate como regra geral):
 - Empresa/lead: ${input.leadName ?? input.companyName ?? ''}
 - WhatsApp do lead: ${input.leadWhatsapp ?? ''}
 - Segmento do lead: ${input.leadSegment ?? ''}

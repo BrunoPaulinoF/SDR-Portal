@@ -120,6 +120,24 @@ describe('HTTP AI client', () => {
     expect(headers['HTTP-Referer']).toBe('https://sdr-portal.local');
   });
 
+  it('calls the DeepSeek API directly and reports prompt cache hit tokens', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      mockJsonResponse({
+        choices: [{ message: { content: '{"mensagem_usuario":"Oi","nao_responder":false}' } }],
+        usage: { prompt_tokens: 500, completion_tokens: 20, total_tokens: 520, prompt_cache_hit_tokens: 480 },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await createHttpAiClient().generate({ ...baseInput, model: 'deepseek-v4-pro', provider: 'deepseek' });
+    const [url, request] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(request.body)) as Record<string, unknown>;
+
+    expect(url).toBe('https://api.deepseek.com/chat/completions');
+    expect(body.response_format).toEqual({ type: 'json_object' });
+    expect(result.promptCacheHitTokens).toBe(480);
+  });
+
   it('surfaces detailed provider errors', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       mockJsonResponse({ error: { message: "Unsupported parameter: 'max_tokens'" } }, 400),

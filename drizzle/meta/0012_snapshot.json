@@ -1,6 +1,6 @@
 {
-  "id": "11b757cc-90db-41aa-8766-3f6a3d996f46",
-  "prevId": "74f23625-3352-49fc-afe1-bd92d5d090bb",
+  "id": "06da31d8-0ed8-4d59-a82d-d9eeb0e235b2",
+  "prevId": "11b757cc-90db-41aa-8766-3f6a3d996f46",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -410,6 +410,93 @@
           "tableTo": "leads",
           "columnsFrom": [
             "lead_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.first_message_variants": {
+      "name": "first_message_variants",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "sdr_agent_id": {
+          "name": "sdr_agent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "body": {
+          "name": "body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "is_active": {
+          "name": "is_active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "sort_order": {
+          "name": "sort_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "assigned_count": {
+          "name": "assigned_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "first_message_variants_sdr_agent_id_sdr_agents_id_fk": {
+          "name": "first_message_variants_sdr_agent_id_sdr_agents_id_fk",
+          "tableFrom": "first_message_variants",
+          "tableTo": "sdr_agents",
+          "columnsFrom": [
+            "sdr_agent_id"
           ],
           "columnsTo": [
             "id"
@@ -880,6 +967,12 @@
           "notNull": true,
           "default": "'manual'"
         },
+        "first_message_variant_id": {
+          "name": "first_message_variant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "first_message_sent_at": {
           "name": "first_message_sent_at",
           "type": "timestamp with time zone",
@@ -993,6 +1086,19 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "leads_first_message_variant_id_first_message_variants_id_fk": {
+          "name": "leads_first_message_variant_id_first_message_variants_id_fk",
+          "tableFrom": "leads",
+          "tableTo": "first_message_variants",
+          "columnsFrom": [
+            "first_message_variant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -1226,6 +1332,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "first_message_mode": {
+          "name": "first_message_mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'ai'"
         },
         "ai_provider": {
           "name": "ai_provider",
