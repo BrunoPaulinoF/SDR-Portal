@@ -57,17 +57,22 @@ export function buildSdrSystemPrompt(input: {
   productName?: string | null;
   sdrName: string;
 }): string {
+  // Ordem estavel -> volatil para maximizar o cache de prefixo do provider:
+  // 1) base global (SDR_BASE_PROMPT), 2) config estavel por SDR, 3) contexto volatil do lead.
+  // Nao mova dados do lead para cima nem injete valores volateis na regiao estavel.
   return `${SDR_BASE_PROMPT}
 
-Contexto deste SDR:
+Configuracao do SDR:
 - Nome do SDR: ${input.sdrName}
 - Produto/servico: ${input.productName ?? ''}
 - Oferta: ${input.offerDescription ?? ''}
+
+Prompt editavel configurado pelo usuario:
+${input.customPrompt?.trim() || 'Conduza uma conversa consultiva, objetiva e natural.'}
+
+Contexto do lead:
 - Empresa/lead: ${input.leadName ?? input.companyName ?? ''}
 - WhatsApp do lead: ${input.leadWhatsapp ?? ''}
 - Segmento do lead: ${input.leadSegment ?? ''}
-- Etapa atual da conversa: ${input.conversationStage ?? 'permission'}
-
-Prompt editavel configurado pelo usuario:
-${input.customPrompt?.trim() || 'Conduza uma conversa consultiva, objetiva e natural.'}`;
+- Etapa atual da conversa: ${input.conversationStage ?? 'permission'}`;
 }

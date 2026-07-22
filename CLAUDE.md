@@ -15,6 +15,7 @@ npm run start        # run compiled dist/src/server.js
 npm run lint         # eslint .
 npm test             # vitest run (one-shot)
 npx vitest run tests/health.test.ts   # single test file
+npx vitest run -t "name substring"    # single test by name
 npx vitest           # watch mode
 npm run db:generate  # drizzle-kit generate (create migration from schema.ts)
 npm run db:migrate   # runs COMPILED dist/src/db/migrate.js — build first
@@ -43,6 +44,8 @@ Note: `db:migrate` and `admin:create` run **compiled** JS, so `npm run build` mu
 
 **Auth.** Cookie-session only, no library store. `session.ts` serializes `{userId}` into a signed cookie (`@fastify/cookie`). `access.ts` exposes `getCurrentUser` / `requireUser` (redirects to `/login`); page routes call `requireUser` at the top. Passwords hashed with argon2 (`auth/password.ts`).
 
+**Phone matching.** WhatsApp numbers are matched via `src/modules/phone/whatsapp-number.ts`, not raw string equality — `whatsappNumberVariants()` generates BR-number forms (with/without the 9th digit) so inbound webhooks resolve to the right lead. Use these helpers when looking up leads by number rather than comparing digits directly.
+
 **Rendering.** No template engine. `src/modules/web/html.ts` provides `escapeHtml` and the layout/nav shell; `*-pages.ts` files build HTML via template literals. Always `escapeHtml` user-derived values. Static assets served via `web/assets.ts`.
 
 ## Key domain flows
@@ -64,3 +67,17 @@ Lead lifecycle is a `status` string field (`pending` → `initial_sent` → `in_
 - ESLint bans `console` except `console.error` (`no-console`); use the Fastify logger (`app.log` / `request.log`) or `process.stderr` for structured output.
 - Add tests as `tests/*.test.ts` (vitest, `globals: false` so import `describe/it/expect` from `vitest`). Prefer testing pure logic and services against memory repositories rather than the DB.
 - UI strings and DB text values are Portuguese; match existing wording/spelling (including unaccented forms already in the codebase) rather than "correcting" them.
+
+## AI prompt ordering (prompt caching)
+
+**Whenever you create or change any AI prompt (system or user), order its content from most stable to least stable.** LLM providers (OpenAI, Gemini, OpenRouter, Anthropic) cache the longest identical *prefix* of a prompt and bill cache hits at ~10–25% of normal input price. Any byte change invalidates everything after it, so the stable content must physically come first for the cache to help. Ordering, from top to bottom:
+
+1. **Global / base rules** — identical across every SDR and lead (e.g. `SDR_BASE_PROMPT`, output-format rules, funnel stages). Never touch this region per request.
+2. **Per-SDR config** — stable across all of one SDR's conversations (product, offer, the SDR's editable `customPrompt`, SDR name).
+3. **Per-lead / volatile context** — changes every request (lead name, WhatsApp number, conversation stage, timestamps, IDs). Always last.
+
+Rules:
+- **Never interpolate volatile values (lead name/number, timestamps, UUIDs, per-request IDs) into the stable region** — it makes the whole prompt uncached.
+- Keep the stable prefix **byte-identical** across requests (no `Date.now()`, no reordered fields, deterministic serialization).
+- The stable prefix must reach the provider's minimum to cache (OpenAI: ~1024 tokens; Gemini/Anthropic: lower). Below that, nothing caches.
+- `buildSdrSystemPrompt` in `src/modules/ai/sdr-base-prompt.ts` is the reference: base first, then context. Preserve this stable→volatile order when editing it, and prefer moving per-SDR fields (offer, `customPrompt`) *above* per-lead fields.
