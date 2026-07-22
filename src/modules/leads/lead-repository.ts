@@ -50,6 +50,7 @@ export interface LeadRepository {
   updateWhatsappIdentity(id: string, identity: { jid?: string | null; lid?: string | null }, updatedAt: Date): Promise<Lead | null>;
   disableFollowup(id: string, disabledAt: Date): Promise<Lead | null>;
   updateStage(id: string, stage: string, updatedAt: Date): Promise<Lead | null>;
+  setFirstMessageVariant(id: string, variantId: string): Promise<Lead | null>;
   update(id: string, input: LeadInput): Promise<Lead | null>;
 }
 
@@ -71,6 +72,7 @@ function normalize(input: LeadInput): Omit<Lead, 'id' | 'createdAt' | 'updatedAt
     status: input.status ?? 'pending',
     conversationStage: 'permission',
     source: input.source ?? 'manual',
+    firstMessageVariantId: null,
     firstMessageSentAt: null,
     lastInboundAt: null,
     lastOutboundAt: null,
@@ -356,6 +358,14 @@ export function createMemoryLeadRepository(seedLeads: Lead[] = []): LeadReposito
       const current = rows.get(id);
       if (!current) return null;
       const lead: Lead = { ...current, conversationStage: stage, updatedAt };
+      rows.set(id, lead);
+      return lead;
+    },
+
+    async setFirstMessageVariant(id, variantId) {
+      const current = rows.get(id);
+      if (!current) return null;
+      const lead: Lead = { ...current, firstMessageVariantId: variantId, updatedAt: new Date() };
       rows.set(id, lead);
       return lead;
     },

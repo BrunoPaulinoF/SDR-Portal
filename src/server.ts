@@ -3,6 +3,7 @@ import { env } from './config/env.js';
 import { createHttpAiClient } from './modules/ai/ai-client.js';
 import { createDbAiRunRepository } from './modules/ai/db-ai-run-repository.js';
 import { createDbConversationRepository } from './modules/conversations/db-conversation-repository.js';
+import { createDbFirstMessageVariantRepository } from './modules/first-message-variants/db-first-message-variant-repository.js';
 import { createDbJobLogRepository } from './modules/jobs/db-job-log-repository.js';
 import { createDbLeadResearchRepository } from './modules/leads/db-lead-research-repository.js';
 import { createHttpLeadResearchProvider, createLeadResearchService } from './modules/leads/lead-research-service.js';
@@ -29,6 +30,7 @@ async function start(): Promise<void> {
         aiClient: createHttpAiClient(),
         aiRunRepository: createDbAiRunRepository(),
         conversationRepository: createDbConversationRepository(),
+        firstMessageVariantRepository: createDbFirstMessageVariantRepository(),
         jobLogRepository: createDbJobLogRepository(),
         leadResearchService: createLeadResearchService({
           provider: createHttpLeadResearchProvider(),

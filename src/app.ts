@@ -18,6 +18,11 @@ import { registerCompanyRoutes } from './modules/companies/company-routes.js';
 import { createMemoryConversationRepository, type ConversationRepository } from './modules/conversations/conversation-repository.js';
 import { registerConversationRoutes } from './modules/conversations/conversation-routes.js';
 import { registerDashboardRoutes } from './modules/dashboard/dashboard-routes.js';
+import {
+  createMemoryFirstMessageVariantRepository,
+  type FirstMessageVariantRepository,
+} from './modules/first-message-variants/first-message-variant-repository.js';
+import { registerFirstMessageVariantRoutes } from './modules/first-message-variants/first-message-variant-routes.js';
 import { createMemoryJobLogRepository, type JobLogRepository } from './modules/jobs/job-log-repository.js';
 import { registerJobLogRoutes } from './modules/jobs/job-log-routes.js';
 import { createMemoryLeadResearchRepository, type LeadResearchRepository } from './modules/leads/lead-research-repository.js';
@@ -50,6 +55,7 @@ export interface AppOptions extends FastifyServerOptions {
   authRepository?: AuthRepository;
   companyRepository?: CompanyRepository;
   conversationRepository?: ConversationRepository;
+  firstMessageVariantRepository?: FirstMessageVariantRepository;
   jobLogRepository?: JobLogRepository;
   leadResearchProvider?: LeadResearchProvider;
   leadResearchService?: LeadResearchService;
@@ -230,9 +236,73 @@ function createLazyDbSdrAgentRepository(): SdrAgentRepository {
       return createDbSdrAgentRepository().setActive(id, isActive);
     },
 
+    async setFirstMessageMode(id, mode) {
+      const { createDbSdrAgentRepository } = await import('./modules/sdr-agents/db-sdr-agent-repository.js');
+      return createDbSdrAgentRepository().setFirstMessageMode(id, mode);
+    },
+
     async update(id, input) {
       const { createDbSdrAgentRepository } = await import('./modules/sdr-agents/db-sdr-agent-repository.js');
       return createDbSdrAgentRepository().update(id, input);
+    },
+  };
+}
+
+function createLazyDbFirstMessageVariantRepository(): FirstMessageVariantRepository {
+  return {
+    async listForAgent(sdrAgentId) {
+      const { createDbFirstMessageVariantRepository } = await import(
+        './modules/first-message-variants/db-first-message-variant-repository.js'
+      );
+      return createDbFirstMessageVariantRepository().listForAgent(sdrAgentId);
+    },
+    async listActiveForAgent(sdrAgentId) {
+      const { createDbFirstMessageVariantRepository } = await import(
+        './modules/first-message-variants/db-first-message-variant-repository.js'
+      );
+      return createDbFirstMessageVariantRepository().listActiveForAgent(sdrAgentId);
+    },
+    async findById(id) {
+      const { createDbFirstMessageVariantRepository } = await import(
+        './modules/first-message-variants/db-first-message-variant-repository.js'
+      );
+      return createDbFirstMessageVariantRepository().findById(id);
+    },
+    async create(input) {
+      const { createDbFirstMessageVariantRepository } = await import(
+        './modules/first-message-variants/db-first-message-variant-repository.js'
+      );
+      return createDbFirstMessageVariantRepository().create(input);
+    },
+    async update(id, input) {
+      const { createDbFirstMessageVariantRepository } = await import(
+        './modules/first-message-variants/db-first-message-variant-repository.js'
+      );
+      return createDbFirstMessageVariantRepository().update(id, input);
+    },
+    async setActive(id, isActive) {
+      const { createDbFirstMessageVariantRepository } = await import(
+        './modules/first-message-variants/db-first-message-variant-repository.js'
+      );
+      return createDbFirstMessageVariantRepository().setActive(id, isActive);
+    },
+    async delete(id) {
+      const { createDbFirstMessageVariantRepository } = await import(
+        './modules/first-message-variants/db-first-message-variant-repository.js'
+      );
+      return createDbFirstMessageVariantRepository().delete(id);
+    },
+    async pickNextForAgent(sdrAgentId) {
+      const { createDbFirstMessageVariantRepository } = await import(
+        './modules/first-message-variants/db-first-message-variant-repository.js'
+      );
+      return createDbFirstMessageVariantRepository().pickNextForAgent(sdrAgentId);
+    },
+    async metricsForAgent(sdrAgentId) {
+      const { createDbFirstMessageVariantRepository } = await import(
+        './modules/first-message-variants/db-first-message-variant-repository.js'
+      );
+      return createDbFirstMessageVariantRepository().metricsForAgent(sdrAgentId);
     },
   };
 }
@@ -364,6 +434,11 @@ function createLazyDbLeadRepository(): LeadRepository {
       return createDbLeadRepository().updateStage(id, stage, updatedAt);
     },
 
+    async setFirstMessageVariant(id, variantId) {
+      const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
+      return createDbLeadRepository().setFirstMessageVariant(id, variantId);
+    },
+
     async update(id, input) {
       const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
       return createDbLeadRepository().update(id, input);
@@ -392,6 +467,7 @@ export function buildApp(options: AppOptions = {}): AppInstance {
     authRepository,
     companyRepository,
     conversationRepository,
+    firstMessageVariantRepository,
     jobLogRepository,
     leadResearchProvider,
     leadResearchService,
@@ -413,6 +489,9 @@ export function buildApp(options: AppOptions = {}): AppInstance {
   const jobLogs = jobLogRepository ?? (env.NODE_ENV === 'test' ? createMemoryJobLogRepository() : createLazyDbJobLogRepository());
   const conversations =
     conversationRepository ?? (env.NODE_ENV === 'test' ? createMemoryConversationRepository() : createLazyDbConversationRepository());
+  const firstMessageVariants =
+    firstMessageVariantRepository ??
+    (env.NODE_ENV === 'test' ? createMemoryFirstMessageVariantRepository() : createLazyDbFirstMessageVariantRepository());
   const webhookEvents =
     webhookEventRepository ??
     (env.NODE_ENV === 'test' ? createMemoryWebhookEventRepository() : createLazyDbWebhookEventRepository());
@@ -428,6 +507,7 @@ export function buildApp(options: AppOptions = {}): AppInstance {
     aiClient: ai,
     aiRunRepository: aiRuns,
     conversationRepository: conversations,
+    firstMessageVariantRepository: firstMessageVariants,
     jobLogRepository: jobLogs,
     leadResearchService: researchService,
     leadRepository: leads,
@@ -438,6 +518,7 @@ export function buildApp(options: AppOptions = {}): AppInstance {
     aiClient: ai,
     aiRunRepository: aiRuns,
     conversationRepository: conversations,
+    firstMessageVariantRepository: firstMessageVariants,
     jobLogRepository: jobLogs,
     leadResearchService: researchService,
     leadRepository: leads,
@@ -488,6 +569,7 @@ export function buildApp(options: AppOptions = {}): AppInstance {
   registerDashboardRoutes(app, repository, companies, sdrAgents, leads, conversations, aiRuns, jobLogs);
   registerCompanyRoutes(app, repository, companies);
   registerSdrAgentRoutes(app, repository, companies, sdrAgents);
+  registerFirstMessageVariantRoutes(app, repository, sdrAgents, firstMessageVariants);
   registerLeadRoutes(app, repository, companies, sdrAgents, leads, aiRuns, jobLogs);
   registerUazapiRoutes(app, repository, sdrAgents, uazapi);
   registerSchedulerRoutes(app, repository, initialOutreach, followupOutreach);

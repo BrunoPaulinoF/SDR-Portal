@@ -1,11 +1,12 @@
 import type { AiClient } from '../ai/ai-client.js';
 import type { AiRunRepository } from '../ai/ai-run-repository.js';
 import type { ConversationRepository } from '../conversations/conversation-repository.js';
+import type { FirstMessageVariantRepository } from '../first-message-variants/first-message-variant-repository.js';
 import type { JobLogRepository } from '../jobs/job-log-repository.js';
 import type { LeadResearchService } from '../leads/lead-research-service.js';
 import type { LeadRepository } from '../leads/lead-repository.js';
 import { whatsappIdentityFromUazapiSendResult, whatsappNumberFromUazapiSendResult } from '../phone/whatsapp-number.js';
-import { buildFirstMessage, followupDueAt } from '../scheduler/initial-outreach.js';
+import { followupDueAt, resolveFirstMessage } from '../scheduler/initial-outreach.js';
 import { decryptSecret } from '../security/secrets.js';
 import type { UazapiClient } from '../uazapi/uazapi-client.js';
 import type { Lead, SdrAgent } from '../../db/schema.js';
@@ -14,6 +15,7 @@ interface ResetConversationDependencies {
   aiClient: AiClient;
   aiRunRepository: AiRunRepository;
   conversationRepository: ConversationRepository;
+  firstMessageVariantRepository: FirstMessageVariantRepository;
   jobLogRepository: JobLogRepository;
   leadResearchService: LeadResearchService;
   leadRepository: LeadRepository;
@@ -75,8 +77,12 @@ export function createResetConversationService(deps: ResetConversationDependenci
         status: 'pending',
         source: 'reset_command',
       });
-      const research = await deps.leadResearchService.researchLead({ agent: input.agent, lead });
-      const text = await buildFirstMessage(deps, input.agent, lead, research);
+      // Em modo teste A/B a mensagem e fixa: nao precisa pesquisar (zero token).
+      const research =
+        input.agent.firstMessageMode === 'ab_test'
+          ? null
+          : await deps.leadResearchService.researchLead({ agent: input.agent, lead });
+      const { text, variantId } = await resolveFirstMessage(deps, input.agent, lead, research);
 
       await deps.uazapiClient.sendPresence({ ...credentials, number: lead.whatsappNumber, presence: 'composing', delay: 1000 });
       const result = await deps.uazapiClient.sendText({
@@ -118,6 +124,9 @@ export function createResetConversationService(deps: ResetConversationDependenci
         fromMe: true,
       });
       await deps.leadRepository.markInitialSent(lead.id, sentAt, followupDueAt(input.agent, sentAt));
+      if (variantId) {
+        await deps.leadRepository.setFirstMessageVariant(lead.id, variantId);
+      }
       await deps.leadRepository.updateStage(lead.id, 'permission', sentAt);
       await deps.jobLogRepository.create({
         jobName: 'reset-conversation',

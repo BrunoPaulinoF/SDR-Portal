@@ -100,6 +100,7 @@ export function createHttpUazapiClient(): UazapiClient {
       return request('/webhook', input, {
         method: 'POST',
         body: JSON.stringify({
+          enabled: true,
           url: input.url,
           events: input.events,
           excludeMessages: input.excludeMessages,

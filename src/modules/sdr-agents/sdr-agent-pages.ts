@@ -481,6 +481,7 @@ export function renderSdrAgentsListPage(agents: SdrAgent[], companies: Company[]
         <td><span class="status-pill ${agent.isActive ? 'status-on' : 'status-off'}">${agent.isActive ? 'Ativo' : 'Inativo'}</span></td>
         <td class="table-actions">
           <a href="/sdr-agents/${agent.id}/edit">Editar</a>
+          <a href="/sdr-agents/${agent.id}/first-messages">Msg inicial</a>
           <form method="post" action="/sdr-agents/${agent.id}/toggle" data-inline><button class="link-button" type="submit">${toggleLabel}</button></form>
           <form method="post" action="/sdr-agents/${agent.id}/delete" data-inline onsubmit="return confirm('Tem certeza que deseja excluir este SDR?')"><button class="link-button" type="submit">Excluir</button></form>
         </td>

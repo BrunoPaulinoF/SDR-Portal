@@ -61,6 +61,7 @@ export const sdrAgents = pgTable('sdr_agents', {
   firstMessagePrompt: text('first_message_prompt'),
   leadQualificationPrompt: text('lead_qualification_prompt'),
   followupPrompt: text('followup_prompt'),
+  firstMessageMode: text('first_message_mode').default('ai').notNull(),
   aiProvider: text('ai_provider').default('openai').notNull(),
   aiModel: text('ai_model').default('gpt-5.4-mini').notNull(),
   aiTemperature: real('ai_temperature').default(0.4).notNull(),
@@ -123,6 +124,9 @@ export const leads = pgTable(
     status: text('status').default('pending').notNull(),
     conversationStage: text('conversation_stage').default('permission').notNull(),
     source: text('source').default('manual').notNull(),
+    firstMessageVariantId: uuid('first_message_variant_id').references(() => firstMessageVariants.id, {
+      onDelete: 'set null',
+    }),
     firstMessageSentAt: timestamp('first_message_sent_at', { withTimezone: true }),
     lastInboundAt: timestamp('last_inbound_at', { withTimezone: true }),
     lastOutboundAt: timestamp('last_outbound_at', { withTimezone: true }),
@@ -142,6 +146,23 @@ export const leads = pgTable(
 
 export type Lead = typeof leads.$inferSelect;
 export type NewLead = typeof leads.$inferInsert;
+
+export const firstMessageVariants = pgTable('first_message_variants', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  sdrAgentId: uuid('sdr_agent_id')
+    .notNull()
+    .references(() => sdrAgents.id, { onDelete: 'cascade' }),
+  label: text('label').notNull(),
+  body: text('body').notNull(),
+  isActive: boolean('is_active').default(true).notNull(),
+  sortOrder: integer('sort_order').default(0).notNull(),
+  assignedCount: integer('assigned_count').default(0).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+export type FirstMessageVariant = typeof firstMessageVariants.$inferSelect;
+export type NewFirstMessageVariant = typeof firstMessageVariants.$inferInsert;
 
 export const leadImports = pgTable('lead_imports', {
   id: uuid('id').defaultRandom().primaryKey(),

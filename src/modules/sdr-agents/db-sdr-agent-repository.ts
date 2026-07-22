@@ -39,6 +39,16 @@ export function createDbSdrAgentRepository(): SdrAgentRepository {
       return agent ?? null;
     },
 
+    async setFirstMessageMode(id, mode) {
+      const [agent] = await db
+        .update(sdrAgents)
+        .set({ firstMessageMode: mode, updatedAt: new Date() })
+        .where(eq(sdrAgents.id, id))
+        .returning();
+
+      return agent ?? null;
+    },
+
     async update(id, input) {
       const [agent] = await db
         .update(sdrAgents)

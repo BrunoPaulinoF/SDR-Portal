@@ -265,6 +265,15 @@ export function createDbLeadRepository(): LeadRepository {
       return lead ?? null;
     },
 
+    async setFirstMessageVariant(id, variantId) {
+      const [lead] = await db
+        .update(leads)
+        .set({ firstMessageVariantId: variantId, updatedAt: new Date() })
+        .where(eq(leads.id, id))
+        .returning();
+      return lead ?? null;
+    },
+
     async update(id, input) {
       const [lead] = await db.update(leads).set({ ...input, updatedAt: new Date() }).where(eq(leads.id, id)).returning();
       return lead ?? null;

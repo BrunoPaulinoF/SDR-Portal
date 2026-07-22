@@ -4,6 +4,7 @@ import type { AiChatMessage, AiClient } from '../ai/ai-client.js';
 import type { AiRunRepository } from '../ai/ai-run-repository.js';
 import { parseAiResponse } from '../ai/ai-response.js';
 import type { ConversationRepository } from '../conversations/conversation-repository.js';
+import type { FirstMessageVariantRepository } from '../first-message-variants/first-message-variant-repository.js';
 import type { JobLogRepository } from '../jobs/job-log-repository.js';
 import { DEFAULT_LEAD_QUALIFICATION_PROMPT } from '../leads/lead-qualification-prompt.js';
 import type { LeadResearchResult, LeadResearchService } from '../leads/lead-research-service.js';
@@ -24,6 +25,7 @@ export interface InitialOutreachResult {
 export interface FirstMessageDependencies {
   aiClient: AiClient;
   aiRunRepository: AiRunRepository;
+  firstMessageVariantRepository: FirstMessageVariantRepository;
 }
 
 interface InitialOutreachDependencies extends FirstMessageDependencies {
@@ -167,9 +169,54 @@ function interpolate(template: string, agent: SdrAgent, lead: Lead, research: Le
     whatsappNumber: lead.whatsappNumber,
     sdrName: agent.displayName,
     productName: agent.productName ?? '',
+    nome: lead.contactName?.trim() ?? '',
+    restaurante: leadNameForPrompt(lead, lead.tradeName) || leadNameForPrompt(lead, lead.companyName),
   };
 
   return template.replace(/{{\s*([a-zA-Z0-9_]+)\s*}}/g, (_match, key: string) => replacements[key] ?? '');
+}
+
+/**
+ * Limpa artefatos de placeholders vazios em mensagens fixas de teste A/B
+ * (ex.: "Boa tarde, {{nome}}!" sem contato -> "Boa tarde!").
+ */
+function cleanupVariantMessage(text: string): string {
+  return text
+    .replace(/([,:;])\s*([!?.])/g, '$2')
+    .replace(/[ \t]+(do|da|de|no|na)[ \t]*([!?.,])/gi, '$2')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/ +\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function renderVariantMessage(
+  body: string,
+  agent: SdrAgent,
+  lead: Lead,
+  research: LeadResearchResult | null,
+): string {
+  return cleanupVariantMessage(interpolate(body, agent, lead, research));
+}
+
+/**
+ * Decide a primeira mensagem: se o SDR esta em modo teste A/B com variantes ativas,
+ * escolhe uma variante fixa por rodizio (SEM IA, zero token). Caso contrario, gera com IA.
+ */
+export async function resolveFirstMessage(
+  deps: FirstMessageDependencies,
+  agent: SdrAgent,
+  lead: Lead,
+  research: LeadResearchResult | null,
+): Promise<{ text: string; variantId: string | null }> {
+  if (agent.firstMessageMode === 'ab_test') {
+    const variant = await deps.firstMessageVariantRepository.pickNextForAgent(agent.id);
+    if (variant) {
+      return { text: renderVariantMessage(variant.body, agent, lead, research), variantId: variant.id };
+    }
+  }
+  const text = await buildFirstMessage(deps, agent, lead, research);
+  return { text, variantId: null };
 }
 
 function buildFallbackFirstMessage(agent: SdrAgent, lead: Lead, research: LeadResearchResult | null): string {
@@ -612,7 +659,7 @@ export function createInitialOutreachService(deps: InitialOutreachDependencies) 
           continue;
         }
 
-        const text = await buildFirstMessage(deps, agent, lead, research);
+        const { text, variantId } = await resolveFirstMessage(deps, agent, lead, research);
         await deps.uazapiClient.sendPresence({ ...credentials, number: lead.whatsappNumber, presence: 'composing', delay: 1000 });
         const result = await deps.uazapiClient.sendText({
           ...credentials,
@@ -637,6 +684,9 @@ export function createInitialOutreachService(deps: InitialOutreachDependencies) 
         const conversationWhatsappNumber = whatsappNumberFromUazapiSendResult(result.body, lead.whatsappNumber);
         await createInitialConversation(lead, agent, text, result.body, sentAt, conversationWhatsappNumber);
         await deps.leadRepository.markInitialSent(lead.id, sentAt, followupDueAt(agent, sentAt));
+        if (variantId) {
+          await deps.leadRepository.setFirstMessageVariant(lead.id, variantId);
+        }
         await deps.jobLogRepository.create({
           jobName: 'initial-outreach',
           jobKey: `initial-${lead.id}`,

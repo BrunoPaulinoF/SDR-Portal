@@ -10,6 +10,7 @@ export interface SdrAgentRepository {
   findById(id: string): Promise<SdrAgent | null>;
   list(): Promise<SdrAgent[]>;
   setActive(id: string, isActive: boolean): Promise<SdrAgent | null>;
+  setFirstMessageMode(id: string, mode: string): Promise<SdrAgent | null>;
   update(id: string, input: SdrAgentInput): Promise<SdrAgent | null>;
 }
 
@@ -30,6 +31,7 @@ function withDefaults(input: SdrAgentInput): Omit<SdrAgent, 'id' | 'createdAt' |
     firstMessagePrompt: nullable(input.firstMessagePrompt),
     leadQualificationPrompt: nullable(input.leadQualificationPrompt),
     followupPrompt: nullable(input.followupPrompt),
+    firstMessageMode: input.firstMessageMode ?? 'ai',
     aiProvider: input.aiProvider ?? 'openai',
     aiModel: input.aiModel ?? 'gpt-5.4-mini',
     aiTemperature: input.aiTemperature ?? 0.4,
@@ -105,6 +107,18 @@ export function createMemorySdrAgentRepository(seedAgents: SdrAgent[] = []): Sdr
       }
 
       const updated: SdrAgent = { ...current, isActive, updatedAt: new Date() };
+      rows.set(id, updated);
+      return updated;
+    },
+
+    async setFirstMessageMode(id, mode) {
+      const current = rows.get(id);
+
+      if (!current) {
+        return null;
+      }
+
+      const updated: SdrAgent = { ...current, firstMessageMode: mode, updatedAt: new Date() };
       rows.set(id, updated);
       return updated;
     },
