@@ -17,6 +17,7 @@ export type AiRunInput = Pick<
   | 'promptTokens'
   | 'completionTokens'
   | 'totalTokens'
+  | 'promptCacheHitTokens'
   | 'latencyMs'
 >;
 
@@ -47,6 +48,7 @@ export function createMemoryAiRunRepository(seedRuns: AiRun[] = []): AiRunReposi
         promptTokens: input.promptTokens ?? null,
         completionTokens: input.completionTokens ?? null,
         totalTokens: input.totalTokens ?? null,
+        promptCacheHitTokens: input.promptCacheHitTokens ?? null,
         latencyMs: input.latencyMs ?? null,
         createdAt: new Date(),
       };

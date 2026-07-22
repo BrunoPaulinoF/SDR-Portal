@@ -28,6 +28,7 @@ export interface AiGenerateResult {
   promptTokens: number | null;
   completionTokens: number | null;
   totalTokens: number | null;
+  promptCacheHitTokens: number | null;
 }
 
 export interface AiClient {
@@ -37,7 +38,13 @@ export interface AiClient {
 interface ChatCompletionResponse {
   choices?: Array<{ message?: { content?: string | null } }>;
   error?: { message?: string; type?: string; code?: string };
-  usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+    prompt_cache_hit_tokens?: number;
+    prompt_tokens_details?: { cached_tokens?: number };
+  };
 }
 
 interface ResponsesApiResponse {
@@ -65,6 +72,7 @@ function isOpenAiReasoningModel(provider: string, model: string): boolean {
 
 function endpointFor(provider: string, model: string): string {
   if (provider === 'openrouter') return 'https://openrouter.ai/api/v1/chat/completions';
+  if (provider === 'deepseek') return 'https://api.deepseek.com/chat/completions';
   if (isOpenAiReasoningModel(provider, model)) return 'https://api.openai.com/v1/responses';
   return 'https://api.openai.com/v1/chat/completions';
 }
@@ -132,6 +140,7 @@ function resultFromResponse(input: AiGenerateInput, body: AiProviderResponse): A
       promptTokens: body.usage?.input_tokens ?? null,
       completionTokens: body.usage?.output_tokens ?? null,
       totalTokens: body.usage?.total_tokens ?? null,
+      promptCacheHitTokens: null,
     };
   }
 
@@ -140,6 +149,7 @@ function resultFromResponse(input: AiGenerateInput, body: AiProviderResponse): A
     promptTokens: body.usage?.prompt_tokens ?? null,
     completionTokens: body.usage?.completion_tokens ?? null,
     totalTokens: body.usage?.total_tokens ?? null,
+    promptCacheHitTokens: body.usage?.prompt_cache_hit_tokens ?? body.usage?.prompt_tokens_details?.cached_tokens ?? null,
   };
 }
 

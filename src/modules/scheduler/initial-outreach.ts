@@ -1,8 +1,8 @@
-import { env } from '../../config/env.js';
 import type { Lead, SdrAgent } from '../../db/schema.js';
 import type { AiChatMessage, AiClient } from '../ai/ai-client.js';
 import type { AiRunRepository } from '../ai/ai-run-repository.js';
 import { parseAiResponse } from '../ai/ai-response.js';
+import { resolveAiApiKey } from '../ai/resolve-api-key.js';
 import type { ConversationRepository } from '../conversations/conversation-repository.js';
 import type { JobLogRepository } from '../jobs/job-log-repository.js';
 import { DEFAULT_LEAD_QUALIFICATION_PROMPT } from '../leads/lead-qualification-prompt.js';
@@ -187,13 +187,6 @@ function buildFallbackFirstMessage(agent: SdrAgent, lead: Lead, research: LeadRe
   return `Olá, tudo bem? Aqui é ${agent.displayName}.${context} Posso te fazer uma pergunta rápida sobre o dia a dia ${target}?`;
 }
 
-function apiKeyFor(agent: SdrAgent): string | null {
-  if (agent.aiProvider === 'openrouter') {
-    return agent.openrouterApiKeyEncrypted ? decryptSecret(agent.openrouterApiKeyEncrypted) : (env.OPENROUTER_API_KEY ?? null);
-  }
-  return agent.openaiApiKeyEncrypted ? decryptSecret(agent.openaiApiKeyEncrypted) : (env.OPENAI_API_KEY ?? null);
-}
-
 function webSearchOptions(searchContextSize: 'low' | 'medium' | 'high') {
   return { searchContextSize, userLocation: { country: 'BR' } };
 }
@@ -251,7 +244,7 @@ async function assessLeadForInitialOutreach(
   lead: Lead,
   research: LeadResearchResult | null,
 ): Promise<LeadFitAssessment> {
-  const apiKey = apiKeyFor(agent);
+  const apiKey = resolveAiApiKey(agent);
   if (!apiKey) return { qualified: true, reason: 'Sem chave de IA para avaliar fit; lead mantido por seguranca.' };
 
   const messages = leadQualificationMessages(agent, lead, research);
@@ -282,6 +275,7 @@ async function assessLeadForInitialOutreach(
       promptTokens: aiResult.promptTokens,
       completionTokens: aiResult.completionTokens,
       totalTokens: aiResult.totalTokens,
+      promptCacheHitTokens: aiResult.promptCacheHitTokens,
       latencyMs: Date.now() - startedAt,
     });
     return parsed;
@@ -301,6 +295,7 @@ async function assessLeadForInitialOutreach(
       promptTokens: null,
       completionTokens: null,
       totalTokens: null,
+      promptCacheHitTokens: null,
       latencyMs: Date.now() - startedAt,
     });
     return { qualified: true, reason: `Avaliacao de fit falhou; lead mantido por seguranca. Erro: ${message}` };
@@ -377,7 +372,7 @@ export async function buildFirstMessage(
   const fallback = buildFallbackFirstMessage(agent, lead, research);
   if (!agent.firstMessagePrompt?.trim()) return fallback;
 
-  const apiKey = apiKeyFor(agent);
+  const apiKey = resolveAiApiKey(agent);
   if (!apiKey) return fallback;
 
   const messages = firstMessageAiMessages(agent, lead, research);
@@ -408,6 +403,7 @@ export async function buildFirstMessage(
       promptTokens: aiResult.promptTokens,
       completionTokens: aiResult.completionTokens,
       totalTokens: aiResult.totalTokens,
+      promptCacheHitTokens: aiResult.promptCacheHitTokens,
       latencyMs: Date.now() - startedAt,
     });
 
@@ -428,6 +424,7 @@ export async function buildFirstMessage(
       promptTokens: null,
       completionTokens: null,
       totalTokens: null,
+      promptCacheHitTokens: null,
       latencyMs: Date.now() - startedAt,
     });
     return fallback;

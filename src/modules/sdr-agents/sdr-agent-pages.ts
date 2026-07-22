@@ -21,6 +21,7 @@ interface SdrAgentFormData {
   aiMaxOutputTokens: string;
   openaiApiKeyEncrypted: string;
   openrouterApiKeyEncrypted: string;
+  deepseekApiKeyEncrypted: string;
   uazapiBaseUrl: string;
   uazapiInstanceId: string;
   uazapiInstanceTokenEncrypted: string;
@@ -124,8 +125,8 @@ Resumo: {{summary}}`;
 
 const fieldHelp: Partial<Record<keyof SdrAgentFormData, string>> = {
   aiMaxOutputTokens: 'Limite aproximado de tokens que a IA pode gerar. Para WhatsApp, 800 a 2000 costuma ser suficiente; modelos reasoning podem usar mais internamente.',
-  aiModel: 'Modelo usado por este SDR. Padrao: gpt-5.4-mini. Pode trocar por outro modelo compativel quando quiser.',
-  aiProvider: 'Escolha onde a IA sera chamada. OpenAI usa sua chave OpenAI; OpenRouter usa sua chave OpenRouter.',
+  aiModel: 'Modelo usado por este SDR. Padrao: deepseek-v4-pro (via API direta da DeepSeek, custo baixo e cache automatico). Pode trocar por outro modelo compativel quando quiser.',
+  aiProvider: 'Escolha onde a IA sera chamada. DeepSeek usa a API oficial da DeepSeek (recomendado). OpenAI usa sua chave OpenAI; OpenRouter usa sua chave OpenRouter.',
   aiTemperature: 'Controla variacao/criatividade. Para SDR, valores baixos como 0.3 a 0.6 tendem a ser mais consistentes.',
   dailyFollowupSendLimit: 'Maximo de follow-ups enviados por este SDR em um dia.',
   dailyInitialSendLimit: 'Maximo de primeiras mensagens enviadas por este SDR em um dia.',
@@ -146,8 +147,9 @@ const fieldHelp: Partial<Record<keyof SdrAgentFormData, string>> = {
   messageSplitMaxChars: 'Tamanho maximo de cada parte quando a resposta for dividida em varias mensagens.',
   name: 'Nome interno para organizacao. Nao precisa ser o nome que aparece para o lead.',
   offerDescription: 'Explique a oferta comercial, promessa, diferenciais e quando chamar humano.',
-  openaiApiKeyEncrypted: 'Chave OpenAI especifica deste SDR. Se ficar vazio, usa a chave global do ambiente quando existir.',
-  openrouterApiKeyEncrypted: 'Chave OpenRouter especifica deste SDR. Preencha apenas se usar provider OpenRouter.',
+  openaiApiKeyEncrypted: 'Chave OpenAI especifica deste SDR. Preencha apenas se usar provider OpenAI. Se ficar vazio, usa a chave global do ambiente quando existir.',
+  openrouterApiKeyEncrypted: 'Chave OpenRouter especifica deste SDR. Preencha apenas se usar provider OpenRouter. Se ficar vazio, usa a chave global do ambiente quando existir.',
+  deepseekApiKeyEncrypted: 'Chave DeepSeek especifica deste SDR. Preencha apenas se usar provider DeepSeek. Se ficar vazio, usa a chave global do ambiente quando existir.',
   productDescription: 'Descreva o produto/servico para a IA entender o que vende, para quem vende e os diferenciais.',
   productName: 'Nome curto do produto ou servico. Ex: Direcionamento estrategico com Igor Moscheto.',
   prompt: 'Prompt comercial editavel. Defina persona, publico, abordagem, tom, objecoes e limites comerciais. Nao precisa explicar comandos internos.',
@@ -177,12 +179,13 @@ const defaultForm: SdrAgentFormData = {
   firstMessagePrompt: exampleFirstMessagePrompt,
   leadQualificationPrompt: DEFAULT_LEAD_QUALIFICATION_PROMPT,
   followupPrompt: exampleFollowupPrompt,
-  aiProvider: 'openai',
-  aiModel: 'gpt-5.4-mini',
+  aiProvider: 'deepseek',
+  aiModel: 'deepseek-v4-pro',
   aiTemperature: '0.4',
   aiMaxOutputTokens: '800',
   openaiApiKeyEncrypted: '',
   openrouterApiKeyEncrypted: '',
+  deepseekApiKeyEncrypted: '',
   uazapiBaseUrl: '',
   uazapiInstanceId: '',
   uazapiInstanceTokenEncrypted: '',
@@ -233,6 +236,7 @@ function agentToForm(agent?: SdrAgent): SdrAgentFormData {
     aiMaxOutputTokens: String(agent.aiMaxOutputTokens),
     openaiApiKeyEncrypted: '',
     openrouterApiKeyEncrypted: '',
+    deepseekApiKeyEncrypted: '',
     uazapiBaseUrl: agent.uazapiBaseUrl ?? '',
     uazapiInstanceId: agent.uazapiInstanceId ?? '',
     uazapiInstanceTokenEncrypted: '',
@@ -305,7 +309,7 @@ function renderCompanySelect(companies: Company[], selectedId: string): string {
 }
 
 function renderProviderSelect(selectedProvider: string): string {
-  const providers = ['openai', 'openrouter'];
+  const providers = ['deepseek', 'openai', 'openrouter'];
   const options = providers
     .map((provider) => {
       const selected = provider === selectedProvider ? ' selected' : '';
@@ -367,6 +371,13 @@ function renderFormSection(title: string, description: string, content: string, 
   </details>`;
 }
 
+function renderFlowSection(step: number, title: string, description: string, content: string, open = false): string {
+  return `<details class="form-section form-section-flow"${open ? ' open' : ''}>
+    <summary><span class="flow-badge">${step}</span>${escapeHtml(title)}<span>${escapeHtml(description)}</span></summary>
+    <div class="form-section-body"><div class="form-grid">${content}</div></div>
+  </details>`;
+}
+
 function renderSdrAgentForm(action: string, companies: Company[], agent?: SdrAgent, error?: string): string {
   const data = agentToForm(agent);
   const errorHtml = error ? `<div class="alert-error">${escapeHtml(error)}</div>` : '';
@@ -389,24 +400,62 @@ function renderSdrAgentForm(action: string, companies: Company[], agent?: SdrAge
       )}
 
       ${renderFormSection(
-        'IA e prompts',
-        'Modelo, chaves e instrucoes usadas nas respostas.',
+        'Modelo de IA',
+        'Provedor, modelo, temperatura e chaves de API usadas por este SDR.',
         `
       ${renderProviderSelect(data.aiProvider)}
       ${renderField('aiModel', 'Modelo', data.aiModel, true)}
       ${renderField('aiTemperature', 'Temperatura', data.aiTemperature, true, 'number')}
       ${renderField('aiMaxOutputTokens', 'Maximo de tokens de saida', data.aiMaxOutputTokens, true, 'number')}
+      ${renderField('deepseekApiKeyEncrypted', 'Chave DeepSeek', data.deepseekApiKeyEncrypted, false, 'password')}
       ${renderField('openaiApiKeyEncrypted', 'Chave OpenAI', data.openaiApiKeyEncrypted, false, 'password')}
       ${renderField('openrouterApiKeyEncrypted', 'Chave OpenRouter', data.openrouterApiKeyEncrypted, false, 'password')}
       ${renderSecretHint()}
-      ${renderLockedBasePrompt()}
-      ${renderTextArea('prompt', 'Prompt editavel do SDR', data.prompt, 10)}
-      ${renderTextArea('firstMessagePrompt', 'Prompt da primeira mensagem', data.firstMessagePrompt, 6)}
-      ${renderFirstMessageVariables()}
-      ${renderTextArea('leadQualificationPrompt', 'Prompt de qualificacao e descarte do lead', data.leadQualificationPrompt, 10)}
-      ${renderTextArea('followupPrompt', 'Prompt de follow-up', data.followupPrompt, 5)}
         `,
         true,
+      )}
+
+      <p class="flow-intro">Fluxo de conversa do SDR: os 4 prompts abaixo seguem a ordem em que a IA realmente os usa, do primeiro contato ate o follow-up.</p>
+
+      ${renderFlowSection(
+        1,
+        'Qualificacao do lead',
+        'Roda antes da primeira mensagem e decide se este lead deve ser abordado ou descartado.',
+        `
+      ${renderTextArea('leadQualificationPrompt', 'Prompt de qualificacao e descarte do lead', data.leadQualificationPrompt, 10)}
+        `,
+        true,
+      )}
+
+      ${renderFlowSection(
+        2,
+        'Primeira mensagem',
+        'Gera a abordagem inicial enviada ao lead, usando pesquisa e dados disponiveis quando houver.',
+        `
+      ${renderTextArea('firstMessagePrompt', 'Prompt da primeira mensagem', data.firstMessagePrompt, 6)}
+      ${renderFirstMessageVariables()}
+        `,
+        true,
+      )}
+
+      ${renderFlowSection(
+        3,
+        'Conversa principal',
+        'Conduz o restante da conversa depois que o lead responde: persona, tom, objecoes e regras comerciais.',
+        `
+      ${renderLockedBasePrompt()}
+      ${renderTextArea('prompt', 'Prompt editavel do SDR', data.prompt, 10)}
+        `,
+        true,
+      )}
+
+      ${renderFlowSection(
+        4,
+        'Follow-up',
+        'Escreve a unica mensagem de retomada para leads que responderam e depois sumiram.',
+        `
+      ${renderTextArea('followupPrompt', 'Prompt de follow-up', data.followupPrompt, 5)}
+        `,
       )}
 
       ${renderFormSection(
@@ -436,8 +485,8 @@ function renderSdrAgentForm(action: string, companies: Company[], agent?: SdrAge
       )}
 
       ${renderFormSection(
-        'Follow-up',
-        'Regras para uma tentativa automatica posterior.',
+        'Regras de envio do follow-up',
+        'Quando e com que frequencia a tentativa automatica de follow-up pode ser enviada.',
         `
       <div class="field">${renderCheckbox('followupEnabled', 'Follow-up ativo', data.followupEnabled)}</div>
       ${renderField('followupAfterHours', 'Enviar follow-up apos quantas horas', data.followupAfterHours, true, 'number')}

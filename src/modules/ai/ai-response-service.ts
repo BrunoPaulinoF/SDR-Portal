@@ -1,4 +1,3 @@
-import { env } from '../../config/env.js';
 import type { Conversation, Lead, SdrAgent } from '../../db/schema.js';
 import type { ConversationRepository } from '../conversations/conversation-repository.js';
 import type { LeadRepository } from '../leads/lead-repository.js';
@@ -7,6 +6,7 @@ import type { UazapiClient } from '../uazapi/uazapi-client.js';
 import type { AiChatMessage, AiClient } from './ai-client.js';
 import type { AiRunRepository } from './ai-run-repository.js';
 import { parseAiResponse, type ParsedAiResponse } from './ai-response.js';
+import { resolveAiApiKey } from './resolve-api-key.js';
 import { buildResponseParts, waitBeforeSending } from './response-buffer.js';
 import { buildSdrSystemPrompt } from './sdr-base-prompt.js';
 
@@ -25,13 +25,6 @@ interface RespondInput {
 }
 
 type AiAction = ParsedAiResponse['actions'][number];
-
-function apiKeyFor(agent: SdrAgent): string | null {
-  if (agent.aiProvider === 'openrouter') {
-    return agent.openrouterApiKeyEncrypted ? decryptSecret(agent.openrouterApiKeyEncrypted) : (env.OPENROUTER_API_KEY ?? null);
-  }
-  return agent.openaiApiKeyEncrypted ? decryptSecret(agent.openaiApiKeyEncrypted) : (env.OPENAI_API_KEY ?? null);
-}
 
 function uazapiCredentials(agent: SdrAgent): { baseUrl: string; token: string } | null {
   if (!agent.uazapiBaseUrl || !agent.uazapiInstanceTokenEncrypted) return null;
@@ -172,7 +165,7 @@ export function createAiResponseService(deps: AiResponseDependencies) {
       if (!input.agent.isActive) return;
       if (input.lead.humanPausedUntil && input.lead.humanPausedUntil > new Date()) return;
 
-      const apiKey = apiKeyFor(input.agent);
+      const apiKey = resolveAiApiKey(input.agent);
       const credentials = uazapiCredentials(input.agent);
       if (!apiKey || !credentials) return;
 
@@ -210,6 +203,7 @@ export function createAiResponseService(deps: AiResponseDependencies) {
           promptTokens: aiResult.promptTokens,
           completionTokens: aiResult.completionTokens,
           totalTokens: aiResult.totalTokens,
+          promptCacheHitTokens: aiResult.promptCacheHitTokens,
           latencyMs: Date.now() - startedAt,
         });
 
@@ -277,6 +271,7 @@ export function createAiResponseService(deps: AiResponseDependencies) {
           promptTokens: null,
           completionTokens: null,
           totalTokens: null,
+          promptCacheHitTokens: null,
           latencyMs: Date.now() - startedAt,
         });
       }

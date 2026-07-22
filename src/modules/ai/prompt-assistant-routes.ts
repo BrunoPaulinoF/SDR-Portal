@@ -1,14 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
-import { env } from '../../config/env.js';
 import type { AiClient } from '../ai/ai-client.js';
 import type { AiRunRepository } from '../ai/ai-run-repository.js';
 import type { AuthRepository } from '../auth/auth-repository.js';
-import { decryptSecret } from '../security/secrets.js';
 import { requireUser } from '../auth/access.js';
 import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
 import { renderPromptAssistantFormPage } from './prompt-assistant-pages.js';
+import { resolveAiApiKey } from './resolve-api-key.js';
 
 const generateSchema = z.object({
   sdrAgentId: z.string().uuid(),
@@ -89,9 +88,7 @@ export function registerPromptAssistantRoutes(
     const startedAt = Date.now();
 
     try {
-      const apiKey = agent.openaiApiKeyEncrypted
-        ? decryptSecret(agent.openaiApiKeyEncrypted)
-        : env.OPENAI_API_KEY ?? '';
+      const apiKey = resolveAiApiKey(agent);
 
       if (!apiKey) {
         const agentsList = await sdrAgentRepository.list();
@@ -99,7 +96,13 @@ export function registerPromptAssistantRoutes(
           .status(400)
           .type('text/html')
           .send(
-            renderPromptAssistantFormPage(agentsList, agent.id, parsed.data.briefing, undefined, 'Configure uma chave OpenAI no SDR ou no ambiente OPENAI_API_KEY.'),
+            renderPromptAssistantFormPage(
+              agentsList,
+              agent.id,
+              parsed.data.briefing,
+              undefined,
+              `Configure uma chave ${agent.aiProvider} no SDR ou no ambiente para gerar o prompt.`,
+            ),
           );
       }
 
@@ -127,6 +130,7 @@ export function registerPromptAssistantRoutes(
         promptTokens: aiResult.promptTokens,
         completionTokens: aiResult.completionTokens,
         totalTokens: aiResult.totalTokens,
+        promptCacheHitTokens: aiResult.promptCacheHitTokens,
         latencyMs: Date.now() - startedAt,
       });
 
@@ -166,6 +170,7 @@ export function registerPromptAssistantRoutes(
         promptTokens: null,
         completionTokens: null,
         totalTokens: null,
+        promptCacheHitTokens: null,
         latencyMs: Date.now() - startedAt,
       });
 

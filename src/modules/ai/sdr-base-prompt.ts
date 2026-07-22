@@ -57,17 +57,24 @@ export function buildSdrSystemPrompt(input: {
   productName?: string | null;
   sdrName: string;
 }): string {
+  // Ordem importa para cache de prompt: tudo que e igual em toda mensagem deste SDR
+  // (ate o fim do prompt editavel) fica antes; so o que muda por lead/turno vai depois,
+  // assim provedores com cache automatico por prefixo (DeepSeek, OpenAI, OpenRouter)
+  // reaproveitam o bloco estatico em quase todas as chamadas.
   return `${SDR_BASE_PROMPT}
 
-Contexto deste SDR:
+Contexto fixo deste SDR:
 - Nome do SDR: ${input.sdrName}
 - Produto/servico: ${input.productName ?? ''}
 - Oferta: ${input.offerDescription ?? ''}
+
+Prompt editavel configurado pelo usuario:
+${input.customPrompt?.trim() || 'Conduza uma conversa consultiva, objetiva e natural.'}
+
+---
+Dados desta conversa (mudam a cada lead/etapa, nao trate como regra geral):
 - Empresa/lead: ${input.leadName ?? input.companyName ?? ''}
 - WhatsApp do lead: ${input.leadWhatsapp ?? ''}
 - Segmento do lead: ${input.leadSegment ?? ''}
-- Etapa atual da conversa: ${input.conversationStage ?? 'permission'}
-
-Prompt editavel configurado pelo usuario:
-${input.customPrompt?.trim() || 'Conduza uma conversa consultiva, objetiva e natural.'}`;
+- Etapa atual da conversa: ${input.conversationStage ?? 'permission'}`;
 }

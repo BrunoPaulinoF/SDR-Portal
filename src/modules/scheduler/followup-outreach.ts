@@ -1,8 +1,8 @@
-import { env } from '../../config/env.js';
 import type { Lead, SdrAgent } from '../../db/schema.js';
 import type { AiChatMessage, AiClient } from '../ai/ai-client.js';
 import type { AiRunRepository } from '../ai/ai-run-repository.js';
 import { parseAiResponse } from '../ai/ai-response.js';
+import { resolveAiApiKey } from '../ai/resolve-api-key.js';
 import type { JobLogRepository } from '../jobs/job-log-repository.js';
 import type { LeadRepository } from '../leads/lead-repository.js';
 import { decryptSecret } from '../security/secrets.js';
@@ -82,13 +82,6 @@ function buildFallbackFollowupMessage(agent: SdrAgent): string {
   return `Oi, passando rapidinho para retomar minha mensagem anterior${product}. Faz sentido eu te explicar em 1 minuto?`;
 }
 
-function apiKeyFor(agent: SdrAgent): string | null {
-  if (agent.aiProvider === 'openrouter') {
-    return agent.openrouterApiKeyEncrypted ? decryptSecret(agent.openrouterApiKeyEncrypted) : (env.OPENROUTER_API_KEY ?? null);
-  }
-  return agent.openaiApiKeyEncrypted ? decryptSecret(agent.openaiApiKeyEncrypted) : (env.OPENAI_API_KEY ?? null);
-}
-
 function followupSystemPrompt(agent: SdrAgent): string {
   return `Voce escreve apenas uma mensagem curta de follow-up para WhatsApp.
 
@@ -148,7 +141,7 @@ async function buildFollowupMessage(deps: FollowupOutreachDependencies, agent: S
 
   if (!prompt) return fallback;
 
-  const apiKey = apiKeyFor(agent);
+  const apiKey = resolveAiApiKey(agent);
   if (!apiKey) return fallback;
 
   const messages = followupAiMessages(agent, lead);
@@ -178,6 +171,7 @@ async function buildFollowupMessage(deps: FollowupOutreachDependencies, agent: S
       promptTokens: aiResult.promptTokens,
       completionTokens: aiResult.completionTokens,
       totalTokens: aiResult.totalTokens,
+      promptCacheHitTokens: aiResult.promptCacheHitTokens,
       latencyMs: Date.now() - startedAt,
     });
 
@@ -198,6 +192,7 @@ async function buildFollowupMessage(deps: FollowupOutreachDependencies, agent: S
       promptTokens: null,
       completionTokens: null,
       totalTokens: null,
+      promptCacheHitTokens: null,
       latencyMs: Date.now() - startedAt,
     });
     return fallback;

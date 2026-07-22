@@ -187,11 +187,12 @@ Processamento atual do webhook:
 
 Motor IA de resposta:
 
-- Suporta `openai` e `openrouter` conforme configurado no SDR.
-- Usa o modelo configurado no SDR.
-- Usa chave criptografada do SDR ou fallback `OPENAI_API_KEY`/`OPENROUTER_API_KEY` do ambiente.
+- Suporta `deepseek` (padrao, API oficial da DeepSeek), `openai` e `openrouter` conforme configurado no SDR.
+- Usa o modelo configurado no SDR. Padrao para novos SDRs: `deepseek-v4-pro`.
+- Usa chave criptografada do SDR ou fallback `DEEPSEEK_API_KEY`/`OPENAI_API_KEY`/`OPENROUTER_API_KEY` do ambiente conforme o provider.
 - Exige resposta em JSON estrito com `mensagem_usuario`, `nao_responder`, `status_sugerido` e `actions`.
-- Registra chamadas em `ai_runs` com input, output, JSON parseado, tokens, latencia e erro quando houver.
+- O prompt do sistema mantem um prefixo estatico (instrucoes fixas + prompt do SDR) e move os dados variaveis do lead/etapa para o final, para maximizar o cache automatico de prompt do provedor e reduzir custo.
+- Registra chamadas em `ai_runs` com input, output, JSON parseado, tokens, tokens de cache hit e latencia e erro quando houver.
 - Ao receber mensagem inbound via webhook, se o SDR estiver ativo e tiver credenciais de IA/UAZAPI, gera resposta, envia via UAZAPI e salva a mensagem outbound no historico.
 - Se `human_paused_until` ainda estiver no futuro, a IA nao responde. Ao vencer o horario, a IA volta automaticamente no proximo inbound do lead.
 - Quando a IA retorna `notify_handoff` em `actions`, o sistema envia um resumo para o `handoff_phone` do SDR, marca o lead como `transferred`, salva `handoff_requested_at`/`handoff_summary` e desativa follow-up.
@@ -210,7 +211,7 @@ IA auxiliar de prompt:
 - `GET /prompt-assistant`: tela com selecao de SDR, briefing e geracao de prompt com IA.
 - `POST /prompt-assistant/generate`: chama a IA com o briefing e o prompt atual do SDR para gerar um novo prompt.
 - `POST /prompt-assistant/apply`: aplica o prompt gerado ao SDR selecionado.
-- A IA gera prompts usando o modelo/temperatura configurados no SDR e a chave OpenAI do proprio SDR.
+- A IA gera prompts usando o modelo/provider/temperatura configurados no SDR e a chave correspondente do proprio SDR (ou o fallback do ambiente).
 - O resultado e exibido para revisao e so e aplicado mediante confirmacao do usuario.
 
 ## Deploy no EasyPanel
@@ -242,6 +243,7 @@ node -e "console.log(require('crypto').randomBytes(12).toString('hex'))"
 
 | Variavel | Padrao | Proposito |
 |---|---|---|
+| `DEEPSEEK_API_KEY` | — | Chave DeepSeek fallback (provider padrao) |
 | `OPENAI_API_KEY` | — | Chave OpenAI fallback |
 | `OPENROUTER_API_KEY` | — | Chave OpenRouter fallback |
 | `WEBHOOK_SHARED_SECRET` | — | Protege endpoint de webhook |
