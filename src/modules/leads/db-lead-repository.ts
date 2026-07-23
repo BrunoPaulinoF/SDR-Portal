@@ -1,8 +1,19 @@
-import { and, count, desc, eq, gte, isNotNull, isNull, lte, or, type SQL } from 'drizzle-orm';
+import { and, count, desc, eq, gt, gte, isNotNull, isNull, lte, ne, notExists, or, sql, type SQL } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 
 import { db } from '../../db/client.js';
 import { leadImports, leads } from '../../db/schema.js';
 import type { LeadRepository } from './lead-repository.js';
+
+type LeadActivityColumns = Pick<typeof leads, 'lastInboundAt' | 'lastOutboundAt'>;
+
+/** Nenhuma mensagem (entrada ou saida) nesse lead depois de `since`. */
+function quietSinceCondition(table: LeadActivityColumns, since: Date): SQL {
+  return and(
+    or(isNull(table.lastInboundAt), lte(table.lastInboundAt, since)),
+    or(isNull(table.lastOutboundAt), lte(table.lastOutboundAt, since)),
+  ) as SQL;
+}
 
 export function createDbLeadRepository(): LeadRepository {
   return {
@@ -83,20 +94,41 @@ export function createDbLeadRepository(): LeadRepository {
       return lead ?? null;
     },
 
-    async findNextFollowupDueForSdr(sdrAgentId, now) {
+    async findNextFollowupDueForSdr(sdrAgentId, now, options) {
+      const quietSince = options?.quietSince ?? null;
+      const other = alias(leads, 'other_lead');
+      const sameChat = or(
+        and(isNotNull(leads.whatsappJid), eq(other.whatsappJid, leads.whatsappJid)),
+        and(isNotNull(leads.whatsappLid), eq(other.whatsappLid, leads.whatsappLid)),
+        eq(other.whatsappNumber, leads.whatsappNumber),
+      );
+      // Outro lead do mesmo chat invalida o follow-up quando e mais novo (thread
+      // substituida, ex.: /reset) ou quando o chat ainda esta quente.
+      const blockingOther: SQL[] = [gt(other.createdAt, leads.createdAt)];
+      if (quietSince) {
+        blockingOther.push(gt(other.lastInboundAt, quietSince), gt(other.lastOutboundAt, quietSince));
+      }
+
+      const conditions: SQL[] = [
+        eq(leads.sdrAgentId, sdrAgentId),
+        eq(leads.status, 'in_conversation'),
+        isNotNull(leads.lastInboundAt),
+        lte(leads.followupDueAt, now),
+        isNull(leads.followupSentAt),
+        isNull(leads.followupDisabledAt),
+        notExists(
+          db
+            .select({ one: sql`1` })
+            .from(other)
+            .where(and(eq(other.sdrAgentId, sdrAgentId), ne(other.id, leads.id), sameChat, or(...blockingOther))),
+        ),
+      ];
+      if (quietSince) conditions.push(quietSinceCondition(leads, quietSince));
+
       const [lead] = await db
         .select()
         .from(leads)
-        .where(
-          and(
-            eq(leads.sdrAgentId, sdrAgentId),
-            eq(leads.status, 'in_conversation'),
-            isNotNull(leads.lastInboundAt),
-            lte(leads.followupDueAt, now),
-            isNull(leads.followupSentAt),
-            isNull(leads.followupDisabledAt),
-          ),
-        )
+        .where(and(...conditions))
         .orderBy(leads.followupDueAt)
         .limit(1);
       return lead ?? null;
@@ -147,17 +179,31 @@ export function createDbLeadRepository(): LeadRepository {
       return lead ?? null;
     },
 
-    async markInboundReceived(id, receivedAt) {
+    async markInboundReceived(id, receivedAt, followupDueAt) {
       const [current] = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
+      const values: Partial<typeof leads.$inferInsert> = {
+        status: current?.status === 'transferred' || current?.status === 'not_interested' ? current.status : 'in_conversation',
+        lastInboundAt: receivedAt,
+        updatedAt: receivedAt,
+      };
+      // reancora o follow-up na ultima interacao real, nao na primeira mensagem
+      if (followupDueAt !== undefined) values.followupDueAt = followupDueAt;
+
+      const [lead] = await db.update(leads).set(values).where(eq(leads.id, id)).returning();
+      return lead ?? null;
+    },
+
+    async markOutboundSent(id, sentAt) {
       const [lead] = await db
         .update(leads)
-        .set({
-          status: current?.status === 'transferred' || current?.status === 'not_interested' ? current.status : 'in_conversation',
-          lastInboundAt: receivedAt,
-          updatedAt: receivedAt,
-        })
+        .set({ lastOutboundAt: sentAt, updatedAt: sentAt })
         .where(eq(leads.id, id))
         .returning();
+      return lead ?? null;
+    },
+
+    async rescheduleFollowup(id, followupDueAt, updatedAt) {
+      const [lead] = await db.update(leads).set({ followupDueAt, updatedAt }).where(eq(leads.id, id)).returning();
       return lead ?? null;
     },
 

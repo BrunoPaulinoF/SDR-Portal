@@ -354,9 +354,9 @@ function createLazyDbLeadRepository(): LeadRepository {
       return createDbLeadRepository().findLastInitialSentForSdr(sdrAgentId);
     },
 
-    async findNextFollowupDueForSdr(sdrAgentId, now) {
+    async findNextFollowupDueForSdr(sdrAgentId, now, options) {
       const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
-      return createDbLeadRepository().findNextFollowupDueForSdr(sdrAgentId, now);
+      return createDbLeadRepository().findNextFollowupDueForSdr(sdrAgentId, now, options);
     },
 
     async findNextPendingForSdr(sdrAgentId) {
@@ -384,14 +384,24 @@ function createLazyDbLeadRepository(): LeadRepository {
       return createDbLeadRepository().markHumanPaused(id, pausedAt, pausedUntil, reason);
     },
 
-    async markInboundReceived(id, receivedAt) {
+    async markInboundReceived(id, receivedAt, followupDueAt) {
       const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
-      return createDbLeadRepository().markInboundReceived(id, receivedAt);
+      return createDbLeadRepository().markInboundReceived(id, receivedAt, followupDueAt);
+    },
+
+    async markOutboundSent(id, sentAt) {
+      const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
+      return createDbLeadRepository().markOutboundSent(id, sentAt);
     },
 
     async markFollowupSent(id, sentAt) {
       const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
       return createDbLeadRepository().markFollowupSent(id, sentAt);
+    },
+
+    async rescheduleFollowup(id, followupDueAt, updatedAt) {
+      const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
+      return createDbLeadRepository().rescheduleFollowup(id, followupDueAt, updatedAt);
     },
 
     async markDiscarded(id, discardedAt) {
@@ -527,6 +537,7 @@ export function buildApp(options: AppOptions = {}): AppInstance {
   const followupOutreach = createFollowupOutreachService({
     aiClient: ai,
     aiRunRepository: aiRuns,
+    conversationRepository: conversations,
     jobLogRepository: jobLogs,
     leadRepository: leads,
     sdrAgentRepository: sdrAgents,

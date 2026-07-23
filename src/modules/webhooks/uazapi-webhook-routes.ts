@@ -6,6 +6,7 @@ import type { Conversation, Lead } from '../../db/schema.js';
 import type { ConversationRepository } from '../conversations/conversation-repository.js';
 import type { LeadRepository } from '../leads/lead-repository.js';
 import { whatsappNumberVariants } from '../phone/whatsapp-number.js';
+import { followupDueAt } from '../scheduler/initial-outreach.js';
 import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
 import type { createAiResponseService } from '../ai/ai-response-service.js';
 import type { createAudioTranscriptionService } from '../audio/audio-transcription-service.js';
@@ -222,12 +223,16 @@ export function registerUazapiWebhookRoutes(
 
       if (!normalized.fromMe) {
         await leadRepository.updateWhatsappIdentity(lead.id, { jid: normalized.whatsappJid, lid: normalized.whatsappLid }, now);
-        await leadRepository.markInboundReceived(lead.id, now);
+        // o follow-up conta a partir desta resposta, nao da primeira mensagem enviada ao lead
+        await leadRepository.markInboundReceived(lead.id, now, followupDueAt(agent, now));
         if (hasReplyableContent(normalized.text, transcription)) {
           await aiResponseService.respondToInbound({ agent, conversation, lead });
         }
       } else if (!normalized.sentByApi) {
         await leadRepository.markHumanPaused(lead.id, now, humanPausedUntil(now, agent.humanPauseHours), 'manual_whatsapp_message');
+      } else {
+        // resposta da IA confirmada pelo gateway: o chat nao esta em silencio
+        await leadRepository.markOutboundSent(lead.id, now);
       }
 
       await webhookEventRepository.updateProcessing(event.id, {
