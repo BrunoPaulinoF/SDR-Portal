@@ -24,6 +24,15 @@ export type LeadImportInput = Pick<
   'companyId' | 'sdrAgentId' | 'fileName' | 'totalRows' | 'successRows' | 'errorRows' | 'mapping' | 'errors'
 >;
 
+/**
+ * `quietSince`: so devolve lead cujo chat esta em silencio desde essa data. Bloqueia
+ * follow-up quando o proprio lead — ou qualquer outro lead do mesmo numero/JID — teve
+ * mensagem depois dela, e quando existe um lead mais novo para o mesmo chat (ex.: `/reset`).
+ */
+export interface FollowupDueOptions {
+  quietSince?: Date | null;
+}
+
 export interface LeadRepository {
   countFollowupSentForSdrSince(sdrAgentId: string, since: Date): Promise<number>;
   countInitialSentForSdrSince(sdrAgentId: string, since: Date): Promise<number>;
@@ -34,14 +43,16 @@ export interface LeadRepository {
   findBySdrAndWhatsappIdentity(sdrAgentId: string, identity: { jid?: string | null; lid?: string | null }): Promise<Lead | null>;
   findLastFollowupSentForSdr(sdrAgentId: string): Promise<Lead | null>;
   findLastInitialSentForSdr(sdrAgentId: string): Promise<Lead | null>;
-  findNextFollowupDueForSdr(sdrAgentId: string, now: Date): Promise<Lead | null>;
+  findNextFollowupDueForSdr(sdrAgentId: string, now: Date, options?: FollowupDueOptions): Promise<Lead | null>;
   findNextPendingForSdr(sdrAgentId: string): Promise<Lead | null>;
   findBySdrAndWhatsapp(sdrAgentId: string, whatsappNumber: string): Promise<Lead | null>;
   list(): Promise<Lead[]>;
   listImports(): Promise<LeadImport[]>;
   markHumanPaused(id: string, pausedAt: Date, pausedUntil: Date, reason: string): Promise<Lead | null>;
-  markInboundReceived(id: string, receivedAt: Date): Promise<Lead | null>;
+  markInboundReceived(id: string, receivedAt: Date, followupDueAt?: Date | null): Promise<Lead | null>;
+  markOutboundSent(id: string, sentAt: Date): Promise<Lead | null>;
   markFollowupSent(id: string, sentAt: Date): Promise<Lead | null>;
+  rescheduleFollowup(id: string, followupDueAt: Date, updatedAt: Date): Promise<Lead | null>;
   markDiscarded(id: string, discardedAt: Date): Promise<Lead | null>;
   markInvalidPhone(id: string, markedAt: Date): Promise<Lead | null>;
   markNotInterested(id: string, markedAt: Date): Promise<Lead | null>;
@@ -86,6 +97,19 @@ function normalize(input: LeadInput): Omit<Lead, 'id' | 'createdAt' | 'updatedAt
     handoffSummary: null,
     notInterestedAt: null,
   };
+}
+
+/** Mesmo interlocutor no WhatsApp: JID, LID ou numero identico. */
+function isSameChat(lead: Lead, other: Lead): boolean {
+  if (lead.whatsappJid && other.whatsappJid === lead.whatsappJid) return true;
+  if (lead.whatsappLid && other.whatsappLid === lead.whatsappLid) return true;
+  return other.whatsappNumber === lead.whatsappNumber;
+}
+
+function hasActivityAfter(lead: Lead, since: Date): boolean {
+  return (
+    (lead.lastInboundAt !== null && lead.lastInboundAt > since) || (lead.lastOutboundAt !== null && lead.lastOutboundAt > since)
+  );
 }
 
 export function createMemoryLeadRepository(seedLeads: Lead[] = []): LeadRepository {
@@ -167,9 +191,12 @@ export function createMemoryLeadRepository(seedLeads: Lead[] = []): LeadReposito
       );
     },
 
-    async findNextFollowupDueForSdr(sdrAgentId, now) {
+    async findNextFollowupDueForSdr(sdrAgentId, now, options) {
+      const quietSince = options?.quietSince ?? null;
+      const all = [...rows.values()];
+
       return (
-        [...rows.values()]
+        all
           .filter(
             (lead) =>
               lead.sdrAgentId === sdrAgentId &&
@@ -178,7 +205,16 @@ export function createMemoryLeadRepository(seedLeads: Lead[] = []): LeadReposito
               lead.followupDueAt !== null &&
               lead.followupDueAt <= now &&
               lead.followupSentAt === null &&
-              lead.followupDisabledAt === null,
+              lead.followupDisabledAt === null &&
+              (quietSince === null || !hasActivityAfter(lead, quietSince)) &&
+              !all.some(
+                (other) =>
+                  other.id !== lead.id &&
+                  other.sdrAgentId === sdrAgentId &&
+                  isSameChat(lead, other) &&
+                  // thread substituida (ex.: /reset criou um lead novo) ou chat ainda quente
+                  (other.createdAt > lead.createdAt || (quietSince !== null && hasActivityAfter(other, quietSince))),
+              ),
           )
           .sort((a, b) => (a.followupDueAt?.getTime() ?? 0) - (b.followupDueAt?.getTime() ?? 0))[0] ?? null
       );
@@ -225,15 +261,33 @@ export function createMemoryLeadRepository(seedLeads: Lead[] = []): LeadReposito
       return lead;
     },
 
-    async markInboundReceived(id, receivedAt) {
+    async markInboundReceived(id, receivedAt, followupDueAt) {
       const current = rows.get(id);
       if (!current) return null;
       const lead: Lead = {
         ...current,
         status: current.status === 'transferred' || current.status === 'not_interested' ? current.status : 'in_conversation',
         lastInboundAt: receivedAt,
+        // reancora o follow-up na ultima interacao real, nao na primeira mensagem
+        followupDueAt: followupDueAt === undefined ? current.followupDueAt : followupDueAt,
         updatedAt: receivedAt,
       };
+      rows.set(id, lead);
+      return lead;
+    },
+
+    async markOutboundSent(id, sentAt) {
+      const current = rows.get(id);
+      if (!current) return null;
+      const lead: Lead = { ...current, lastOutboundAt: sentAt, updatedAt: sentAt };
+      rows.set(id, lead);
+      return lead;
+    },
+
+    async rescheduleFollowup(id, followupDueAt, updatedAt) {
+      const current = rows.get(id);
+      if (!current) return null;
+      const lead: Lead = { ...current, followupDueAt, updatedAt };
       rows.set(id, lead);
       return lead;
     },

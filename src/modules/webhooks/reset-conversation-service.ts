@@ -48,6 +48,9 @@ function resetCompanyName(previousLead: Lead | null, whatsappNumber: string): st
   return companyName;
 }
 
+/** Status em que o lead ainda pode receber envios automaticos e por isso precisa ser encerrado no reset. */
+const ACTIVE_LEAD_STATUSES = new Set(['pending', 'initial_sent', 'in_conversation', 'followup_sent', 'human_paused']);
+
 function uazapiCredentials(agent: SdrAgent): { baseUrl: string; token: string } | null {
   if (!agent.uazapiBaseUrl || !agent.uazapiInstanceTokenEncrypted) return null;
   return { baseUrl: agent.uazapiBaseUrl, token: decryptSecret(agent.uazapiInstanceTokenEncrypted) };
@@ -60,6 +63,16 @@ export function createResetConversationService(deps: ResetConversationDependenci
       if (!credentials) throw new Error('SDR sem URL/token UAZAPI configurado.');
 
       const now = new Date();
+      // A thread antiga fica orfa depois do reset: desarma o follow-up dela antes de criar a nova,
+      // senao o agendador ainda dispara uma mensagem nesse mesmo WhatsApp horas depois.
+      if (input.previousLead) {
+        if (ACTIVE_LEAD_STATUSES.has(input.previousLead.status)) {
+          await deps.leadRepository.markDiscarded(input.previousLead.id, now);
+        } else {
+          await deps.leadRepository.disableFollowup(input.previousLead.id, now);
+        }
+      }
+
       const lead = await deps.leadRepository.create({
         companyId: input.agent.companyId,
         sdrAgentId: input.agent.id,

@@ -45,6 +45,7 @@ async function start(): Promise<void> {
       createFollowupOutreachService({
         aiClient: createHttpAiClient(),
         aiRunRepository: createDbAiRunRepository(),
+        conversationRepository: createDbConversationRepository(),
         jobLogRepository: createDbJobLogRepository(),
         leadRepository: createDbLeadRepository(),
         sdrAgentRepository: createDbSdrAgentRepository(),
