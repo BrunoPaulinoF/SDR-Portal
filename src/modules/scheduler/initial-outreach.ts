@@ -7,6 +7,7 @@ import type { ConversationRepository } from '../conversations/conversation-repos
 import type { FirstMessageVariantRepository } from '../first-message-variants/first-message-variant-repository.js';
 import type { JobLogRepository } from '../jobs/job-log-repository.js';
 import { DEFAULT_LEAD_QUALIFICATION_PROMPT } from '../leads/lead-qualification-prompt.js';
+import { leadNameForPrompt, legalBusinessName, tradeBusinessName } from '../leads/lead-display-name.js';
 import type { LeadResearchResult, LeadResearchService } from '../leads/lead-research-service.js';
 import type { LeadRepository } from '../leads/lead-repository.js';
 import { normalizeWhatsappJid, whatsappIdentityFromUazapiSendResult, whatsappNumberFromUazapiSendResult } from '../phone/whatsapp-number.js';
@@ -108,79 +109,10 @@ function truncate(value: string, maxLength: number): string {
   return value.length > maxLength ? `${value.slice(0, maxLength - 3).trim()}...` : value;
 }
 
-function onlyDigits(value: string): string {
-  return value.replace(/\D/g, '');
-}
-
-function hasLetters(value: string): boolean {
-  return /[A-Za-z\u00C0-\u00FF]/.test(value);
-}
-
-function isUnsafeLeadName(value: string | null | undefined, whatsappNumber: string): boolean {
-  const trimmed = value?.trim() ?? '';
-  if (!trimmed) return true;
-
-  const normalized = trimmed.toLowerCase();
-  if (['lead sem cadastro', 'contato sem cadastro', 'sua empresa', 'sem cadastro'].includes(normalized)) return true;
-
-  const digits = onlyDigits(trimmed);
-  if (!hasLetters(trimmed) && digits.length >= 8) return true;
-
-  return digits.length > 0 && digits === onlyDigits(whatsappNumber);
-}
-
-function leadNameForPrompt(lead: Lead, value: string | null | undefined): string {
-  return isUnsafeLeadName(value, lead.whatsappNumber) ? '' : value?.trim() ?? '';
-}
-
 function leadDisplayName(lead: Lead): string | null {
   return leadNameForPrompt(lead, lead.tradeName) || leadNameForPrompt(lead, lead.companyName) || null;
 }
 
-// Razao social de MEI chega da Receita como "<pessoa> <CPF>" (formato antigo)
-// ou "<base do CNPJ> <pessoa>" (formato novo). Nao e nome de empresa e o numero
-// e um CPF — nunca pode ir para a mensagem do lead.
-const MEI_CPF_SUFFIX = /\s\d{11}\s*$/;
-const MEI_CNPJ_PREFIX = /^\s*\d{2}[.\s/-]?\d{3}[.\s/-]?\d{3}\s/;
-
-const TITLE_CASE_LOWER_WORDS = new Set(['a', 'as', 'da', 'das', 'de', 'do', 'dos', 'e', 'em', 'na', 'nas', 'no', 'nos', 'o', 'os', 'para', 'por']);
-
-/** "FANTASTICA CONFEITARIA LTDA" -> "Fantastica Confeitaria Ltda". Nome ja capitalizado passa intacto. */
-function prettifyBusinessName(value: string): string {
-  const collapsed = value.replace(/\s{2,}/g, ' ').trim();
-  if (/[a-zà-ÿ]/.test(collapsed)) return collapsed;
-
-  return collapsed
-    .split(' ')
-    .map((token, index) => {
-      const lower = token.toLowerCase();
-      if (index > 0 && TITLE_CASE_LOWER_WORDS.has(lower)) return lower;
-      // Siglas curtas sem vogal (ZM, JB, MK) ficam melhor em caixa alta; "ZE"/"PA" nao sao siglas.
-      if (token.length <= 2 && !/[aeiouà-ü]/i.test(token)) return token;
-      return lower.charAt(0).toUpperCase() + lower.slice(1);
-    })
-    .join(' ');
-}
-
-function businessNameFrom(lead: Lead, value: string | null | undefined): string {
-  const name = leadNameForPrompt(lead, value);
-  if (!name || MEI_CPF_SUFFIX.test(name) || MEI_CNPJ_PREFIX.test(name)) return '';
-  return prettifyBusinessName(name);
-}
-
-/**
- * Nomes utilizaveis na mensagem que vai para o lead. Quando o cadastro so tem nome
- * de pessoa fisica (MEI), devolvem vazio de proposito: cleanupVariantMessage remove
- * a preposicao solta e a frase vira "falo com a pessoa responsavel?".
- * `razaosocial` prioriza a razao social; `restaurante` prioriza o nome fantasia.
- */
-function legalNameForPrompt(lead: Lead): string {
-  return businessNameFrom(lead, lead.companyName) || businessNameFrom(lead, lead.tradeName);
-}
-
-function businessDisplayNameForPrompt(lead: Lead): string {
-  return businessNameFrom(lead, lead.tradeName) || businessNameFrom(lead, lead.companyName);
-}
 
 function operationTarget(lead: Lead): string {
   const displayName = leadDisplayName(lead);
@@ -197,7 +129,7 @@ function parseJsonObject(value: string): Record<string, unknown> {
 }
 
 function interpolate(template: string, agent: SdrAgent, lead: Lead, research: LeadResearchResult | null): string {
-  const legalName = legalNameForPrompt(lead);
+  const legalName = legalBusinessName(lead);
   const replacements: Record<string, string> = {
     city: lead.city ?? '',
     cnpj: lead.cnpj ?? '',
@@ -216,13 +148,18 @@ function interpolate(template: string, agent: SdrAgent, lead: Lead, research: Le
     sdrName: agent.displayName,
     productName: agent.productName ?? '',
     nome: lead.contactName?.trim() ?? '',
-    restaurante: businessDisplayNameForPrompt(lead),
+    restaurante: tradeBusinessName(lead),
     razaosocial: legalName,
     razao_social: legalName,
     razaoSocial: legalName,
   };
 
-  return template.replace(/{{\s*([a-zA-Z0-9_]+)\s*}}/g, (_match, key: string) => replacements[key] ?? '');
+  // Aceita `{{chave}}` e `{{chave|texto padrao}}`. O padrao entra quando o dado do lead
+  // esta vazio, para a frase nunca ficar truncada (ex.: "responsavel pela {{restaurante|sua loja}}?").
+  return template.replace(
+    /{{\s*([a-zA-Z0-9_]+)\s*(?:\|([^}]*))?}}/g,
+    (_match, key: string, fallback?: string) => replacements[key]?.trim() || fallback?.trim() || '',
+  );
 }
 
 /**

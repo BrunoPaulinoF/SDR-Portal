@@ -1,5 +1,6 @@
 import type { Conversation, Lead, SdrAgent } from '../../db/schema.js';
 import type { ConversationRepository } from '../conversations/conversation-repository.js';
+import { leadStartedTheConversation, tradeBusinessName } from '../leads/lead-display-name.js';
 import type { LeadRepository } from '../leads/lead-repository.js';
 import { decryptSecret } from '../security/secrets.js';
 import type { UazapiClient } from '../uazapi/uazapi-client.js';
@@ -36,7 +37,8 @@ function systemPrompt(agent: SdrAgent, lead: Lead): string {
     customPrompt: agent.prompt,
     conversationStage: lead.conversationStage,
     demoContactName: agent.demoContactName,
-    leadName: lead.companyName,
+    leadInitiated: leadStartedTheConversation(lead),
+    leadName: tradeBusinessName(lead) || null,
     leadSegment: lead.segment,
     leadWhatsapp: lead.whatsappNumber,
     offerDescription: agent.offerDescription,

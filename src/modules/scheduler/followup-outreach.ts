@@ -5,6 +5,7 @@ import { parseAiResponse } from '../ai/ai-response.js';
 import { resolveAiApiKey } from '../ai/resolve-api-key.js';
 import type { ConversationRepository } from '../conversations/conversation-repository.js';
 import type { JobLogRepository } from '../jobs/job-log-repository.js';
+import { legalBusinessName, tradeBusinessName } from '../leads/lead-display-name.js';
 import type { LeadRepository } from '../leads/lead-repository.js';
 import { decryptSecret } from '../security/secrets.js';
 import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
@@ -71,9 +72,12 @@ function randomCooldownMinutes(agent: SdrAgent): number {
 }
 
 function interpolate(template: string, agent: SdrAgent, lead: Lead): string {
+  const businessName = tradeBusinessName(lead);
   const replacements: Record<string, string> = {
-    companyName: lead.companyName,
-    company_name: lead.companyName,
+    companyName: businessName,
+    company_name: businessName,
+    restaurante: businessName,
+    razaosocial: legalBusinessName(lead),
     segment: lead.segment ?? '',
     whatsappNumber: lead.whatsappNumber,
     sdrName: agent.displayName,
@@ -146,8 +150,8 @@ function followupAiMessages(agent: SdrAgent, lead: Lead, history: Message[]): Ai
       role: 'user',
       content: `Crie uma mensagem de follow-up para este lead.
 
-Empresa lead: ${lead.companyName}
-Nome fantasia: ${lead.tradeName ?? ''}
+Empresa lead: ${tradeBusinessName(lead) || '(nao cadastrado, nao invente nome)'}
+Nome fantasia: ${tradeBusinessName(lead)}
 Contato/dono: ${lead.contactName ?? ''}
 CNPJ: ${lead.cnpj ?? ''}
 Segmento lead: ${lead.segment ?? ''}

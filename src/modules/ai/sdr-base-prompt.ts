@@ -52,6 +52,7 @@ export function buildSdrSystemPrompt(input: {
   conversationStage?: string | null;
   customPrompt?: string | null;
   demoContactName?: string | null;
+  leadInitiated?: boolean;
   leadName?: string | null;
   leadSegment?: string | null;
   leadWhatsapp?: string | null;
@@ -76,7 +77,8 @@ ${input.customPrompt?.trim() || 'Conduza uma conversa consultiva, objetiva e nat
 
 ---
 Dados desta conversa (mudam a cada lead/etapa, nao trate como regra geral):
-- Empresa/lead: ${input.leadName ?? input.companyName ?? ''}
+- Empresa/lead: ${input.leadName ?? input.companyName ?? '(nao cadastrado, voce nao sabe o nome do negocio)'}
+- Quem iniciou: ${input.leadInitiated ? 'o lead te chamou primeiro; voce NAO abordou e nao sabe nada sobre o negocio dele' : 'voce abordou o lead primeiro'}
 - WhatsApp do lead: ${input.leadWhatsapp ?? ''}
 - Segmento do lead: ${input.leadSegment ?? ''}
 - Etapa atual da conversa: ${input.conversationStage ?? 'permission'}`;

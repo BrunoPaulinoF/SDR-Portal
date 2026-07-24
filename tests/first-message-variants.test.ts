@@ -23,7 +23,7 @@ async function makeAgent(overrides: Partial<SdrAgent> = {}): Promise<SdrAgent> {
 /** Renderiza uma variante fixa com um unico placeholder, para checar a interpolacao isoladamente. */
 async function renderRazaoSocial(
   lead: { companyName: string; tradeName?: string },
-  placeholder: 'razaosocial' | 'restaurante' = 'razaosocial',
+  placeholder = 'razaosocial',
 ): Promise<string> {
   const variantRepo = createMemoryFirstMessageVariantRepository();
   await variantRepo.create({
@@ -169,6 +169,21 @@ describe('first message A/B variants', () => {
     expect(
       await renderRazaoSocial({ companyName: '65.179.900 JOEMILSON SENTINELLA', tradeName: 'PIZZARIA DO ZE' }),
     ).toBe('Falo com a pessoa responsavel pela Pizzaria do Ze?');
+  });
+
+  it('uses the placeholder default when the lead has no usable business name', async () => {
+    expect(
+      await renderRazaoSocial({ companyName: 'TATIANE ALVES 34152422858' }, 'restaurante|sua loja'),
+    ).toBe('Falo com a pessoa responsavel pela sua loja?');
+    expect(
+      await renderRazaoSocial({ companyName: 'Lead sem cadastro' }, 'razaosocial|sua loja'),
+    ).toBe('Falo com a pessoa responsavel pela sua loja?');
+  });
+
+  it('ignores the placeholder default when the lead has a business name', async () => {
+    expect(
+      await renderRazaoSocial({ companyName: 'ZM CONFEITARIA LTDA' }, 'restaurante|sua loja'),
+    ).toBe('Falo com a pessoa responsavel pela ZM Confeitaria Ltda?');
   });
 
   it('{{restaurante}} prefers the trade name and gets the same MEI/CPF protection', async () => {
