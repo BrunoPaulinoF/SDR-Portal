@@ -38,6 +38,9 @@ function fakeUazapiClient(): UazapiClient & { sent: SendTextInput[] } {
     async getInstanceStatus() {
       return okResult();
     },
+    async sendContact() {
+      return okResult();
+    },
     async sendPresence() {
       return okResult();
     },

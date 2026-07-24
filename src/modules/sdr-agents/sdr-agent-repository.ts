@@ -64,6 +64,8 @@ function withDefaults(input: SdrAgentInput): Omit<SdrAgent, 'id' | 'createdAt' |
     handoffName: nullable(input.handoffName),
     handoffPhone: nullable(input.handoffPhone),
     handoffMessageTemplate: nullable(input.handoffMessageTemplate),
+    demoContactName: nullable(input.demoContactName),
+    demoContactPhone: nullable(input.demoContactPhone),
   };
 }
 

@@ -137,6 +137,51 @@ function leadDisplayName(lead: Lead): string | null {
   return leadNameForPrompt(lead, lead.tradeName) || leadNameForPrompt(lead, lead.companyName) || null;
 }
 
+// Razao social de MEI chega da Receita como "<pessoa> <CPF>" (formato antigo)
+// ou "<base do CNPJ> <pessoa>" (formato novo). Nao e nome de empresa e o numero
+// e um CPF — nunca pode ir para a mensagem do lead.
+const MEI_CPF_SUFFIX = /\s\d{11}\s*$/;
+const MEI_CNPJ_PREFIX = /^\s*\d{2}[.\s/-]?\d{3}[.\s/-]?\d{3}\s/;
+
+const TITLE_CASE_LOWER_WORDS = new Set(['a', 'as', 'da', 'das', 'de', 'do', 'dos', 'e', 'em', 'na', 'nas', 'no', 'nos', 'o', 'os', 'para', 'por']);
+
+/** "FANTASTICA CONFEITARIA LTDA" -> "Fantastica Confeitaria Ltda". Nome ja capitalizado passa intacto. */
+function prettifyBusinessName(value: string): string {
+  const collapsed = value.replace(/\s{2,}/g, ' ').trim();
+  if (/[a-zà-ÿ]/.test(collapsed)) return collapsed;
+
+  return collapsed
+    .split(' ')
+    .map((token, index) => {
+      const lower = token.toLowerCase();
+      if (index > 0 && TITLE_CASE_LOWER_WORDS.has(lower)) return lower;
+      // Siglas curtas sem vogal (ZM, JB, MK) ficam melhor em caixa alta; "ZE"/"PA" nao sao siglas.
+      if (token.length <= 2 && !/[aeiouà-ü]/i.test(token)) return token;
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    })
+    .join(' ');
+}
+
+function businessNameFrom(lead: Lead, value: string | null | undefined): string {
+  const name = leadNameForPrompt(lead, value);
+  if (!name || MEI_CPF_SUFFIX.test(name) || MEI_CNPJ_PREFIX.test(name)) return '';
+  return prettifyBusinessName(name);
+}
+
+/**
+ * Nomes utilizaveis na mensagem que vai para o lead. Quando o cadastro so tem nome
+ * de pessoa fisica (MEI), devolvem vazio de proposito: cleanupVariantMessage remove
+ * a preposicao solta e a frase vira "falo com a pessoa responsavel?".
+ * `razaosocial` prioriza a razao social; `restaurante` prioriza o nome fantasia.
+ */
+function legalNameForPrompt(lead: Lead): string {
+  return businessNameFrom(lead, lead.companyName) || businessNameFrom(lead, lead.tradeName);
+}
+
+function businessDisplayNameForPrompt(lead: Lead): string {
+  return businessNameFrom(lead, lead.tradeName) || businessNameFrom(lead, lead.companyName);
+}
+
 function operationTarget(lead: Lead): string {
   const displayName = leadDisplayName(lead);
   return displayName ? `da ${displayName}` : 'da sua empresa';
@@ -152,6 +197,7 @@ function parseJsonObject(value: string): Record<string, unknown> {
 }
 
 function interpolate(template: string, agent: SdrAgent, lead: Lead, research: LeadResearchResult | null): string {
+  const legalName = legalNameForPrompt(lead);
   const replacements: Record<string, string> = {
     city: lead.city ?? '',
     cnpj: lead.cnpj ?? '',
@@ -170,7 +216,10 @@ function interpolate(template: string, agent: SdrAgent, lead: Lead, research: Le
     sdrName: agent.displayName,
     productName: agent.productName ?? '',
     nome: lead.contactName?.trim() ?? '',
-    restaurante: leadNameForPrompt(lead, lead.tradeName) || leadNameForPrompt(lead, lead.companyName),
+    restaurante: businessDisplayNameForPrompt(lead),
+    razaosocial: legalName,
+    razao_social: legalName,
+    razaoSocial: legalName,
   };
 
   return template.replace(/{{\s*([a-zA-Z0-9_]+)\s*}}/g, (_match, key: string) => replacements[key] ?? '');
@@ -178,12 +227,13 @@ function interpolate(template: string, agent: SdrAgent, lead: Lead, research: Le
 
 /**
  * Limpa artefatos de placeholders vazios em mensagens fixas de teste A/B
- * (ex.: "Boa tarde, {{nome}}!" sem contato -> "Boa tarde!").
+ * (ex.: "Boa tarde, {{nome}}!" sem contato -> "Boa tarde!";
+ * "responsavel pela {{razaosocial}}?" sem razao social -> "responsavel?").
  */
 function cleanupVariantMessage(text: string): string {
   return text
     .replace(/([,:;])\s*([!?.])/g, '$2')
-    .replace(/[ \t]+(do|da|de|no|na)[ \t]*([!?.,])/gi, '$2')
+    .replace(/[ \t]+(pelas|pelos|pela|pelo|das|dos|nas|nos|da|do|de|na|no|em)[ \t]*(?=[!?.,]|$)/gim, '')
     .replace(/[ \t]{2,}/g, ' ')
     .replace(/ +\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')

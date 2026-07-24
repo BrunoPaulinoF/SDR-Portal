@@ -5,7 +5,8 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    ignores: ['dist/**', 'node_modules/**', 'drizzle/**', 'local-secrets/**'],
+    // scripts/*.mjs sao utilitarios avulsos de manutencao rodados com `node`, fora do build.
+    ignores: ['dist/**', 'node_modules/**', 'drizzle/**', 'local-secrets/**', 'scripts/**'],
   },
   {
     languageOptions: {

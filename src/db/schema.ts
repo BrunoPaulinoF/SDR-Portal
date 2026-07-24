@@ -94,6 +94,8 @@ export const sdrAgents = pgTable('sdr_agents', {
   handoffName: text('handoff_name'),
   handoffPhone: text('handoff_phone'),
   handoffMessageTemplate: text('handoff_message_template'),
+  demoContactName: text('demo_contact_name'),
+  demoContactPhone: text('demo_contact_phone'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });

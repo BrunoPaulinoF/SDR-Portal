@@ -47,6 +47,8 @@ interface SdrAgentFormData {
   handoffName: string;
   handoffPhone: string;
   handoffMessageTemplate: string;
+  demoContactName: string;
+  demoContactPhone: string;
 }
 
 const exampleProductDescription = `Direcionamento estrategico gratuito com o Igor Moscheto, consultor empresarial senior da Kybernan Consultoria.
@@ -139,6 +141,8 @@ const fieldHelp: Partial<Record<keyof SdrAgentFormData, string>> = {
   followupEnabled: 'Quando ativo, o sistema tenta enviar um unico follow-up somente para leads que ja responderam.',
   followupPrompt: 'Instrucao usada pela IA para criar o follow-up. O sistema nao envia este texto literalmente.',
   handoffMessageTemplate: 'Mensagem enviada ao responsavel humano quando a IA solicita transferencia.',
+  demoContactName: 'Nome que aparece no cartao de contato que a IA envia para o lead testar (deixe vazio para desativar).',
+  demoContactPhone: 'WhatsApp que vai dentro do cartao de contato, com DDI e DDD. Ex.: 5519997353221.',
   handoffName: 'Nome do responsavel ou time que recebe handoffs.',
   handoffPhone: 'WhatsApp que recebera avisos de transferencia para humano.',
   humanPauseHours: 'Tempo que a IA fica pausada quando alguem responde manualmente pelo WhatsApp do SDR.',
@@ -211,6 +215,8 @@ const defaultForm: SdrAgentFormData = {
   handoffName: '',
   handoffPhone: '',
   handoffMessageTemplate: exampleHandoffTemplate,
+  demoContactName: '',
+  demoContactPhone: '',
 };
 
 function agentToForm(agent?: SdrAgent): SdrAgentFormData {
@@ -262,6 +268,8 @@ function agentToForm(agent?: SdrAgent): SdrAgentFormData {
     handoffName: agent.handoffName ?? '',
     handoffPhone: agent.handoffPhone ?? '',
     handoffMessageTemplate: agent.handoffMessageTemplate ?? '',
+    demoContactName: agent.demoContactName ?? '',
+    demoContactPhone: agent.demoContactPhone ?? '',
   };
 }
 
@@ -498,7 +506,7 @@ function renderSdrAgentForm(action: string, companies: Company[], agent?: SdrAge
 
       ${renderFormSection(
         'Resposta e handoff',
-        'Delay, divisao de mensagens, pausa humana e transferencia.',
+        'Delay, divisao de mensagens, pausa humana, transferencia e contato de demonstracao.',
         `
       ${renderField('responseDelayBaseMs', 'Delay base da resposta em ms', data.responseDelayBaseMs, true, 'number')}
       ${renderField('responseDelayPerCharMs', 'Delay por caractere em ms', data.responseDelayPerCharMs, true, 'number')}
@@ -508,6 +516,8 @@ function renderSdrAgentForm(action: string, companies: Company[], agent?: SdrAge
       ${renderField('handoffName', 'Responsavel humano', data.handoffName)}
       ${renderField('handoffPhone', 'WhatsApp do responsavel humano', data.handoffPhone)}
       ${renderTextArea('handoffMessageTemplate', 'Modelo de mensagem para handoff', data.handoffMessageTemplate, 4)}
+      ${renderField('demoContactName', 'Nome do contato de demonstracao', data.demoContactName)}
+      ${renderField('demoContactPhone', 'WhatsApp do contato de demonstracao', data.demoContactPhone)}
         `,
       )}
 

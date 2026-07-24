@@ -109,6 +109,11 @@ function createMockUazapiClient(
       return ok({ connected: true, loggedIn: true });
     },
 
+    async sendContact(input) {
+      calls.push(`contact:${input.number}:${input.fullName}:${input.phoneNumber}:${input.token}`);
+      return ok({ response: 'contact sent' });
+    },
+
     async sendPresence(input) {
       calls.push(`presence:${input.number}:${input.presence}:${input.token}`);
       return ok({ response: 'presence sent' });

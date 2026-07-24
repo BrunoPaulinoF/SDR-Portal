@@ -63,6 +63,8 @@ const sdrAgentFormSchema = z.object({
   handoffName: z.string().trim().optional().default(''),
   handoffPhone: z.string().trim().optional().default(''),
   handoffMessageTemplate: z.string().trim().optional().default(''),
+  demoContactName: z.string().trim().optional().default(''),
+  demoContactPhone: z.string().trim().optional().default(''),
 });
 
 function emptyToNull(value: string): string | null {
@@ -126,6 +128,8 @@ function parseSdrAgentInput(body: unknown, current?: SdrAgentInput): SdrAgentInp
     handoffName: emptyToNull(data.handoffName),
     handoffPhone: emptyToNull(data.handoffPhone),
     handoffMessageTemplate: emptyToNull(data.handoffMessageTemplate),
+    demoContactName: emptyToNull(data.demoContactName),
+    demoContactPhone: emptyToNull(data.demoContactPhone),
   };
 }
 

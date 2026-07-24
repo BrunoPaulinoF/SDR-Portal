@@ -20,6 +20,38 @@ async function makeAgent(overrides: Partial<SdrAgent> = {}): Promise<SdrAgent> {
   return { ...agent, ...overrides };
 }
 
+/** Renderiza uma variante fixa com um unico placeholder, para checar a interpolacao isoladamente. */
+async function renderRazaoSocial(
+  lead: { companyName: string; tradeName?: string },
+  placeholder: 'razaosocial' | 'restaurante' = 'razaosocial',
+): Promise<string> {
+  const variantRepo = createMemoryFirstMessageVariantRepository();
+  await variantRepo.create({
+    sdrAgentId: 'sdr-1',
+    label: 'A',
+    body: `Falo com a pessoa responsavel pela {{${placeholder}}}?`,
+  });
+  const agent = await makeAgent({ id: 'sdr-1', firstMessageMode: 'ab_test' });
+  const leadRepo = createMemoryLeadRepository();
+  const created = await leadRepo.create({
+    companyId: 'company-1',
+    sdrAgentId: 'sdr-1',
+    whatsappNumber: '5519999999999',
+    companyName: lead.companyName,
+    tradeName: lead.tradeName ?? null,
+    status: 'pending',
+    source: 'manual',
+  });
+
+  const { text } = await resolveFirstMessage(
+    { aiClient: aiClientThatMustNotRun, aiRunRepository: createMemoryAiRunRepository(), firstMessageVariantRepository: variantRepo },
+    agent,
+    created,
+    null,
+  );
+  return text;
+}
+
 describe('first message A/B variants', () => {
   it('distributes picks evenly across active variants (round-robin)', async () => {
     const repo = createMemoryFirstMessageVariantRepository();
@@ -79,6 +111,73 @@ describe('first message A/B variants', () => {
 
     expect(variantId).not.toBeNull();
     expect(text).toBe('Boa tarde! Falo do Leley Gelato.');
+  });
+
+  it('interpolates {{razaosocial}} with the lead legal name', async () => {
+    const variantRepo = createMemoryFirstMessageVariantRepository();
+    await variantRepo.create({
+      sdrAgentId: 'sdr-1',
+      label: 'A',
+      body: 'Oi, tudo bem? Aqui e a Mariana. Falo com a pessoa responsavel pela {{razaosocial}}?',
+    });
+    const agent = await makeAgent({ id: 'sdr-1', firstMessageMode: 'ab_test' });
+    const leadRepo = createMemoryLeadRepository();
+    const lead = await leadRepo.create({
+      companyId: 'company-1',
+      sdrAgentId: 'sdr-1',
+      whatsappNumber: '5519999999999',
+      companyName: 'Leley Gelato LTDA',
+      tradeName: 'Leley Gelato',
+      status: 'pending',
+      source: 'manual',
+    });
+
+    const { text } = await resolveFirstMessage(
+      { aiClient: aiClientThatMustNotRun, aiRunRepository: createMemoryAiRunRepository(), firstMessageVariantRepository: variantRepo },
+      agent,
+      lead,
+      null,
+    );
+
+    expect(text).toBe('Oi, tudo bem? Aqui e a Mariana. Falo com a pessoa responsavel pela Leley Gelato LTDA?');
+  });
+
+  it('title-cases an all-caps legal name', async () => {
+    expect(await renderRazaoSocial({ companyName: 'STENSEN E STENSEN PADARIA LTDA' })).toBe(
+      'Falo com a pessoa responsavel pela Stensen e Stensen Padaria Ltda?',
+    );
+    expect(await renderRazaoSocial({ companyName: 'ZM CONFEITARIA LTDA' })).toBe(
+      'Falo com a pessoa responsavel pela ZM Confeitaria Ltda?',
+    );
+    expect(await renderRazaoSocial({ companyName: 'Bruno Paulino Ferreira ME' })).toBe(
+      'Falo com a pessoa responsavel pela Bruno Paulino Ferreira ME?',
+    );
+  });
+
+  it('never leaks a MEI personal name/CPF and drops the dangling preposition', async () => {
+    // Razao social de MEI no formato antigo (nome + CPF) e no formato novo (base do CNPJ + nome).
+    expect(await renderRazaoSocial({ companyName: 'TATIANE ALVES 34152422858' })).toBe(
+      'Falo com a pessoa responsavel?',
+    );
+    expect(await renderRazaoSocial({ companyName: '65.179.900 JOEMILSON SENTINELLA' })).toBe(
+      'Falo com a pessoa responsavel?',
+    );
+    expect(await renderRazaoSocial({ companyName: 'Lead sem cadastro' })).toBe('Falo com a pessoa responsavel?');
+  });
+
+  it('falls back to the trade name when the legal name is a MEI personal name', async () => {
+    expect(
+      await renderRazaoSocial({ companyName: '65.179.900 JOEMILSON SENTINELLA', tradeName: 'PIZZARIA DO ZE' }),
+    ).toBe('Falo com a pessoa responsavel pela Pizzaria do Ze?');
+  });
+
+  it('{{restaurante}} prefers the trade name and gets the same MEI/CPF protection', async () => {
+    expect(
+      await renderRazaoSocial({ companyName: 'ABEL JULIO DE OLIVEIRA NETO LTDA', tradeName: 'SMART SUSHI' }, 'restaurante'),
+    ).toBe('Falo com a pessoa responsavel pela Smart Sushi?');
+    expect(
+      await renderRazaoSocial({ companyName: 'TATIANE ALVES 34152422858', tradeName: 'TATIANE ALVES 34152422858' }, 'restaurante'),
+    ).toBe('Falo com a pessoa responsavel?');
   });
 
   it('resolveFirstMessage in ai mode returns no variant id', async () => {

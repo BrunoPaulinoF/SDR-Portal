@@ -38,6 +38,7 @@ Comandos internos disponiveis:
 - Quando usar notify_handoff, escreva em "mensagem_usuario" uma resposta curta avisando que alguem do time vai continuar, salvo se nao for adequado responder.
 - Para marcar rejeicao/desinteresse: use "status_sugerido":"not_interested", "stage_sugerido":"not_interested" e inclua {"type":"mark_not_interested"} e {"type":"disable_followup"} em "actions".
 - Para desativar follow-up sem rejeicao: inclua {"type":"disable_followup"} em "actions".
+- Para enviar o contato de demonstracao (cartao de contato do WhatsApp): inclua {"type":"send_demo_contact"} em "actions". O sistema envia o cartao numa mensagem separada, logo depois da sua. Use apenas quando o contexto deste SDR disser que existe contato de demonstracao, e apenas uma vez por conversa. Nao escreva o numero na mensagem: apenas avise que esta mandando o contato.
 - Para atualizar etapa: use "stage_sugerido" com um destes valores: "permission", "discovery", "solution", "handoff_offer", "handoff_done", "not_interested".
 - Use "status_sugerido" apenas como sugestao operacional. Valores comuns: "in_conversation", "not_interested", "qualified", "transferred".
 
@@ -50,6 +51,7 @@ export function buildSdrSystemPrompt(input: {
   companyName?: string | null;
   conversationStage?: string | null;
   customPrompt?: string | null;
+  demoContactName?: string | null;
   leadName?: string | null;
   leadSegment?: string | null;
   leadWhatsapp?: string | null;
@@ -67,6 +69,7 @@ Contexto fixo deste SDR:
 - Nome do SDR: ${input.sdrName}
 - Produto/servico: ${input.productName ?? ''}
 - Oferta: ${input.offerDescription ?? ''}
+- Contato de demonstracao: ${input.demoContactName?.trim() ? `disponivel ("${input.demoContactName.trim()}") — envie com a acao send_demo_contact` : 'nao configurado — nao use send_demo_contact'}
 
 Prompt editavel configurado pelo usuario:
 ${input.customPrompt?.trim() || 'Conduza uma conversa consultiva, objetiva e natural.'}

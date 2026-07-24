@@ -35,6 +35,7 @@ function systemPrompt(agent: SdrAgent, lead: Lead): string {
   return buildSdrSystemPrompt({
     customPrompt: agent.prompt,
     conversationStage: lead.conversationStage,
+    demoContactName: agent.demoContactName,
     leadName: lead.companyName,
     leadSegment: lead.segment,
     leadWhatsapp: lead.whatsappNumber,
@@ -115,6 +116,85 @@ async function notifyHandoff(
     trackId: `handoff-${lead.id}`,
   });
   if (!result.ok) throw new Error(`UAZAPI returned HTTP ${result.status}`);
+}
+
+/**
+ * Envia o cartao de contato configurado no SDR como mensagem separada, logo depois
+ * da resposta da IA. Se a UAZAPI recusar o cartao, cai para o link wa.me em texto
+ * para o lead nao ficar sem o proximo passo.
+ */
+async function sendDemoContact(
+  deps: AiResponseDependencies,
+  input: RespondInput,
+  credentials: { baseUrl: string; token: string },
+): Promise<void> {
+  const { agent, conversation, lead } = input;
+  const fullName = agent.demoContactName?.trim();
+  const phone = agent.demoContactPhone ? normalizePhone(agent.demoContactPhone) : '';
+  if (!fullName || !phone) return;
+
+  const alreadySent = (await deps.conversationRepository.listMessages(conversation.id)).some(
+    (message) => message.messageType === 'contact' && message.direction === 'outbound',
+  );
+  if (alreadySent) return;
+
+  const result = await deps.uazapiClient.sendContact({
+    ...credentials,
+    number: lead.whatsappNumber,
+    fullName,
+    phoneNumber: phone,
+    readchat: true,
+    trackSource: 'sdr-portal-demo-contact',
+    trackId: `demo-contact-${lead.id}`,
+  });
+
+  if (result.ok) {
+    await deps.conversationRepository.createMessage({
+      conversationId: conversation.id,
+      leadId: lead.id,
+      sdrAgentId: agent.id,
+      direction: 'outbound',
+      senderType: 'ai',
+      whatsappMessageId: null,
+      messageType: 'contact',
+      text: `Contato enviado: ${fullName} (${phone})`,
+      transcription: null,
+      mediaUrl: null,
+      rawPayload: JSON.stringify(result.body),
+      sentByApi: true,
+      fromMe: true,
+    });
+    await deps.conversationRepository.touch(conversation.id, new Date());
+    return;
+  }
+
+  const fallbackText = `Segue o contato pra você chamar: wa.me/${phone}`;
+  const fallback = await deps.uazapiClient.sendText({
+    ...credentials,
+    number: lead.whatsappNumber,
+    text: fallbackText,
+    readchat: true,
+    trackSource: 'sdr-portal-demo-contact-fallback',
+    trackId: `demo-contact-link-${lead.id}`,
+  });
+  if (!fallback.ok) throw new Error(`UAZAPI returned HTTP ${result.status} on contact and ${fallback.status} on fallback link`);
+
+  await deps.conversationRepository.createMessage({
+    conversationId: conversation.id,
+    leadId: lead.id,
+    sdrAgentId: agent.id,
+    direction: 'outbound',
+    senderType: 'ai',
+    whatsappMessageId: null,
+    messageType: 'contact',
+    text: fallbackText,
+    transcription: null,
+    mediaUrl: null,
+    rawPayload: JSON.stringify(fallback.body),
+    sentByApi: true,
+    fromMe: true,
+  });
+  await deps.conversationRepository.touch(conversation.id, new Date());
 }
 
 function normalizeStage(value: string | null | undefined): string | null {
@@ -252,6 +332,10 @@ export function createAiResponseService(deps: AiResponseDependencies) {
             fromMe: true,
           });
           await deps.conversationRepository.touch(input.conversation.id, new Date());
+        }
+
+        if (parsed.actions.some((action) => actionType(action) === 'send_demo_contact')) {
+          await sendDemoContact(deps, input, credentials);
         }
 
         await applyLeadActions(deps, parsed, input, credentials, messages);

@@ -12,6 +12,19 @@ export interface SendTextInput extends UazapiCredentials {
   trackSource?: string;
 }
 
+export interface SendContactInput extends UazapiCredentials {
+  /** WhatsApp que vai receber o cartao de contato. */
+  number: string;
+  /** Nome que aparece no cartao. */
+  fullName: string;
+  /** Numero do contato que vai dentro do cartao. */
+  phoneNumber: string;
+  delay?: number;
+  readchat?: boolean;
+  trackId?: string;
+  trackSource?: string;
+}
+
 export interface SendPresenceInput extends UazapiCredentials {
   number: string;
   presence: 'composing' | 'recording' | 'paused';
@@ -48,6 +61,7 @@ export interface UazapiClient {
   configureWebhook(input: ConfigureWebhookInput): Promise<UazapiResult>;
   downloadMessage(input: DownloadMessageInput): Promise<UazapiResult>;
   getInstanceStatus(input: UazapiCredentials): Promise<UazapiResult>;
+  sendContact(input: SendContactInput): Promise<UazapiResult>;
   sendPresence(input: SendPresenceInput): Promise<UazapiResult>;
   sendText(input: SendTextInput): Promise<UazapiResult>;
 }
@@ -124,6 +138,21 @@ export function createHttpUazapiClient(): UazapiClient {
 
     getInstanceStatus(input) {
       return request('/instance/status', input, { method: 'GET' });
+    },
+
+    sendContact(input) {
+      return request('/send/contact', input, {
+        method: 'POST',
+        body: JSON.stringify({
+          number: input.number,
+          fullName: input.fullName,
+          phoneNumber: input.phoneNumber,
+          delay: input.delay,
+          readchat: input.readchat,
+          track_id: input.trackId,
+          track_source: input.trackSource,
+        }),
+      });
     },
 
     sendPresence(input) {
