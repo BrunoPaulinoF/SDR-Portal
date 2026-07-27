@@ -5,7 +5,13 @@ import { parseAiResponse } from '../ai/ai-response.js';
 import { resolveAiApiKey } from '../ai/resolve-api-key.js';
 import type { ConversationRepository } from '../conversations/conversation-repository.js';
 import type { JobLogRepository } from '../jobs/job-log-repository.js';
-import { legalBusinessName, tradeBusinessName } from '../leads/lead-display-name.js';
+import {
+  contactDisplayName,
+  legalBusinessName,
+  ownerPersonName,
+  responsibleReference,
+  tradeBusinessName,
+} from '../leads/lead-display-name.js';
 import type { LeadRepository } from '../leads/lead-repository.js';
 import { decryptSecret } from '../security/secrets.js';
 import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
@@ -77,6 +83,9 @@ function interpolate(template: string, agent: SdrAgent, lead: Lead): string {
     companyName: businessName,
     company_name: businessName,
     restaurante: businessName,
+    responsavel: responsibleReference(lead),
+    nome: contactDisplayName(lead),
+    titular: ownerPersonName(lead),
     razaosocial: legalBusinessName(lead),
     segment: lead.segment ?? '',
     whatsappNumber: lead.whatsappNumber,
@@ -150,9 +159,9 @@ function followupAiMessages(agent: SdrAgent, lead: Lead, history: Message[]): Ai
       role: 'user',
       content: `Crie uma mensagem de follow-up para este lead.
 
-Empresa lead: ${tradeBusinessName(lead) || '(nao cadastrado, nao invente nome)'}
-Nome fantasia: ${tradeBusinessName(lead)}
-Contato/dono: ${lead.contactName ?? ''}
+Empresa lead: ${tradeBusinessName(lead) || '(sem nome de negocio no cadastro, nao invente nome)'}
+Nome do responsavel: ${ownerPersonName(lead) || contactDisplayName(lead)}
+Contato/dono: ${contactDisplayName(lead)}
 CNPJ: ${lead.cnpj ?? ''}
 Segmento lead: ${lead.segment ?? ''}
 Cidade/UF: ${[lead.city, lead.state].filter(Boolean).join('/')}

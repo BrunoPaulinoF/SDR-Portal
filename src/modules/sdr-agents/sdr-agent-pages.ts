@@ -333,6 +333,10 @@ function renderProviderSelect(selectedProvider: string): string {
 
 function renderFirstMessageVariables(): string {
   const variables: Array<[string, string]> = [
+    ['{{responsavel}}', 'complemento de "Falo com ___?": nome do negocio ou primeiro nome do titular'],
+    ['{{restaurante}}', 'nome do negocio (fantasia ou razao social), sem CPF/CNPJ de MEI'],
+    ['{{nome}}', 'contato do lead ou, na falta dele, titular do MEI'],
+    ['{{titular}}', 'nome completo do titular quando a razao social e MEI'],
     ['{{companyName}}', 'nome da empresa lead'],
     ['{{company_name}}', 'alias de companyName'],
     ['{{tradeName}}', 'nome fantasia do lead'],

@@ -20,17 +20,10 @@ async function makeAgent(overrides: Partial<SdrAgent> = {}): Promise<SdrAgent> {
   return { ...agent, ...overrides };
 }
 
-/** Renderiza uma variante fixa com um unico placeholder, para checar a interpolacao isoladamente. */
-async function renderRazaoSocial(
-  lead: { companyName: string; tradeName?: string },
-  placeholder = 'razaosocial',
-): Promise<string> {
+/** Renderiza uma variante fixa para um lead, para checar a interpolacao isoladamente. */
+async function renderBody(body: string, lead: { companyName: string; tradeName?: string }): Promise<string> {
   const variantRepo = createMemoryFirstMessageVariantRepository();
-  await variantRepo.create({
-    sdrAgentId: 'sdr-1',
-    label: 'A',
-    body: `Falo com a pessoa responsavel pela {{${placeholder}}}?`,
-  });
+  await variantRepo.create({ sdrAgentId: 'sdr-1', label: 'A', body });
   const agent = await makeAgent({ id: 'sdr-1', firstMessageMode: 'ab_test' });
   const leadRepo = createMemoryLeadRepository();
   const created = await leadRepo.create({
@@ -50,6 +43,18 @@ async function renderRazaoSocial(
     null,
   );
   return text;
+}
+
+/** Atalho para os testes que so trocam o placeholder dentro da mesma frase. */
+async function renderRazaoSocial(
+  lead: { companyName: string; tradeName?: string },
+  placeholder = 'razaosocial',
+): Promise<string> {
+  return renderBody(`Falo com a pessoa responsavel pela {{${placeholder}}}?`, lead);
+}
+
+async function renderResponsavel(lead: { companyName: string; tradeName?: string }): Promise<string> {
+  return renderBody('Falo com {{responsavel}}?', lead);
 }
 
 describe('first message A/B variants', () => {
@@ -193,6 +198,59 @@ describe('first message A/B variants', () => {
     expect(
       await renderRazaoSocial({ companyName: 'TATIANE ALVES 34152422858', tradeName: 'TATIANE ALVES 34152422858' }, 'restaurante'),
     ).toBe('Falo com a pessoa responsavel?');
+  });
+
+  it('{{responsavel}} uses the real business name with the right article', async () => {
+    expect(await renderResponsavel({ companyName: 'GALPAO TEXAS BBQ LTDA' })).toBe(
+      'Falo com a pessoa responsável pelo Galpao Texas BBQ Ltda?',
+    );
+    expect(
+      await renderResponsavel({ companyName: 'PANIFICADORA PAO DE MEL LTDA', tradeName: 'PADARIA PAO DE MEL' }),
+    ).toBe('Falo com a pessoa responsável pela Padaria Pao de Mel?');
+  });
+
+  it('{{responsavel}} falls back to the MEI owner first name instead of a generic "sua loja"', async () => {
+    expect(await renderResponsavel({ companyName: '29.729.620 CHRISTIAN SAMUEL BARBOSA' })).toBe(
+      'Falo com Christian?',
+    );
+    expect(await renderResponsavel({ companyName: 'TATIANE ALVES 34152422858' })).toBe('Falo com Tatiane?');
+  });
+
+  it('{{responsavel}} only goes generic when the lead has no name at all', async () => {
+    expect(await renderResponsavel({ companyName: 'Lead sem cadastro' })).toBe(
+      'Falo com a pessoa responsável pela loja?',
+    );
+  });
+
+  it('a MEI whose remaining name is a business keeps the business name, without the document', async () => {
+    expect(await renderResponsavel({ companyName: '65.179.900 PIZZARIA DO ZE' })).toBe(
+      'Falo com a pessoa responsável pela Pizzaria do Ze?',
+    );
+  });
+
+  it('{{nome}} falls back to the MEI owner first name', async () => {
+    const variantRepo = createMemoryFirstMessageVariantRepository();
+    await variantRepo.create({ sdrAgentId: 'sdr-1', label: 'A', body: 'Boa tarde, {{nome}}! Tudo bem?' });
+    const agent = await makeAgent({ id: 'sdr-1', firstMessageMode: 'ab_test' });
+    const leadRepo = createMemoryLeadRepository();
+    const lead = await leadRepo.create({
+      companyId: 'company-1',
+      sdrAgentId: 'sdr-1',
+      whatsappNumber: '5519999999999',
+      companyName: '29.729.620 CHRISTIAN SAMUEL BARBOSA',
+      contactName: null,
+      status: 'pending',
+      source: 'manual',
+    });
+
+    const { text } = await resolveFirstMessage(
+      { aiClient: aiClientThatMustNotRun, aiRunRepository: createMemoryAiRunRepository(), firstMessageVariantRepository: variantRepo },
+      agent,
+      lead,
+      null,
+    );
+
+    expect(text).toBe('Boa tarde, Christian! Tudo bem?');
   });
 
   it('resolveFirstMessage in ai mode returns no variant id', async () => {

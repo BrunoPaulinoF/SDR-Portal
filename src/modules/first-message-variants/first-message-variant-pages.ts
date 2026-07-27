@@ -70,7 +70,7 @@ export function renderFirstMessageVariantsPage(
 
   const newPanel = `<section class="panel">
     <h2>Nova variante</h2>
-    <p class="muted">Placeholders disponiveis: <code>{{nome}}</code> (contato do lead) e <code>{{restaurante}}</code> (nome fantasia ou empresa). Se o lead nao tiver o dado, o texto e limpo automaticamente.</p>
+    <p class="muted">Placeholders disponiveis: <code>{{responsavel}}</code> (complemento de "Falo com ___?": usa o nome do negocio, ou o primeiro nome do titular do MEI), <code>{{nome}}</code> (contato do lead ou titular do MEI) e <code>{{restaurante}}</code> (nome fantasia ou empresa). Se o lead nao tiver o dado, o texto e limpo automaticamente.</p>
     <form method="post" action="/sdr-agents/${agent.id}/first-messages" class="form-grid">
       <div class="field field-full"><label>Rotulo</label>
         <input type="text" name="label" placeholder="Ex: A, B, Prova social..." required>

@@ -17,12 +17,43 @@ const PLACEHOLDER_NAMES = ['lead sem cadastro', 'contato sem cadastro', 'sua emp
 
 const TITLE_CASE_LOWER_WORDS = new Set(['a', 'as', 'da', 'das', 'de', 'do', 'dos', 'e', 'em', 'na', 'nas', 'no', 'nos', 'o', 'os', 'para', 'por']);
 
+/** Palavras que so aparecem em nome de negocio: se sobrarem depois do documento, o que restou nao e nome de pessoa. */
+const BUSINESS_WORDS = new Set([
+  'acaiteria', 'adega', 'bar', 'bistro', 'buffet', 'cafeteria', 'churrascaria', 'comercial', 'comercio', 'confeitaria',
+  'conveniencia', 'delivery', 'deposito', 'distribuidora', 'doceria', 'eireli', 'emporio', 'epp', 'gelateria',
+  'hamburgueria', 'lanches', 'lanchonete', 'ltda', 'marmitaria', 'mercadinho', 'mercado', 'mercearia', 'padaria',
+  'panificadora', 'pastelaria', 'pizzaria', 'restaurante', 'rotisserie', 'sorveteria', 'supermercado', 'sushi',
+]);
+
+/** Femininos que nao terminam em -a e masculinos que terminam em -a, onde a regra da terminacao erraria. */
+const FEMININE_HEADS = new Set(['creperie', 'lanchonete', 'pizza', 'rotisserie']);
+const MASCULINE_HEADS = new Set(['cinema', 'clima', 'dia', 'mapa', 'sofa']);
+
 function onlyDigits(value: string): string {
   return value.replace(/\D/g, '');
 }
 
 function hasLetters(value: string): boolean {
   return /[A-Za-zÀ-ÿ]/.test(value);
+}
+
+function withoutAccents(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+function wordsOf(value: string): string[] {
+  return withoutAccents(value).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+}
+
+function looksLikeBusinessName(value: string): boolean {
+  return wordsOf(value).some((word) => BUSINESS_WORDS.has(word));
+}
+
+/** Razao social de MEI sem o documento colado. Vazio quando o valor nao segue nenhum dos dois formatos de MEI. */
+function withoutMeiDocument(value: string): string {
+  if (MEI_CPF_SUFFIX.test(value)) return value.replace(MEI_CPF_SUFFIX, '').trim();
+  if (MEI_CNPJ_PREFIX.test(value)) return value.replace(MEI_CNPJ_PREFIX, '').trim();
+  return '';
 }
 
 export function isUnsafeLeadName(value: string | null | undefined, whatsappNumber: string): boolean {
@@ -51,8 +82,8 @@ export function prettifyBusinessName(value: string): string {
     .map((token, index) => {
       const lower = token.toLowerCase();
       if (index > 0 && TITLE_CASE_LOWER_WORDS.has(lower)) return lower;
-      // Siglas curtas sem vogal (ZM, JB, MK) ficam melhor em caixa alta; "ZE"/"PA" nao sao siglas.
-      if (token.length <= 2 && !/[aeiouà-ü]/i.test(token)) return token;
+      // Siglas sem vogal (ZM, JB, BBQ) ficam melhor em caixa alta; "ZE"/"PA" nao sao siglas.
+      if (!/[aeiouà-ü]/i.test(token)) return token;
       return lower.charAt(0).toUpperCase() + lower.slice(1);
     })
     .join(' ');
@@ -60,8 +91,13 @@ export function prettifyBusinessName(value: string): string {
 
 function businessNameFrom(lead: Lead, value: string | null | undefined): string {
   const name = leadNameForPrompt(lead, value);
-  if (!name || MEI_CPF_SUFFIX.test(name) || MEI_CNPJ_PREFIX.test(name)) return '';
-  return prettifyBusinessName(name);
+  if (!name) return '';
+
+  const withoutDocument = withoutMeiDocument(name);
+  if (!withoutDocument) return prettifyBusinessName(name);
+  // Razao social de MEI: so aproveitamos quando o que sobra e nome de negocio
+  // ("12.345.678 PIZZARIA DO ZE"), nunca o nome da pessoa fisica.
+  return looksLikeBusinessName(withoutDocument) ? prettifyBusinessName(withoutDocument) : '';
 }
 
 /** Razao social utilizavel ({{razaosocial}}). Vazio quando so ha nome de pessoa fisica. */
@@ -72,6 +108,55 @@ export function legalBusinessName(lead: Lead): string {
 /** Nome comercial utilizavel ({{restaurante}}), priorizando o nome fantasia. */
 export function tradeBusinessName(lead: Lead): string {
   return businessNameFrom(lead, lead.tradeName) || businessNameFrom(lead, lead.companyName);
+}
+
+/**
+ * Nome do titular quando a razao social e MEI ("29.729.620 CHRISTIAN SAMUEL BARBOSA"
+ * -> "Christian Samuel Barbosa"). O documento nunca acompanha o retorno. Vazio quando
+ * o cadastro nao segue o formato de MEI ou quando o que sobra e nome de negocio.
+ */
+export function ownerPersonName(lead: Lead): string {
+  for (const value of [lead.companyName, lead.tradeName]) {
+    const name = leadNameForPrompt(lead, value);
+    if (!name) continue;
+
+    const withoutDocument = withoutMeiDocument(name);
+    if (withoutDocument && !looksLikeBusinessName(withoutDocument)) return prettifyBusinessName(withoutDocument);
+  }
+
+  return '';
+}
+
+/** Primeiro nome do titular do MEI, para tratar a pessoa pelo nome. */
+export function ownerFirstName(lead: Lead): string {
+  return ownerPersonName(lead).split(' ')[0] ?? '';
+}
+
+/** Como chamar a pessoa ({{nome}}): o contato cadastrado ou, na falta dele, o titular do MEI. */
+export function contactDisplayName(lead: Lead): string {
+  return leadNameForPrompt(lead, lead.contactName) || ownerFirstName(lead);
+}
+
+/** "pela Padaria X", "pelo Restaurante Y", "por ZM BBQ" quando nao ha palavra da qual deduzir o genero. */
+function businessPreposition(name: string): string {
+  const head = wordsOf(name).find((word) => word.length >= 3 && /[aeiou]/.test(word));
+  if (!head) return 'por';
+  if (FEMININE_HEADS.has(head)) return 'pela';
+  if (MASCULINE_HEADS.has(head)) return 'pelo';
+  // "-acao/-icao" sao femininos (alimentacao, refeicao); "-ao" de aumentativo (galpao, sinucao) nao.
+  return head.endsWith('a') || /(?:acao|icao|dade|gem|tude|ice)$/.test(head) ? 'pela' : 'pelo';
+}
+
+/**
+ * Complemento de "Falo com ___?" na abordagem inicial ({{responsavel}}): o nome real do
+ * negocio quando existe, senao o primeiro nome do titular do MEI. O generico so entra
+ * quando o cadastro nao tem nenhum nome utilizavel.
+ */
+export function responsibleReference(lead: Lead): string {
+  const business = tradeBusinessName(lead);
+  if (business) return `a pessoa responsável ${businessPreposition(business)} ${business}`;
+
+  return contactDisplayName(lead) || 'a pessoa responsável pela loja';
 }
 
 /**

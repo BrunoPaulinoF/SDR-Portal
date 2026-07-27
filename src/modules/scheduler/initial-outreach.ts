@@ -7,7 +7,14 @@ import type { ConversationRepository } from '../conversations/conversation-repos
 import type { FirstMessageVariantRepository } from '../first-message-variants/first-message-variant-repository.js';
 import type { JobLogRepository } from '../jobs/job-log-repository.js';
 import { DEFAULT_LEAD_QUALIFICATION_PROMPT } from '../leads/lead-qualification-prompt.js';
-import { leadNameForPrompt, legalBusinessName, tradeBusinessName } from '../leads/lead-display-name.js';
+import {
+  contactDisplayName,
+  leadNameForPrompt,
+  legalBusinessName,
+  ownerPersonName,
+  responsibleReference,
+  tradeBusinessName,
+} from '../leads/lead-display-name.js';
 import type { LeadResearchResult, LeadResearchService } from '../leads/lead-research-service.js';
 import type { LeadRepository } from '../leads/lead-repository.js';
 import { normalizeWhatsappJid, whatsappIdentityFromUazapiSendResult, whatsappNumberFromUazapiSendResult } from '../phone/whatsapp-number.js';
@@ -147,8 +154,10 @@ function interpolate(template: string, agent: SdrAgent, lead: Lead, research: Le
     whatsappNumber: lead.whatsappNumber,
     sdrName: agent.displayName,
     productName: agent.productName ?? '',
-    nome: lead.contactName?.trim() ?? '',
+    nome: contactDisplayName(lead),
     restaurante: tradeBusinessName(lead),
+    responsavel: responsibleReference(lead),
+    titular: ownerPersonName(lead),
     razaosocial: legalName,
     razao_social: legalName,
     razaoSocial: legalName,
@@ -383,9 +392,9 @@ ${configuredPrompt || 'Abordagem consultiva e curta.'}
 
 Nome do SDR: ${agent.displayName}
 Produto/servico: ${agent.productName ?? ''}
-Empresa lead: ${leadNameForPrompt(lead, lead.companyName)}
-Nome fantasia: ${leadNameForPrompt(lead, lead.tradeName)}
-Contato/dono: ${lead.contactName ?? ''}
+Nome do negocio: ${tradeBusinessName(lead) || '(sem nome de negocio no cadastro; nao invente um)'}
+Contato/dono: ${contactDisplayName(lead)}
+Como se referir a quem voce procura: ${responsibleReference(lead)}
 CNPJ: ${lead.cnpj ?? ''}
 Segmento lead: ${lead.segment ?? ''}
 Cidade/UF: ${[lead.city, lead.state].filter(Boolean).join('/')}

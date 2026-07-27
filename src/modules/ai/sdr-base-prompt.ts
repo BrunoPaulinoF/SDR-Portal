@@ -47,6 +47,19 @@ Importante:
 - Nunca coloque raciocinio, explicacoes internas ou analise no JSON.
 - Nunca inclua comandos internos na mensagem do usuario.`;
 
+/**
+ * O cadastro da Receita quase nunca traz nome fantasia de MEI: sobra so o nome do titular.
+ * Sem esta orientacao a IA cai no generico "sua loja" mesmo tendo um nome real para usar.
+ */
+function referenceGuidance(businessName: string | null | undefined, ownerName: string | null | undefined): string {
+  if (businessName?.trim()) return `chame o negocio pelo nome ("${businessName.trim()}")`;
+  if (ownerName?.trim()) {
+    const firstName = ownerName.trim().split(' ')[0] ?? '';
+    return `nao ha nome de negocio no cadastro: trate a pessoa pelo primeiro nome ("${firstName}") e fale "seu delivery"/"sua loja" ao citar o negocio`;
+  }
+  return 'nao ha nome nenhum no cadastro: fale "sua loja" ou "seu delivery" e nunca invente um nome';
+}
+
 export function buildSdrSystemPrompt(input: {
   companyName?: string | null;
   conversationStage?: string | null;
@@ -57,6 +70,7 @@ export function buildSdrSystemPrompt(input: {
   leadSegment?: string | null;
   leadWhatsapp?: string | null;
   offerDescription?: string | null;
+  ownerName?: string | null;
   productName?: string | null;
   sdrName: string;
 }): string {
@@ -77,7 +91,9 @@ ${input.customPrompt?.trim() || 'Conduza uma conversa consultiva, objetiva e nat
 
 ---
 Dados desta conversa (mudam a cada lead/etapa, nao trate como regra geral):
-- Empresa/lead: ${input.leadName ?? input.companyName ?? '(nao cadastrado, voce nao sabe o nome do negocio)'}
+- Empresa/lead: ${input.leadName ?? input.companyName ?? '(sem nome de negocio no cadastro; nunca invente um)'}
+- Nome do responsavel: ${input.ownerName?.trim() || '(nao cadastrado)'}
+- Como se referir ao negocio: ${referenceGuidance(input.leadName ?? input.companyName, input.ownerName)}
 - Quem iniciou: ${input.leadInitiated ? 'o lead te chamou primeiro; voce NAO abordou e nao sabe nada sobre o negocio dele' : 'voce abordou o lead primeiro'}
 - WhatsApp do lead: ${input.leadWhatsapp ?? ''}
 - Segmento do lead: ${input.leadSegment ?? ''}
