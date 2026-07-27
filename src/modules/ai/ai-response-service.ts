@@ -205,6 +205,30 @@ async function sendDemoContact(
   await deps.conversationRepository.touch(conversation.id, new Date());
 }
 
+const MAX_GENERATE_ATTEMPTS = 2;
+
+/**
+ * O provider (deepseek-v4-pro) as vezes devolve JSON vazio/cortado (gasta o
+ * orcamento de tokens em raciocinio antes do conteudo final). Sem retry, isso
+ * deixava o lead sem resposta nenhuma. Tenta de novo antes de desistir.
+ */
+async function generateAndParseWithRetry(
+  deps: AiResponseDependencies,
+  input: { apiKey: string; maxTokens: number; messages: AiChatMessage[]; model: string; provider: string; temperature: number },
+): Promise<{ aiResult: Awaited<ReturnType<AiResponseDependencies['aiClient']['generate']>>; parsed: ParsedAiResponse }> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= MAX_GENERATE_ATTEMPTS; attempt += 1) {
+    try {
+      const aiResult = await deps.aiClient.generate(input);
+      const parsed = parseAiResponse(aiResult.outputText);
+      return { aiResult, parsed };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError;
+}
+
 function normalizeStage(value: string | null | undefined): string | null {
   if (!value) return null;
   const normalized = value.trim().toLowerCase().replace(/[^a-z0-9_]+/g, '_');
@@ -268,7 +292,7 @@ export function createAiResponseService(deps: AiResponseDependencies) {
       const startedAt = Date.now();
 
       try {
-        const aiResult = await deps.aiClient.generate({
+        const { aiResult, parsed } = await generateAndParseWithRetry(deps, {
           apiKey,
           maxTokens: input.agent.aiMaxOutputTokens,
           messages,
@@ -276,7 +300,6 @@ export function createAiResponseService(deps: AiResponseDependencies) {
           provider: input.agent.aiProvider,
           temperature: input.agent.aiTemperature,
         });
-        const parsed = parseAiResponse(aiResult.outputText);
         await deps.aiRunRepository.create({
           sdrAgentId: input.agent.id,
           leadId: input.lead.id,

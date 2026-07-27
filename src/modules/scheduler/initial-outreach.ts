@@ -294,9 +294,11 @@ async function assessLeadForInitialOutreach(
   const startedAt = Date.now();
 
   try {
+    // Teto minimo alto o bastante pro reasoning do modelo (deepseek-v4-pro) nao
+    // cortar o JSON de resposta na metade — com 500 isso falhava na maioria das vezes.
     const aiResult = await deps.aiClient.generate({
       apiKey,
-      maxTokens: Math.min(agent.aiMaxOutputTokens, 500),
+      maxTokens: Math.min(agent.aiMaxOutputTokens, 1500),
       messages,
       model: agent.aiModel,
       provider: agent.aiProvider,

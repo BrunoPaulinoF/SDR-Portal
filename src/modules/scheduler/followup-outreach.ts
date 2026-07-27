@@ -194,7 +194,7 @@ async function buildFollowupMessage(
   try {
     const aiResult = await deps.aiClient.generate({
       apiKey,
-      maxTokens: Math.min(agent.aiMaxOutputTokens, 500),
+      maxTokens: Math.min(agent.aiMaxOutputTokens, 1500),
       messages,
       model: agent.aiModel,
       provider: agent.aiProvider,
