@@ -60,3 +60,14 @@ adiamento/`disable_followup` saíram do bloco de recusa do funil para as regras 
 
 Também mudou fora dos prompts: `followupEnabled` ligado, `aiMaxOutputTokens` de 10.000 para
 1.500 e `aiTemperature` de 0.5 para 0.4.
+
+## Configuração que anda junto com os prompts
+
+Alguns campos do portal não são prompt, mas o texto das mensagens depende deles:
+
+| Campo | Valor atual | Por quê |
+| --- | --- | --- |
+| `demoContactName` | `KyberFood - Pizzaria Demonstração` | é o nome que aparece no cartão de contato no WhatsApp do lead. Era "Pizzaria de teste": a palavra "teste" tirava o realismo justamente na hora da prova, e contradizia os prompts, que já falavam "pizzaria de demonstração". |
+| `aiMaxOutputTokens` | `8000` | teto de saída; a qualificação e o follow-up somam prompt longo mais raciocínio antes de emitir o JSON. Valor baixo devolve resposta vazia. |
+| `aiReasoningEffort` | `default` | não envia o parâmetro, então o DeepSeek aplica o próprio padrão (`high`). |
+| `followupEnabled` | ligado | metade dos leads que esfriam somem calados; é o público do follow-up. |
