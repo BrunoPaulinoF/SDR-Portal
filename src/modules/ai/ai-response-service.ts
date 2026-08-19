@@ -8,6 +8,7 @@ import {
 } from '../leads/lead-display-name.js';
 import type { LeadRepository } from '../leads/lead-repository.js';
 import { decryptSecret } from '../security/secrets.js';
+import { describeNowInTimeZone } from '../timezone.js';
 import type { UazapiClient } from '../uazapi/uazapi-client.js';
 import type { AiChatMessage, AiClient } from './ai-client.js';
 import { resolveReasoningEffort } from './reasoning-effort.js';
@@ -51,6 +52,7 @@ function systemPrompt(agent: SdrAgent, lead: Lead): string {
     demoContactName: agent.demoContactName,
     handoffName: agent.handoffName,
     leadInitiated: leadStartedTheConversation(lead),
+    localTime: describeNowInTimeZone(new Date(), agent.timezone),
     leadName: tradeBusinessName(lead) || null,
     leadSegment: lead.segment,
     leadWhatsapp: lead.whatsappNumber,

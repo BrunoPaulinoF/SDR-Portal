@@ -22,7 +22,7 @@ import type { LeadRepository } from '../leads/lead-repository.js';
 import { normalizeWhatsappJid, whatsappIdentityFromUazapiSendResult, whatsappNumberFromUazapiSendResult } from '../phone/whatsapp-number.js';
 import { decryptSecret } from '../security/secrets.js';
 import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
-import { startOfDayInTimeZone } from '../timezone.js';
+import { describeNowInTimeZone, startOfDayInTimeZone } from '../timezone.js';
 import type { UazapiClient } from '../uazapi/uazapi-client.js';
 
 /** Resolve o nivel salvo para a escala do provider deste SDR; `null` omite o parametro. */
@@ -460,7 +460,8 @@ Nome do negocio: ${tradeBusinessName(lead) || '(sem nome de negocio no cadastro;
 Contato/dono: ${contactDisplayName(lead)}
 Como se referir a quem voce procura: ${responsibleReference(lead)}
 Segmento lead: ${lead.segment ?? ''}
-Cidade/UF: ${[lead.city, lead.state].filter(Boolean).join('/')}`;
+Cidade/UF: ${[lead.city, lead.state].filter(Boolean).join('/')}
+Momento agora no fuso do lead (use para a saudacao): ${describeNowInTimeZone(new Date(), agent.timezone)}`;
 }
 
 function firstMessageAiMessages(agent: SdrAgent, lead: Lead, research: LeadResearchResult | null): AiChatMessage[] {
@@ -493,6 +494,7 @@ Segmento lead: ${lead.segment ?? ''}
 Cidade/UF: ${[lead.city, lead.state].filter(Boolean).join('/')}
 Dados extras: ${truncate(lead.extraData ?? '', 600)}
 WhatsApp lead: ${lead.whatsappNumber}
+Momento agora no fuso do lead (use para a saudacao): ${describeNowInTimeZone(new Date(), agent.timezone)}
 Pesquisa sobre o lead: ${research?.summary ?? ''}
 Fontes da pesquisa: ${research?.sources.join(', ') ?? ''}`,
     },

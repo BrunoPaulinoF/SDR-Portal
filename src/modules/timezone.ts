@@ -47,3 +47,28 @@ export function formatDateTimeInTimeZone(value: Date | null | undefined, timeZon
     month: '2-digit',
   }).format(value);
 }
+
+/** Parte do dia usada para a saudacao: sem isso a IA chuta "boa noite" as 11h. */
+function partOfDay(hour: number): string {
+  if (hour < 12) return 'manha';
+  if (hour < 18) return 'tarde';
+  return 'noite';
+}
+
+/**
+ * Momento atual no fuso do SDR, em texto para o prompt: "quinta-feira, 11:51 (manha)".
+ * Vai na regiao volatil do prompt, nunca no prefixo estavel.
+ */
+export function describeNowInTimeZone(value: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('pt-BR', {
+    timeZone,
+    weekday: 'long',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(value);
+  const get = (type: Intl.DateTimeFormatPartTypes): string => parts.find((part) => part.type === type)?.value ?? '';
+  const hour = Number(get('hour'));
+
+  return `${get('weekday')}, ${get('hour')}:${get('minute')} (${partOfDay(Number.isFinite(hour) ? hour : 12)})`;
+}

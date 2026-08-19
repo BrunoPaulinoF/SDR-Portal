@@ -16,7 +16,7 @@ import {
 import type { LeadRepository } from '../leads/lead-repository.js';
 import { decryptSecret } from '../security/secrets.js';
 import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
-import { startOfDayInTimeZone } from '../timezone.js';
+import { describeNowInTimeZone, startOfDayInTimeZone } from '../timezone.js';
 import type { UazapiClient } from '../uazapi/uazapi-client.js';
 
 /** Resolve o nivel salvo para a escala do provider deste SDR; `null` omite o parametro. */
@@ -175,6 +175,7 @@ Cidade/UF: ${[lead.city, lead.state].filter(Boolean).join('/')}
 Dados extras: ${lead.extraData ?? ''}
 WhatsApp lead: ${lead.whatsappNumber}
 Etapa atual: ${lead.conversationStage}
+Momento agora no fuso do lead: ${describeNowInTimeZone(new Date(), agent.timezone)}
 
 Historico da conversa (mais antigo primeiro):
 ${historyBlock(history)}`,

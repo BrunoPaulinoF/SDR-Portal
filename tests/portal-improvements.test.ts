@@ -638,3 +638,39 @@ describe('instrucao de pesquisa web so quando a ferramenta existe', () => {
     expect(sistema).toContain('nunca descarte um lead so por faltar informacao');
   });
 });
+
+describe('saudacao pela hora local e nome sem sufixo societario', () => {
+  it('descreve o momento no fuso do SDR com o periodo do dia', async () => {
+    const { describeNowInTimeZone } = await import('../src/modules/timezone.js');
+    // 14:30 UTC = 11:30 em Sao Paulo: manha, nao noite.
+    const manha = describeNowInTimeZone(new Date('2026-08-19T14:30:00Z'), 'America/Sao_Paulo');
+    expect(manha).toContain('11:30');
+    expect(manha).toContain('manha');
+
+    const tarde = describeNowInTimeZone(new Date('2026-08-19T18:00:00Z'), 'America/Sao_Paulo');
+    expect(tarde).toContain('tarde');
+
+    const noite = describeNowInTimeZone(new Date('2026-08-19T23:00:00Z'), 'America/Sao_Paulo');
+    expect(noite).toContain('noite');
+  });
+
+  it('o prompt do SDR carrega a hora local e a regra de saudacao', async () => {
+    const { buildSdrSystemPrompt, SDR_BASE_PROMPT } = await import('../src/modules/ai/sdr-base-prompt.js');
+    const prompt = buildSdrSystemPrompt({ sdrName: 'Mariana', localTime: 'quarta-feira, 11:30 (manha)' });
+
+    expect(prompt).toContain('quarta-feira, 11:30 (manha)');
+    expect(SDR_BASE_PROMPT).toContain('bom dia');
+    // a hora fica na regiao volatil, depois do separador, para nao quebrar o cache do prefixo
+    expect(prompt.indexOf('quarta-feira')).toBeGreaterThan(prompt.indexOf('---'));
+  });
+
+  it('tira a forma societaria do nome que vai para a conversa', async () => {
+    const { prettifyBusinessName } = await import('../src/modules/leads/lead-display-name.js');
+
+    expect(prettifyBusinessName('Ban Sushi Rio Claro Ltda')).toBe('Ban Sushi Rio Claro');
+    expect(prettifyBusinessName('RICCI\'S PASTELARIA LTDA')).toBe("Ricci's Pastelaria");
+    expect(prettifyBusinessName('Bruno Paulino Ferreira ME')).toBe('Bruno Paulino Ferreira');
+    // nome que e so a sigla nao pode virar vazio (segue o title-case normal)
+    expect(prettifyBusinessName('ME')).toBe('Me');
+  });
+});
