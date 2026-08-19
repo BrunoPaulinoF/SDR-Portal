@@ -1,0 +1,49 @@
+# Prompts da Mariana (SDR KyberFood)
+
+Estes arquivos são a **fonte versionada** dos prompts que ficam no banco, na tela
+`/sdr-agents/<id>/edit`. O portal continua sendo quem manda em produção — este diretório
+existe para o texto ter histórico, revisão e diff.
+
+Quando alterar um prompt no portal, atualize o arquivo aqui no mesmo commit.
+
+| Arquivo | Campo no portal | Entra no prompt da IA? |
+| --- | --- | --- |
+| `prompt.txt` | Prompt principal | sim — região estável, depois do `SDR_BASE_PROMPT` |
+| `offer-description.txt` | Oferta | sim — região estável |
+| `first-message-prompt.txt` | Prompt da primeira mensagem | só quando o modo A/B está desligado |
+| `followup-prompt.txt` | Prompt de follow-up | sim, no job de follow-up |
+| `lead-qualification-prompt.txt` | Prompt de qualificação | sim, no `lead_fit_assessment` |
+| `handoff-template.txt` | Template de handoff | não é prompt: é a mensagem enviada ao humano |
+
+`Descrição do produto` (`productDescription`) **não** alimenta nenhum prompt — é
+documentação interna da tela. Só `productName` e `offerDescription` chegam à IA.
+
+## O que mudou nesta revisão
+
+Diagnóstico a partir das 743 conversas da Mariana em produção: 44% dos leads respondiam,
+mas 168 dos 219 que ouviam a segunda mensagem paravam ali. A segunda mensagem pedia que o
+lead aceitasse ouvir uma oferta sem dizer qual era ("tenho uma solução que reduz custos…
+tem interesse em saber mais?"), e o roteiro mandava aceitar o "não" na hora — queimando o
+lead com `mark_not_interested` + `disable_followup`. Resultado: 10 handoffs em 742 abordagens.
+
+Mudanças:
+
+1. **O funil virou 4 etapas** (`permission` → `discovery` → `solution` → `handoff`), e a
+   etapa 2 agora **diz o que é** em uma frase e faz **uma pergunta de diagnóstico** sobre a
+   rotina do lead. A antiga fórmula de curiosidade está proibida por escrito.
+2. **"Não" antes da etapa 3 deixou de ser fim de linha.** Vale uma réplica curta e concreta;
+   só a recusa repetida (ou explícita) encerra. "Agora não" não desativa mais o follow-up.
+3. **A prova mudou de ordem.** A demonstração preferida passou a ser dentro da própria
+   conversa (o lead manda um áudio pedindo uma pizza e a Mariana responde no papel do
+   atendente). O cartão da pizzaria — de onde 67% dos leads sumiam — virou a segunda opção.
+4. **Regras duras foram para o topo.** Preço, links, ações inexistentes e números inventados
+   agora abrem o prompt, em vez de ficarem enterrados no meio de 11 mil caracteres. A regra
+   de preço já havia sido furada em produção (a IA citou R$ 347/mês).
+5. **A qualificação passou a exigir sinal positivo de delivery.** Antes aprovava por falta de
+   evidência contrária e descartava 6 leads em 1.588; agora, sem rastro de operação, o lead
+   é descartado com o motivo "sem sinal de operação".
+6. **A oferta parou de duplicar o funil.** O roteiro estava escrito duas vezes, com palavras
+   diferentes, no prompt e na oferta. Agora a oferta descreve só o que é vendido.
+
+Também mudou fora dos prompts: `followupEnabled` ligado, `aiMaxOutputTokens` de 10.000 para
+1.500 e `aiTemperature` de 0.5 para 0.4.

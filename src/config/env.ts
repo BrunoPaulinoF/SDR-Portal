@@ -23,10 +23,15 @@ const envSchema = z
     WEB_RESEARCH_API_KEY: z.string().optional(),
     WEB_RESEARCH_TIMEOUT_MS: z.coerce.number().int().positive().default(8000),
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
-    SCHEDULER_ENABLED: z.coerce.boolean().default(false),
+    // z.coerce.boolean() usa Boolean(string): "false"/"0"/"no" virariam true. Aceita so o texto.
+    SCHEDULER_ENABLED: z
+      .preprocess((value) => (typeof value === 'string' ? ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase()) : value), z.boolean())
+      .default(false),
     INITIAL_OUTREACH_CRON: z.string().default('* * * * *'),
     FOLLOWUP_CRON: z.string().default('*/5 * * * *'),
     INBOUND_RESPONSE_BUFFER_MS: z.coerce.number().int().min(20000).default(20000),
+    AI_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(90000),
+    UAZAPI_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
   })
   .superRefine((value, context) => {
     if (value.NODE_ENV !== 'test' && !value.DATABASE_URL) {

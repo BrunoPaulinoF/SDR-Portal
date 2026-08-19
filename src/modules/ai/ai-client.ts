@@ -1,3 +1,5 @@
+import { env } from '../../config/env.js';
+
 export interface AiChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
@@ -156,8 +158,10 @@ function resultFromResponse(input: AiGenerateInput, body: AiProviderResponse): A
 export function createHttpAiClient(): AiClient {
   return {
     async generate(input) {
+      // Sem timeout, um provedor pendurado segura o tick do scheduler ate o processo morrer.
       const response = await fetch(endpointFor(input.provider, input.model), {
         method: 'POST',
+        signal: AbortSignal.timeout(env.AI_REQUEST_TIMEOUT_MS),
         headers: {
           authorization: `Bearer ${input.apiKey}`,
           'content-type': 'application/json',

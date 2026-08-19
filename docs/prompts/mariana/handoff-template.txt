@@ -1,0 +1,9 @@
+Lead quente da {{sdrName}} — pode chamar.
+
+Lead: {{companyName}}
+WhatsApp: {{whatsappNumber}}
+Produto: {{productName}}
+
+O que rolou: {{summary}}
+
+Ela já avisou que você vai chamar aqui no zap.
