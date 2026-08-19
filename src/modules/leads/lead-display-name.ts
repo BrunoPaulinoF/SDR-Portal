@@ -160,8 +160,8 @@ function businessPreposition(name: string): string {
 
 /**
  * Complemento de "Falo com ___?" na abordagem inicial ({{responsavel}}): o nome real do
- * negocio quando existe, senao o primeiro nome do titular do MEI. O generico so entra
- * quando o cadastro nao tem nenhum nome utilizavel.
+ * negocio quando existe, senao o primeiro nome do contato cadastrado. O titular do MEI
+ * nunca entra aqui — o generico pergunta pelo papel quando nao ha nome utilizavel.
  */
 export function responsibleReference(lead: Lead): string {
   const business = tradeBusinessName(lead);
