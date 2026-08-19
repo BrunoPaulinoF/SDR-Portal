@@ -145,18 +145,18 @@ describe('first message A/B variants', () => {
       null,
     );
 
-    expect(text).toBe('Oi, tudo bem? Aqui e a Mariana. Falo com a pessoa responsavel pela Leley Gelato LTDA?');
+    expect(text).toBe('Oi, tudo bem? Aqui e a Mariana. Falo com a pessoa responsavel pela Leley Gelato?');
   });
 
   it('title-cases an all-caps legal name', async () => {
     expect(await renderRazaoSocial({ companyName: 'STENSEN E STENSEN PADARIA LTDA' })).toBe(
-      'Falo com a pessoa responsavel pela Stensen e Stensen Padaria Ltda?',
+      'Falo com a pessoa responsavel pela Stensen e Stensen Padaria?',
     );
     expect(await renderRazaoSocial({ companyName: 'ZM CONFEITARIA LTDA' })).toBe(
-      'Falo com a pessoa responsavel pela ZM Confeitaria Ltda?',
+      'Falo com a pessoa responsavel pela ZM Confeitaria?',
     );
     expect(await renderRazaoSocial({ companyName: 'Bruno Paulino Ferreira ME' })).toBe(
-      'Falo com a pessoa responsavel pela Bruno Paulino Ferreira ME?',
+      'Falo com a pessoa responsavel pela Bruno Paulino Ferreira?',
     );
   });
 
@@ -189,7 +189,7 @@ describe('first message A/B variants', () => {
   it('ignores the placeholder default when the lead has a business name', async () => {
     expect(
       await renderRazaoSocial({ companyName: 'ZM CONFEITARIA LTDA' }, 'restaurante|sua loja'),
-    ).toBe('Falo com a pessoa responsavel pela ZM Confeitaria Ltda?');
+    ).toBe('Falo com a pessoa responsavel pela ZM Confeitaria?');
   });
 
   it('{{restaurante}} prefers the trade name and gets the same MEI/CPF protection', async () => {
@@ -203,7 +203,7 @@ describe('first message A/B variants', () => {
 
   it('{{responsavel}} uses the real business name with the right article', async () => {
     expect(await renderResponsavel({ companyName: 'GALPAO TEXAS BBQ LTDA' })).toBe(
-      'Falo com a pessoa responsável pelo Galpao Texas BBQ Ltda?',
+      'Falo com a pessoa responsável pelo Galpao Texas BBQ?',
     );
     expect(
       await renderResponsavel({ companyName: 'PANIFICADORA PAO DE MEL LTDA', tradeName: 'PADARIA PAO DE MEL' }),

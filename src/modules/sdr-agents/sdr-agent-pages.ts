@@ -580,7 +580,13 @@ function renderSdrAgentForm(action: string, companies: Company[], agent?: SdrAge
     </form>`;
 }
 
-export function renderSdrAgentsListPage(agents: SdrAgent[], companies: Company[]): string {
+export function renderSdrAgentsListPage(
+  agents: SdrAgent[],
+  companies: Company[],
+  error?: string,
+  /** SDR cuja exclusao falhou: ganha a opcao de sair do portal sem apagar a instancia. */
+  failedDeleteAgentId?: string,
+): string {
   const companiesById = new Map(companies.map((company) => [company.id, company.name]));
   const rows = agents
     .map((agent) => {
@@ -595,14 +601,20 @@ export function renderSdrAgentsListPage(agents: SdrAgent[], companies: Company[]
           <a href="/sdr-agents/${agent.id}/first-messages">Msg inicial</a>
           <a href="/sdr-agents/${agent.id}/conectar">Conectar</a>
           <form method="post" action="/sdr-agents/${agent.id}/toggle" data-inline><button class="link-button" type="submit">${toggleLabel}</button></form>
-          <form method="post" action="/sdr-agents/${agent.id}/delete" data-inline onsubmit="return confirm('Tem certeza que deseja excluir este SDR?')"><button class="link-button" type="submit">Excluir</button></form>
+          <form method="post" action="/sdr-agents/${agent.id}/delete" data-inline onsubmit="return confirm('Excluir este SDR? A instancia dele na UAZAPI tambem sera apagada.')"><button class="link-button" type="submit">Excluir</button></form>
+          ${
+            agent.id === failedDeleteAgentId
+              ? `<form method="post" action="/sdr-agents/${agent.id}/delete" data-inline onsubmit="return confirm('Excluir so do portal? A instancia continua na UAZAPI e precisara ser apagada por la.')"><input type="hidden" name="manterInstancia" value="1"><button class="link-button link-danger" type="submit">Excluir sem apagar a instancia</button></form>`
+              : ''
+          }
         </td>
       </tr>`;
     })
     .join('');
 
+  const errorHtml = error ? `<div class="alert-error">${escapeHtml(error)}</div>` : '';
   const table = agents.length
-    ? `<div class="table-wrap"><table>
+    ? `${errorHtml}<div class="table-wrap"><table>
       <thead><tr><th>SDR</th><th>Empresa</th><th>IA</th><th>Status</th><th>Acoes</th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>`

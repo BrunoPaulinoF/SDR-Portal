@@ -3,6 +3,10 @@ import { describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
 import type { AiClient, AiGenerateInput } from '../src/modules/ai/ai-client.js';
 import { providerDefaultEffort, reasoningEffortOptions, resolveReasoningEffort } from '../src/modules/ai/reasoning-effort.js';
+import { createMemoryAiRunRepository } from '../src/modules/ai/ai-run-repository.js';
+import { createMemoryConversationRepository } from '../src/modules/conversations/conversation-repository.js';
+import { createMemoryFirstMessageVariantRepository } from '../src/modules/first-message-variants/first-message-variant-repository.js';
+import { createMemoryJobLogRepository } from '../src/modules/jobs/job-log-repository.js';
 import { createMemoryAuthRepository } from '../src/modules/auth/auth-repository.js';
 import { createMemoryCompanyRepository } from '../src/modules/companies/company-repository.js';
 import { createMemoryLeadRepository } from '../src/modules/leads/lead-repository.js';
@@ -480,5 +484,193 @@ describe('escala de esforco por provider', () => {
     expect(select).not.toContain('value="medium"');
     expect(select).not.toContain('value="minimal"');
     await app.close();
+  });
+});
+
+describe('excluir SDR apaga a instancia na UAZAPI', () => {
+  async function cenario(deleteResult: UazapiResult) {
+    const chamadas: Array<{ baseUrl: string; token: string }> = [];
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const companyRepository = createMemoryCompanyRepository();
+    const company = await companyRepository.create({ name: 'Kybernan' });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'Mariana',
+      displayName: 'Mariana',
+      uazapiBaseUrl: 'https://uazapi.test',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+    });
+    const uazapiClient = stubUazapiClient({
+      deleteInstance: async (input) => {
+        chamadas.push({ baseUrl: input.baseUrl, token: input.token });
+        return deleteResult;
+      },
+    });
+    const { app, cookie } = await loggedInApp({ sdrAgentRepository, companyRepository, uazapiClient });
+    return { app, cookie, agent, sdrAgentRepository, chamadas };
+  }
+
+  it('apaga a instancia antes de remover o SDR', async () => {
+    const { app, cookie, agent, sdrAgentRepository, chamadas } = await cenario({ ok: true, status: 200, body: {} });
+
+    const response = await app.inject({ method: 'POST', url: `/sdr-agents/${agent.id}/delete`, headers: { cookie } });
+
+    expect(response.statusCode).toBe(302);
+    expect(chamadas).toEqual([{ baseUrl: 'https://uazapi.test', token: 'instance-token' }]);
+    expect(await sdrAgentRepository.findById(agent.id)).toBeNull();
+    await app.close();
+  });
+
+  it('instancia que ja nao existe (404) nao impede a exclusao', async () => {
+    const { app, cookie, agent, sdrAgentRepository } = await cenario({ ok: false, status: 404, body: {} });
+
+    await app.inject({ method: 'POST', url: `/sdr-agents/${agent.id}/delete`, headers: { cookie } });
+
+    expect(await sdrAgentRepository.findById(agent.id)).toBeNull();
+    await app.close();
+  });
+
+  it('falha na UAZAPI mantem o SDR, para o token nao ser perdido', async () => {
+    const { app, cookie, agent, sdrAgentRepository } = await cenario({ ok: false, status: 500, body: {} });
+
+    const response = await app.inject({ method: 'POST', url: `/sdr-agents/${agent.id}/delete`, headers: { cookie } });
+
+    expect(response.statusCode).toBe(502);
+    expect(response.body).toContain('Nao foi possivel apagar a instancia');
+    expect(response.body).toContain('manterInstancia');
+    expect(await sdrAgentRepository.findById(agent.id)).not.toBeNull();
+    await app.close();
+  });
+
+  it('manterInstancia=1 exclui so do portal, sem chamar a UAZAPI', async () => {
+    const { app, cookie, agent, sdrAgentRepository, chamadas } = await cenario({ ok: false, status: 500, body: {} });
+
+    await app.inject({
+      method: 'POST',
+      url: `/sdr-agents/${agent.id}/delete`,
+      headers: { cookie },
+      payload: { manterInstancia: '1' },
+    });
+
+    expect(chamadas).toHaveLength(0);
+    expect(await sdrAgentRepository.findById(agent.id)).toBeNull();
+    await app.close();
+  });
+
+  it('SDR sem instancia configurada e removido direto', async () => {
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const companyRepository = createMemoryCompanyRepository();
+    const company = await companyRepository.create({ name: 'Kybernan' });
+    const agent = await sdrAgentRepository.create({ companyId: company.id, name: 'Sem instancia', displayName: 'X' });
+    const { app, cookie } = await loggedInApp({ sdrAgentRepository, companyRepository });
+
+    const response = await app.inject({ method: 'POST', url: `/sdr-agents/${agent.id}/delete`, headers: { cookie } });
+
+    expect(response.statusCode).toBe(302);
+    expect(await sdrAgentRepository.findById(agent.id)).toBeNull();
+    await app.close();
+  });
+});
+
+describe('instrucao de pesquisa web so quando a ferramenta existe', () => {
+  it('deepseek nao recebe ordem de pesquisar e nao pode descartar por falta de dado', async () => {
+    const calls: AiGenerateInput[] = [];
+    const aiClient: AiClient = {
+      async generate(input) {
+        calls.push(input);
+        return {
+          outputText: JSON.stringify({ qualified: true, reason: 'nome fantasia indica pizzaria' }),
+          promptTokens: 1,
+          completionTokens: 1,
+          totalTokens: 2,
+          promptCacheHitTokens: null,
+        };
+      },
+    };
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const agent = await sdrAgentRepository.create({
+      companyId: 'c1',
+      name: 'Mariana',
+      displayName: 'Mariana',
+      isActive: true,
+      aiProvider: 'deepseek',
+      aiModel: 'deepseek-v4-pro',
+      deepseekApiKeyEncrypted: encryptSecret('sk-teste'),
+      uazapiBaseUrl: 'https://uazapi.test',
+      uazapiInstanceTokenEncrypted: encryptSecret('token'),
+      sendDaysOfWeek: '0,1,2,3,4,5,6',
+      sendWindowStart: '00:00',
+      sendWindowEnd: '23:59',
+      firstMessagePrompt: 'Escreva a abordagem.',
+    });
+    await leadRepository.create({
+      companyId: 'c1',
+      sdrAgentId: agent.id,
+      whatsappNumber: '5519999999999',
+      companyName: 'PIZZARIA DO ZE',
+      status: 'pending',
+      source: 'manual',
+    });
+
+    const { createInitialOutreachService } = await import('../src/modules/scheduler/initial-outreach.js');
+    const service = createInitialOutreachService({
+      aiClient,
+      aiRunRepository: createMemoryAiRunRepository(),
+      conversationRepository: createMemoryConversationRepository(),
+      firstMessageVariantRepository: createMemoryFirstMessageVariantRepository(),
+      jobLogRepository: createMemoryJobLogRepository(),
+      leadResearchService: { async researchLead() { return null; } },
+      leadRepository,
+      sdrAgentRepository,
+      uazapiClient: stubUazapiClient({
+        checkChats: async () => ok([{ isInWhatsapp: true, jid: '5519999999999@s.whatsapp.net' }]),
+        sendText: async () => ok({}),
+        sendPresence: async () => ok({}),
+      }),
+    });
+
+    await service.runOnce();
+
+    const sistema = calls.map((call) => call.messages[0]?.content ?? '').join('\n');
+    expect(sistema).toContain('NAO tem ferramenta de pesquisa web');
+    expect(sistema).not.toContain('use a ferramenta de pesquisa web');
+    expect(sistema).toContain('nunca descarte um lead so por faltar informacao');
+  });
+});
+
+describe('saudacao pela hora local e nome sem sufixo societario', () => {
+  it('descreve o momento no fuso do SDR com o periodo do dia', async () => {
+    const { describeNowInTimeZone } = await import('../src/modules/timezone.js');
+    // 14:30 UTC = 11:30 em Sao Paulo: manha, nao noite.
+    const manha = describeNowInTimeZone(new Date('2026-08-19T14:30:00Z'), 'America/Sao_Paulo');
+    expect(manha).toContain('11:30');
+    expect(manha).toContain('manha');
+
+    const tarde = describeNowInTimeZone(new Date('2026-08-19T18:00:00Z'), 'America/Sao_Paulo');
+    expect(tarde).toContain('tarde');
+
+    const noite = describeNowInTimeZone(new Date('2026-08-19T23:00:00Z'), 'America/Sao_Paulo');
+    expect(noite).toContain('noite');
+  });
+
+  it('o prompt do SDR carrega a hora local e a regra de saudacao', async () => {
+    const { buildSdrSystemPrompt, SDR_BASE_PROMPT } = await import('../src/modules/ai/sdr-base-prompt.js');
+    const prompt = buildSdrSystemPrompt({ sdrName: 'Mariana', localTime: 'quarta-feira, 11:30 (manha)' });
+
+    expect(prompt).toContain('quarta-feira, 11:30 (manha)');
+    expect(SDR_BASE_PROMPT).toContain('bom dia');
+    // a hora fica na regiao volatil, depois do separador, para nao quebrar o cache do prefixo
+    expect(prompt.indexOf('quarta-feira')).toBeGreaterThan(prompt.indexOf('---'));
+  });
+
+  it('tira a forma societaria do nome que vai para a conversa', async () => {
+    const { prettifyBusinessName } = await import('../src/modules/leads/lead-display-name.js');
+
+    expect(prettifyBusinessName('Ban Sushi Rio Claro Ltda')).toBe('Ban Sushi Rio Claro');
+    expect(prettifyBusinessName('RICCI\'S PASTELARIA LTDA')).toBe("Ricci's Pastelaria");
+    expect(prettifyBusinessName('Bruno Paulino Ferreira ME')).toBe('Bruno Paulino Ferreira');
+    // nome que e so a sigla nao pode virar vazio (segue o title-case normal)
+    expect(prettifyBusinessName('ME')).toBe('Me');
   });
 });

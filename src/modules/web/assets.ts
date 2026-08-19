@@ -874,6 +874,8 @@ form[data-inline] {
 .advanced-block { border: 1px solid var(--border, #e2e8f0); border-radius: 10px; padding: 0.75rem 1rem; }
 .advanced-block summary { cursor: pointer; font-weight: 600; }
 .advanced-block > * { margin-top: 0.75rem; }
+
+.link-danger { color: #b91c1c; }
 `;
 
 export function registerAssetsRoutes(app: FastifyInstance): void {

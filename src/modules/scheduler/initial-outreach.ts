@@ -1,5 +1,5 @@
 import type { Lead, SdrAgent } from '../../db/schema.js';
-import type { AiChatMessage, AiClient } from '../ai/ai-client.js';
+import { supportsWebSearch, type AiChatMessage, type AiClient } from '../ai/ai-client.js';
 import { resolveReasoningEffort } from '../ai/reasoning-effort.js';
 import type { AiRunRepository } from '../ai/ai-run-repository.js';
 import { parseAiResponse } from '../ai/ai-response.js';
@@ -22,7 +22,7 @@ import type { LeadRepository } from '../leads/lead-repository.js';
 import { normalizeWhatsappJid, whatsappIdentityFromUazapiSendResult, whatsappNumberFromUazapiSendResult } from '../phone/whatsapp-number.js';
 import { decryptSecret } from '../security/secrets.js';
 import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
-import { startOfDayInTimeZone } from '../timezone.js';
+import { describeNowInTimeZone, startOfDayInTimeZone } from '../timezone.js';
 import type { UazapiClient } from '../uazapi/uazapi-client.js';
 
 /** Resolve o nivel salvo para a escala do provider deste SDR; `null` omite o parametro. */
@@ -248,6 +248,11 @@ function webSearchOptions(searchContextSize: 'low' | 'medium' | 'high') {
 
 function leadQualificationMessages(agent: SdrAgent, lead: Lead, research: LeadResearchResult | null): AiChatMessage[] {
   const qualificationPrompt = agent.leadQualificationPrompt?.trim() || DEFAULT_LEAD_QUALIFICATION_PROMPT;
+  // Sem a ferramenta anexada, pedir pesquisa faz o modelo relatar uma busca que nao aconteceu
+  // ("nada encontrado") e descartar lead bom por evidencia que ele nunca teve como obter.
+  const searchRule = supportsWebSearch(agent.aiProvider, agent.aiModel)
+    ? 'Antes de decidir, use a ferramenta de pesquisa web de forma rapida e economica para validar se ha sinais de empresa real, produto, operacao, dono, equipe, unidade, setor ou atividade individual.'
+    : 'Voce NAO tem ferramenta de pesquisa web nesta chamada. Decida apenas com o cadastro recebido, nunca afirme ter pesquisado, e nunca descarte um lead so por faltar informacao.';
   return [
     {
       role: 'system',
@@ -264,7 +269,7 @@ Campos obrigatorios:
 Use o prompt configurado para decidir o fit.
 Use "qualified": false somente quando houver evidencia forte de que o lead nao se encaixa no perfil desejado.
 Se os dados forem insuficientes, mantenha "qualified": true para evitar descarte indevido.
-Antes de decidir, use a ferramenta de pesquisa web de forma rapida e economica para validar se ha sinais de empresa real, produto, operacao, dono, equipe, unidade, setor ou atividade individual.
+${searchRule}
 
 Prompt configurado para este SDR:
 ${qualificationPrompt}`,
@@ -399,16 +404,23 @@ Contexto minimo:
 }
 
 function consultivoFirstMessageSystemPrompt(agent: SdrAgent): string {
+  // Sem a ferramenta anexada, mandar pesquisar faz o modelo inventar o que "encontrou".
+  const searchRules = supportsWebSearch(agent.aiProvider, agent.aiModel)
+    ? [
+        '- Personalize com pesquisa real quando houver: nome da pessoa, nome da empresa, setor, cidade, produto, servico ou movimento concreto encontrado.',
+        '- Mostre que houve pesquisa sem parecer invasivo, exagerado ou generico.',
+        '- Antes de escrever, use a ferramenta de pesquisa web para buscar informacoes reais sobre o lead pelo CNPJ, nome da empresa, nome fantasia, cidade, setor, site, LinkedIn, Instagram e produtos/servicos.',
+        '- Use a pesquisa para encontrar um gancho genuino: o que a empresa faz, produtos/servicos, setor, cidade, unidade, movimento recente, crescimento, contratacao, premio, lancamento ou algo operacional concreto.',
+      ].join('\n')
+    : '- Voce NAO tem ferramenta de pesquisa web nesta chamada: use somente os dados do lead fornecidos abaixo, nunca afirme ter pesquisado e nunca invente fato sobre a empresa.';
+
   return `Voce escreve apenas a primeira mensagem de abordagem para WhatsApp.
 
 Regras:
 - Responda sempre em pt-BR.
 - Escreva mensagem curta, natural e adequada para WhatsApp.
 - Use somente as instrucoes e dados fornecidos nesta chamada.
-- Personalize com pesquisa real quando houver: nome da pessoa, nome da empresa, setor, cidade, produto, servico ou movimento concreto encontrado.
-- Mostre que houve pesquisa sem parecer invasivo, exagerado ou generico.
-- Antes de escrever, use a ferramenta de pesquisa web para buscar informacoes reais sobre o lead pelo CNPJ, nome da empresa, nome fantasia, cidade, setor, site, LinkedIn, Instagram e produtos/servicos.
-- Use a pesquisa para encontrar um gancho genuino: o que a empresa faz, produtos/servicos, setor, cidade, unidade, movimento recente, crescimento, contratacao, premio, lancamento ou algo operacional concreto.
+${searchRules}
 - Se nao houver contato/dono, fale com a empresa de forma natural.
 - Faca apenas uma pergunta simples sobre a operacao no fim.
 - Nao invente informacoes sobre produto, empresa, preco, agenda ou disponibilidade.
@@ -448,7 +460,8 @@ Nome do negocio: ${tradeBusinessName(lead) || '(sem nome de negocio no cadastro;
 Contato/dono: ${contactDisplayName(lead)}
 Como se referir a quem voce procura: ${responsibleReference(lead)}
 Segmento lead: ${lead.segment ?? ''}
-Cidade/UF: ${[lead.city, lead.state].filter(Boolean).join('/')}`;
+Cidade/UF: ${[lead.city, lead.state].filter(Boolean).join('/')}
+Momento agora no fuso do lead (use para a saudacao): ${describeNowInTimeZone(new Date(), agent.timezone)}`;
 }
 
 function firstMessageAiMessages(agent: SdrAgent, lead: Lead, research: LeadResearchResult | null): AiChatMessage[] {
@@ -481,6 +494,7 @@ Segmento lead: ${lead.segment ?? ''}
 Cidade/UF: ${[lead.city, lead.state].filter(Boolean).join('/')}
 Dados extras: ${truncate(lead.extraData ?? '', 600)}
 WhatsApp lead: ${lead.whatsappNumber}
+Momento agora no fuso do lead (use para a saudacao): ${describeNowInTimeZone(new Date(), agent.timezone)}
 Pesquisa sobre o lead: ${research?.summary ?? ''}
 Fontes da pesquisa: ${research?.sources.join(', ') ?? ''}`,
     },

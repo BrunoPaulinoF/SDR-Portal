@@ -71,6 +71,7 @@ export interface UazapiClient {
   configureWebhook(input: ConfigureWebhookInput): Promise<UazapiResult>;
   connectInstance(input: UazapiCredentials): Promise<UazapiResult>;
   createInstance(input: CreateInstanceInput): Promise<UazapiResult>;
+  deleteInstance(input: UazapiCredentials): Promise<UazapiResult>;
   downloadMessage(input: DownloadMessageInput): Promise<UazapiResult>;
   getInstanceStatus(input: UazapiCredentials): Promise<UazapiResult>;
   sendContact(input: SendContactInput): Promise<UazapiResult>;
@@ -137,6 +138,10 @@ export function createHttpUazapiClient(): UazapiClient {
       });
 
       return { status: response.status, ok: response.ok, body: await parseBody(response) };
+    },
+
+    deleteInstance(input) {
+      return request('/instance', input, { method: 'DELETE' });
     },
 
     configureWebhook(input) {

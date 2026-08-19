@@ -13,6 +13,9 @@ import type { Lead } from '../../db/schema.js';
 const MEI_CPF_SUFFIX = /\s\d{11}\s*$/;
 const MEI_CNPJ_PREFIX = /^\s*\d{2}[.\s/-]?\d{3}[.\s/-]?\d{3}\s/;
 
+/** Formas societarias no fim do nome: uteis no cadastro, estranhas numa conversa de zap. */
+const LEGAL_SUFFIX = /[\s,.-]+(ltda|me|epp|eireli|s\/?a|mei|em recuperacao judicial)\.?$/i;
+
 const PLACEHOLDER_NAMES = ['lead sem cadastro', 'contato sem cadastro', 'sua empresa', 'sem cadastro'];
 
 const TITLE_CASE_LOWER_WORDS = new Set(['a', 'as', 'da', 'das', 'de', 'do', 'dos', 'e', 'em', 'na', 'nas', 'no', 'nos', 'o', 'os', 'para', 'por']);
@@ -74,7 +77,15 @@ export function leadNameForPrompt(lead: Lead, value: string | null | undefined):
 
 /** "FANTASTICA CONFEITARIA LTDA" -> "Fantastica Confeitaria Ltda". Nome ja capitalizado passa intacto. */
 export function prettifyBusinessName(value: string): string {
-  const collapsed = value.replace(/\s{2,}/g, ' ').trim();
+  // Tira ate duas formas seguidas ("Fulano ME Ltda"), sem deixar o nome vazio.
+  let stripped = value.replace(/\s{2,}/g, ' ').trim();
+  for (let round = 0; round < 2; round += 1) {
+    const withoutSuffix = stripped.replace(LEGAL_SUFFIX, '').trim();
+    if (!withoutSuffix || withoutSuffix === stripped) break;
+    stripped = withoutSuffix;
+  }
+
+  const collapsed = stripped;
   if (/[a-zà-ÿ]/.test(collapsed)) return collapsed;
 
   return collapsed

@@ -7,7 +7,7 @@ import type { AuthRepository } from '../auth/auth-repository.js';
 import { requireUser } from '../auth/access.js';
 import type { CompanyRepository } from '../companies/company-repository.js';
 import { decryptSecret, encryptSecret } from '../security/secrets.js';
-import { configureInstanceWebhook, isInstanceProvisioningEnabled, provisionInstance } from '../uazapi/instance-provisioning.js';
+import { configureInstanceWebhook, deleteInstance, isInstanceProvisioningEnabled, provisionInstance } from '../uazapi/instance-provisioning.js';
 import type { UazapiClient } from '../uazapi/uazapi-client.js';
 import type { SdrAgentInput, SdrAgentRepository } from './sdr-agent-repository.js';
 import {
@@ -307,10 +307,41 @@ export function registerSdrAgentRoutes(
     }
     const params = paramsSchema.safeParse(request.params);
 
-    if (params.success) {
-      await sdrAgentRepository.delete(params.data.id);
+    if (!params.success) {
+      return reply.redirect('/sdr-agents');
     }
 
+    const agent = await sdrAgentRepository.findById(params.data.id);
+    const credentials = agent?.uazapiBaseUrl && agent.uazapiInstanceTokenEncrypted
+      ? { baseUrl: agent.uazapiBaseUrl, token: decryptSecret(agent.uazapiInstanceTokenEncrypted) }
+      : null;
+    // Apagar o SDR primeiro perderia o token para sempre, e a instancia ficaria orfa sem
+    // ninguem conseguindo remove-la. Por isso a instancia sai antes, e um erro aqui para
+    // a exclusao — a menos que o usuario peca explicitamente para manter a instancia.
+    const keepInstance = (request.body as { manterInstancia?: string } | undefined)?.manterInstancia === '1';
+
+    if (credentials && !keepInstance) {
+      const result = await deleteInstance(uazapiClient, credentials).catch(() => ({ removed: false, status: 0 }));
+
+      if (!result.removed) {
+        const agents = await sdrAgentRepository.list();
+        const companies = await companyRepository.list();
+        const detail = result.status ? `HTTP ${result.status}` : 'sem resposta';
+        return reply
+          .status(502)
+          .type('text/html')
+          .send(
+            renderSdrAgentsListPage(
+              agents,
+              companies,
+              `Nao foi possivel apagar a instancia de ${agent?.name ?? 'este SDR'} na UAZAPI (${detail}). O SDR foi mantido para o token nao ser perdido. Tente de novo, ou use "Excluir sem apagar a instancia" se preferir remove-la depois no painel da UAZAPI.`,
+              params.data.id,
+            ),
+          );
+      }
+    }
+
+    await sdrAgentRepository.delete(params.data.id);
     return reply.redirect('/sdr-agents');
   });
 }

@@ -127,3 +127,15 @@ export async function readConnectionState(
     status,
   };
 }
+
+/**
+ * Remove a instancia no servidor UAZAPI. Devolve `true` tambem quando a instancia ja nao
+ * existe (404): o objetivo — nao deixar instancia orfa — ja esta cumprido.
+ */
+export async function deleteInstance(
+  uazapiClient: UazapiClient,
+  credentials: { baseUrl: string; token: string },
+): Promise<{ removed: boolean; status: number }> {
+  const result = await uazapiClient.deleteInstance(credentials);
+  return { removed: result.ok || result.status === 404, status: result.status };
+}
