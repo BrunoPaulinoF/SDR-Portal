@@ -482,3 +482,88 @@ describe('escala de esforco por provider', () => {
     await app.close();
   });
 });
+
+describe('excluir SDR apaga a instancia na UAZAPI', () => {
+  async function cenario(deleteResult: UazapiResult) {
+    const chamadas: Array<{ baseUrl: string; token: string }> = [];
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const companyRepository = createMemoryCompanyRepository();
+    const company = await companyRepository.create({ name: 'Kybernan' });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'Mariana',
+      displayName: 'Mariana',
+      uazapiBaseUrl: 'https://uazapi.test',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+    });
+    const uazapiClient = stubUazapiClient({
+      deleteInstance: async (input) => {
+        chamadas.push({ baseUrl: input.baseUrl, token: input.token });
+        return deleteResult;
+      },
+    });
+    const { app, cookie } = await loggedInApp({ sdrAgentRepository, companyRepository, uazapiClient });
+    return { app, cookie, agent, sdrAgentRepository, chamadas };
+  }
+
+  it('apaga a instancia antes de remover o SDR', async () => {
+    const { app, cookie, agent, sdrAgentRepository, chamadas } = await cenario({ ok: true, status: 200, body: {} });
+
+    const response = await app.inject({ method: 'POST', url: `/sdr-agents/${agent.id}/delete`, headers: { cookie } });
+
+    expect(response.statusCode).toBe(302);
+    expect(chamadas).toEqual([{ baseUrl: 'https://uazapi.test', token: 'instance-token' }]);
+    expect(await sdrAgentRepository.findById(agent.id)).toBeNull();
+    await app.close();
+  });
+
+  it('instancia que ja nao existe (404) nao impede a exclusao', async () => {
+    const { app, cookie, agent, sdrAgentRepository } = await cenario({ ok: false, status: 404, body: {} });
+
+    await app.inject({ method: 'POST', url: `/sdr-agents/${agent.id}/delete`, headers: { cookie } });
+
+    expect(await sdrAgentRepository.findById(agent.id)).toBeNull();
+    await app.close();
+  });
+
+  it('falha na UAZAPI mantem o SDR, para o token nao ser perdido', async () => {
+    const { app, cookie, agent, sdrAgentRepository } = await cenario({ ok: false, status: 500, body: {} });
+
+    const response = await app.inject({ method: 'POST', url: `/sdr-agents/${agent.id}/delete`, headers: { cookie } });
+
+    expect(response.statusCode).toBe(502);
+    expect(response.body).toContain('Nao foi possivel apagar a instancia');
+    expect(response.body).toContain('manterInstancia');
+    expect(await sdrAgentRepository.findById(agent.id)).not.toBeNull();
+    await app.close();
+  });
+
+  it('manterInstancia=1 exclui so do portal, sem chamar a UAZAPI', async () => {
+    const { app, cookie, agent, sdrAgentRepository, chamadas } = await cenario({ ok: false, status: 500, body: {} });
+
+    await app.inject({
+      method: 'POST',
+      url: `/sdr-agents/${agent.id}/delete`,
+      headers: { cookie },
+      payload: { manterInstancia: '1' },
+    });
+
+    expect(chamadas).toHaveLength(0);
+    expect(await sdrAgentRepository.findById(agent.id)).toBeNull();
+    await app.close();
+  });
+
+  it('SDR sem instancia configurada e removido direto', async () => {
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const companyRepository = createMemoryCompanyRepository();
+    const company = await companyRepository.create({ name: 'Kybernan' });
+    const agent = await sdrAgentRepository.create({ companyId: company.id, name: 'Sem instancia', displayName: 'X' });
+    const { app, cookie } = await loggedInApp({ sdrAgentRepository, companyRepository });
+
+    const response = await app.inject({ method: 'POST', url: `/sdr-agents/${agent.id}/delete`, headers: { cookie } });
+
+    expect(response.statusCode).toBe(302);
+    expect(await sdrAgentRepository.findById(agent.id)).toBeNull();
+    await app.close();
+  });
+});
