@@ -45,6 +45,32 @@ Mudanças:
 6. **A oferta parou de duplicar o funil.** O roteiro estava escrito duas vezes, com palavras
    diferentes, no prompt e na oferta. Agora a oferta descreve só o que é vendido.
 
+## Revisao de 19/08, a partir das conversas pos-mudanca
+
+Cinco horas de operacao com o roteiro novo, lidas em `/ai-runs` e nas conversas. O que
+mudou de verdade foi a janela das 15:10, quando entrou o conserto da pesquisa web e o teto
+de saida subiu: descarte na qualificacao caiu de 88% para 38%, os motivos pararam de citar
+buscas que nunca aconteceram (31 para 0), os erros de JSON truncado sumiram (10% para 0) e a
+latencia mediana caiu de 21,2s para 8,5s. Dos leads que chegaram a segunda mensagem, 3 de 4
+seguiram a conversa — a fila historica era 51 de 219.
+
+Sobraram tres defeitos, corrigidos aqui:
+
+1. **"Fabricacao" no CNAE virou motivo de descarte.** O 1091-1/02 e a padaria/confeitaria que
+   produz o que vende, e foi descartado cinco vezes como "industria sem varejo" (e aprovado
+   uma, pelo nome fantasia). O prompt de qualificacao agora decide por codigo — 1091-1/02 e
+   1092-9/00 entram, 1091-1/01 sai — e a palavra "fabricacao" saiu da lista de descarte.
+2. **O follow-up recomeçava a conversa.** Leads que ja tinham confirmado quem eram recebiam de
+   novo "voce e quem toca o atendimento ai?". O prompt de follow-up agora abre mandando reler
+   as perguntas ja feitas, limita essa pergunta a uma vez por conversa e trocou o primeiro
+   caso da lista (que era um pega-tudo com o exemplo pronto que o modelo copiava).
+3. **Razao social de pessoa virava nome de loja** ("Falo com a pessoa responsavel pela Erica
+   Cristina Guimaraes Pereira Luiz?"). Correcao em `lead-display-name.ts`, fora dos prompts.
+
+Fora dos prompts: a variante de primeira mensagem **"Ancorada empresa" foi pausada** (0
+respostas em 10 envios contra 43% da "Saudacao 1"; p = 0,004). O rodizio ficou com "Ancorada
+dor" (6 de 9) e "Saudacao 1".
+
 ## Playbook
 
 A Mariana usa o playbook **`consultivo`**, que é o padrão. O funil dela (permissão →

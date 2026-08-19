@@ -14,7 +14,7 @@ const MEI_CPF_SUFFIX = /\s\d{11}\s*$/;
 const MEI_CNPJ_PREFIX = /^\s*\d{2}[.\s/-]?\d{3}[.\s/-]?\d{3}\s/;
 
 /** Formas societarias no fim do nome: uteis no cadastro, estranhas numa conversa de zap. */
-const LEGAL_SUFFIX = /[\s,.-]+(ltda|me|epp|eireli|s\/?a|mei|em recuperacao judicial)\.?$/i;
+const LEGAL_SUFFIX = /[\s,.-]+(ltda|limitada|me|epp|eireli|s\s*[./]?\s*a|mei|em recuperacao judicial)\.?$/i;
 
 const PLACEHOLDER_NAMES = ['lead sem cadastro', 'contato sem cadastro', 'sua empresa', 'sem cadastro'];
 
@@ -22,10 +22,14 @@ const TITLE_CASE_LOWER_WORDS = new Set(['a', 'as', 'da', 'das', 'de', 'do', 'dos
 
 /** Palavras que so aparecem em nome de negocio: se sobrarem depois do documento, o que restou nao e nome de pessoa. */
 const BUSINESS_WORDS = new Set([
-  'acaiteria', 'adega', 'bar', 'bistro', 'buffet', 'cafeteria', 'churrascaria', 'comercial', 'comercio', 'confeitaria',
-  'conveniencia', 'delivery', 'deposito', 'distribuidora', 'doceria', 'eireli', 'emporio', 'epp', 'gelateria',
-  'hamburgueria', 'lanches', 'lanchonete', 'ltda', 'marmitaria', 'mercadinho', 'mercado', 'mercearia', 'padaria',
-  'panificadora', 'pastelaria', 'pizzaria', 'restaurante', 'rotisserie', 'sorveteria', 'supermercado', 'sushi',
+  'acai', 'acaiteria', 'adega', 'alimentacao', 'alimenticio', 'alimento', 'bar', 'bebida', 'bistro', 'bufe', 'buffet',
+  'burger', 'burguer', 'cafe', 'cafeteria', 'cantina', 'casa', 'chopp', 'churrascaria', 'clinica', 'comercial',
+  'comercio', 'comida', 'confeitaria', 'conveniencia', 'delivery', 'deposito', 'distribuidora', 'doce', 'doceria',
+  'eireli', 'emporio', 'empreendimento', 'entretenimento', 'epp', 'espetaria', 'estetica', 'fabrica', 'fabricacao',
+  'food', 'frutaria', 'gastronomia', 'gelateria', 'grupo', 'hamburgueria', 'horti', 'hortifrut', 'hotelaria',
+  'hoteleiro', 'lanche', 'lanchonete', 'lounge', 'ltda', 'marmitaria', 'mercadinho', 'mercado', 'mercearia', 'padaria',
+  'paes', 'panificadora', 'pastelaria', 'pescado', 'pizza', 'pizzaria', 'pub', 'refeicao', 'restaurante', 'rotisseria',
+  'rotisserie', 'salgado', 'servico', 'snack', 'sorveteria', 'studio', 'supermercado', 'sushi', 'tempero',
 ]);
 
 /** Femininos que nao terminam em -a e masculinos que terminam em -a, onde a regra da terminacao erraria. */
@@ -49,7 +53,25 @@ function wordsOf(value: string): string[] {
 }
 
 function looksLikeBusinessName(value: string): boolean {
-  return wordsOf(value).some((word) => BUSINESS_WORDS.has(word));
+  // O cadastro mistura singular e plural ("LANCHES", "LANCHONETES"): a lista guarda o singular.
+  return wordsOf(value).some((word) => BUSINESS_WORDS.has(word) || (word.endsWith('s') && BUSINESS_WORDS.has(word.slice(0, -1))));
+}
+
+/**
+ * Razao social que e so o nome do titular, sem o documento colado que denuncia o MEI
+ * ("ERICA CRISTINA GUIMARAES PEREIRA LUIZ"). Sem isso a abordagem sai como
+ * "Falo com a pessoa responsavel pela Erica Cristina Guimaraes Pereira Luiz?".
+ *
+ * O que separa dos nomes de negocio, medido sobre os 1.333 cadastros sem documento da base:
+ * forma societaria no fim (empresa), "&" ou digito (empresa), qualquer palavra de ramo
+ * (empresa). O que sobra — dois ou mais termos, so letras — e nome de pessoa em 140 dos 141
+ * casos. Vale so para a razao social: nome fantasia e marca escolhida, nunca cadastro da Receita.
+ */
+function looksLikePersonName(value: string): boolean {
+  if (LEGAL_SUFFIX.test(value) || value.includes('&')) return false;
+
+  const words = wordsOf(value);
+  return words.length >= 2 && !words.some((word) => /\d/.test(word)) && !looksLikeBusinessName(value);
 }
 
 /** Razao social de MEI sem o documento colado. Vazio quando o valor nao segue nenhum dos dois formatos de MEI. */
@@ -100,12 +122,13 @@ export function prettifyBusinessName(value: string): string {
     .join(' ');
 }
 
-function businessNameFrom(lead: Lead, value: string | null | undefined): string {
+function businessNameFrom(lead: Lead, value: string | null | undefined, kind: 'legal' | 'trade'): string {
   const name = leadNameForPrompt(lead, value);
   if (!name) return '';
 
   const withoutDocument = withoutMeiDocument(name);
-  if (!withoutDocument) return prettifyBusinessName(name);
+  // Sem documento colado a razao social ainda pode ser so o nome do titular.
+  if (!withoutDocument) return kind === 'legal' && looksLikePersonName(name) ? '' : prettifyBusinessName(name);
   // Razao social de MEI: so aproveitamos quando o que sobra e nome de negocio
   // ("12.345.678 PIZZARIA DO ZE"), nunca o nome da pessoa fisica.
   return looksLikeBusinessName(withoutDocument) ? prettifyBusinessName(withoutDocument) : '';
@@ -113,12 +136,12 @@ function businessNameFrom(lead: Lead, value: string | null | undefined): string 
 
 /** Razao social utilizavel ({{razaosocial}}). Vazio quando so ha nome de pessoa fisica. */
 export function legalBusinessName(lead: Lead): string {
-  return businessNameFrom(lead, lead.companyName) || businessNameFrom(lead, lead.tradeName);
+  return businessNameFrom(lead, lead.companyName, 'legal') || businessNameFrom(lead, lead.tradeName, 'trade');
 }
 
 /** Nome comercial utilizavel ({{restaurante}}), priorizando o nome fantasia. */
 export function tradeBusinessName(lead: Lead): string {
-  return businessNameFrom(lead, lead.tradeName) || businessNameFrom(lead, lead.companyName);
+  return businessNameFrom(lead, lead.tradeName, 'trade') || businessNameFrom(lead, lead.companyName, 'legal');
 }
 
 /**
@@ -127,12 +150,17 @@ export function tradeBusinessName(lead: Lead): string {
  * o cadastro nao segue o formato de MEI ou quando o que sobra e nome de negocio.
  */
 export function ownerPersonName(lead: Lead): string {
-  for (const value of [lead.companyName, lead.tradeName]) {
+  for (const [value, kind] of [[lead.companyName, 'legal'], [lead.tradeName, 'trade']] as const) {
     const name = leadNameForPrompt(lead, value);
     if (!name) continue;
 
     const withoutDocument = withoutMeiDocument(name);
-    if (withoutDocument && !looksLikeBusinessName(withoutDocument)) return prettifyBusinessName(withoutDocument);
+    if (withoutDocument) {
+      if (!looksLikeBusinessName(withoutDocument)) return prettifyBusinessName(withoutDocument);
+      continue;
+    }
+
+    if (kind === 'legal' && looksLikePersonName(name)) return prettifyBusinessName(name);
   }
 
   return '';

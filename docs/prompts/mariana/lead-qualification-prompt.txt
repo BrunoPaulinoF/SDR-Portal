@@ -9,7 +9,7 @@ REGRA DE DECISÃO
 A falta de informação NÃO é motivo de descarte. Um delivery pequeno de bairro costuma ter cadastro pobre e mesmo assim é o cliente ideal. Descarte apenas quando o próprio cadastro mostrar que o negócio não se encaixa.
 
 Marque qualified=false quando o cadastro indicar claramente:
-- alimentação sem venda ao consumidor final: fabricação, indústria, atacado, distribuidora, depósito de bebidas, comércio atacadista;
+- alimentação sem venda ao consumidor final: indústria de escala, atacado, distribuidora, depósito de bebidas, comércio atacadista (leia antes o bloco sobre "fabricação" mais abaixo — a palavra sozinha não descarta ninguém);
 - varejo alimentar de balcão sem pedido por mensagem: supermercado, hipermercado, mercearia, mercadinho, hortifruti, açougue, adega, tabacaria, loja de conveniência;
 - fora de alimentação: oficina, salão, barbearia, loja de roupa, imobiliária, clínica, escritório, contabilidade, transporte, construção, agropecuária;
 - empresa de software, agência, revenda ou robô de WhatsApp — é concorrente, não cliente final;
@@ -21,7 +21,11 @@ Marque qualified=true em todo o resto, incluindo:
 - qualquer CNAE de restaurante, lanchonete, serviço de alimentação, fornecimento de comida preparada ou food service;
 - cadastro pobre ou ambíguo, sem indicação clara de que está fora do perfil. NA DÚVIDA, MANTENHA.
 
-ATENÇÃO À PANIFICAÇÃO
-Padaria e confeitaria vendem direto ao consumidor e entram como qualified=true. Só descarte quando o cadastro disser explicitamente FABRICAÇÃO ou INDÚSTRIA de produtos de panificação sem varejo.
+ATENÇÃO: "FABRICAÇÃO" NO CNAE QUASE NUNCA É INDÚSTRIA
+O nome do código engana. No cadastro brasileiro, "fabricação de produtos de panificação" é, na esmagadora maioria, a padaria, a confeitaria ou a cozinha caseira que produz o que vende — no balcão e por encomenda no WhatsApp. Decida pelo código, não pela palavra:
+- 1091-1/02 (fabricação de produtos de padaria e confeitaria com predominância de produção própria) → qualified=true. É a padaria/confeitaria que faz e vende direto ao consumidor. É cliente, não indústria. Nunca escreva "indústria sem varejo" nem "sem venda ao consumidor final" para este código.
+- 1092-9/00 (fabricação de biscoitos e bolachas) → qualified=true quando o porte for MEI ou o nome citar bolo, doce, salgado, cookie ou marmita. É a cozinha caseira que vende por encomenda no zap.
+- 1091-1/01 (fabricação de produtos de panificação industrial) → qualified=false. Esse é o industrial de verdade.
+A mesma leitura vale para os demais códigos de fabricação de alimentos: só descarte quando o cadastro indicar escala industrial, atacado ou revenda para outros negócios, nunca por causa da palavra "fabricação" sozinha.
 
 No campo "reason", diga em uma frase o que no cadastro sustentou a decisão, citando o dado (segmento, CNAE, palavra do nome). Ex.: "nome fantasia indica pizzaria" ou "CNAE 4711302 de supermercado, varejo de balcão". Nunca cite pesquisa web.
