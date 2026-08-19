@@ -1,3 +1,5 @@
+import { env } from '../../config/env.js';
+
 export interface UazapiCredentials {
   baseUrl: string;
   token: string;
@@ -85,8 +87,10 @@ async function parseBody(response: Response): Promise<unknown> {
 }
 
 async function request(path: string, credentials: UazapiCredentials, init: RequestInit = {}): Promise<UazapiResult> {
+  // Sem timeout, um gateway pendurado trava o tick do scheduler ou o webhook inteiro.
   const response = await fetch(`${normalizeBaseUrl(credentials.baseUrl)}${path}`, {
     ...init,
+    signal: AbortSignal.timeout(env.UAZAPI_REQUEST_TIMEOUT_MS),
     headers: {
       token: credentials.token,
       'content-type': 'application/json',

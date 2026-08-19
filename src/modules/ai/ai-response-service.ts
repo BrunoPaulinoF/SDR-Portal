@@ -87,9 +87,19 @@ function handoffSummary(parsed: ParsedAiResponse, lead: Lead, history: AiChatMes
 }
 
 function interpolateHandoffTemplate(template: string, agent: SdrAgent, lead: Lead, summary: string): string {
+  // Nome limpo primeiro: o cadastro da Receita traz "62.701.245 FULANA DE TAL" em companyName,
+  // e o humano que recebe o handoff nao precisa do documento colado no nome.
+  const cleanName = tradeBusinessName(lead) || ownerPersonName(lead) || lead.companyName;
   const replacements: Record<string, string> = {
-    companyName: lead.companyName,
-    company_name: lead.companyName,
+    companyName: cleanName,
+    company_name: cleanName,
+    rawCompanyName: lead.companyName,
+    tradeName: tradeBusinessName(lead),
+    ownerName: ownerPersonName(lead),
+    contactName: contactDisplayName(lead),
+    segment: lead.segment ?? '',
+    city: lead.city ?? '',
+    state: lead.state ?? '',
     handoffName: agent.handoffName ?? '',
     leadWhatsapp: lead.whatsappNumber,
     productName: agent.productName ?? '',
@@ -205,7 +215,7 @@ async function sendDemoContact(
   await deps.conversationRepository.touch(conversation.id, new Date());
 }
 
-const MAX_GENERATE_ATTEMPTS = 2;
+const MAX_GENERATE_ATTEMPTS = 3;
 
 /**
  * O provider (deepseek-v4-pro) as vezes devolve JSON vazio/cortado (gasta o

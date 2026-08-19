@@ -21,7 +21,7 @@ async function makeAgent(overrides: Partial<SdrAgent> = {}): Promise<SdrAgent> {
 }
 
 /** Renderiza uma variante fixa para um lead, para checar a interpolacao isoladamente. */
-async function renderBody(body: string, lead: { companyName: string; tradeName?: string }): Promise<string> {
+async function renderBody(body: string, lead: { companyName: string; tradeName?: string; contactName?: string }): Promise<string> {
   const variantRepo = createMemoryFirstMessageVariantRepository();
   await variantRepo.create({ sdrAgentId: 'sdr-1', label: 'A', body });
   const agent = await makeAgent({ id: 'sdr-1', firstMessageMode: 'ab_test' });
@@ -32,6 +32,7 @@ async function renderBody(body: string, lead: { companyName: string; tradeName?:
     whatsappNumber: '5519999999999',
     companyName: lead.companyName,
     tradeName: lead.tradeName ?? null,
+    contactName: lead.contactName ?? null,
     status: 'pending',
     source: 'manual',
   });
@@ -47,13 +48,13 @@ async function renderBody(body: string, lead: { companyName: string; tradeName?:
 
 /** Atalho para os testes que so trocam o placeholder dentro da mesma frase. */
 async function renderRazaoSocial(
-  lead: { companyName: string; tradeName?: string },
+  lead: { companyName: string; tradeName?: string; contactName?: string },
   placeholder = 'razaosocial',
 ): Promise<string> {
   return renderBody(`Falo com a pessoa responsavel pela {{${placeholder}}}?`, lead);
 }
 
-async function renderResponsavel(lead: { companyName: string; tradeName?: string }): Promise<string> {
+async function renderResponsavel(lead: { companyName: string; tradeName?: string; contactName?: string }): Promise<string> {
   return renderBody('Falo com {{responsavel}}?', lead);
 }
 
@@ -209,11 +210,21 @@ describe('first message A/B variants', () => {
     ).toBe('Falo com a pessoa responsável pela Padaria Pao de Mel?');
   });
 
-  it('{{responsavel}} falls back to the MEI owner first name instead of a generic "sua loja"', async () => {
+  // O numero de um MEI costuma ser da loja, do conjuge ou de um filho, entao abrir com o nome
+  // do titular gera "nao, aqui e a filha dela" e queima um turno. Perguntamos pelo papel.
+  it('{{responsavel}} asks for the role instead of the MEI owner name', async () => {
     expect(await renderResponsavel({ companyName: '29.729.620 CHRISTIAN SAMUEL BARBOSA' })).toBe(
-      'Falo com Christian?',
+      'Falo com a pessoa responsável pela loja?',
     );
-    expect(await renderResponsavel({ companyName: 'TATIANE ALVES 34152422858' })).toBe('Falo com Tatiane?');
+    expect(await renderResponsavel({ companyName: 'TATIANE ALVES 34152422858' })).toBe(
+      'Falo com a pessoa responsável pela loja?',
+    );
+  });
+
+  it('{{responsavel}} still uses a real registered contact name', async () => {
+    expect(
+      await renderResponsavel({ companyName: '29.729.620 CHRISTIAN SAMUEL BARBOSA', contactName: 'Christian Barbosa' }),
+    ).toBe('Falo com Christian?');
   });
 
   it('{{responsavel}} only goes generic when the lead has no name at all', async () => {

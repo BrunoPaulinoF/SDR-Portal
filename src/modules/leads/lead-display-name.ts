@@ -156,7 +156,13 @@ export function responsibleReference(lead: Lead): string {
   const business = tradeBusinessName(lead);
   if (business) return `a pessoa responsável ${businessPreposition(business)} ${business}`;
 
-  return contactDisplayName(lead) || 'a pessoa responsável pela loja';
+  // Um contato cadastrado de verdade (planilha) pode ser tratado pelo nome.
+  const contactName = leadNameForPrompt(lead, lead.contactName);
+  if (contactName) return contactName.split(' ')[0] ?? contactName;
+
+  // Sem nome de negocio nem contato, so sobra o titular do MEI — e o numero costuma ser da
+  // loja, do conjuge ou de um filho. Perguntar pelo papel evita o "nao, aqui e a filha dela".
+  return 'a pessoa responsável pela loja';
 }
 
 /**

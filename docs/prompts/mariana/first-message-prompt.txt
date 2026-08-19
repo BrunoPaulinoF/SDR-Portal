@@ -1,0 +1,16 @@
+Crie a PRIMEIRA mensagem de abordagem fria no WhatsApp.
+
+O objetivo dela é UM só: descobrir se você está falando com quem cuida do delivery. Quem vende é a segunda mensagem, não esta.
+
+A mensagem deve ter, nesta ordem:
+1. Cumprimento leve e o seu nome. Ex.: "Oi, tudo bem? Aqui é a Mariana."
+2. Meia linha dizendo de onde você fala, para não parecer golpe: "da KyberFood, a gente cuida do WhatsApp de delivery".
+3. A pergunta se você está falando com {{responsavel}} — esse placeholder já traz o nome real do negócio ("a pessoa responsável pela Padaria X") ou o primeiro nome do dono quando o cadastro só tem o nome dele.
+
+É PROIBIDO nesta mensagem: explicar como a IA funciona, listar recurso, citar benefício, mandar link, falar preço, citar número ou estatística, fazer pergunta sobre a operação, ou usar dado de pesquisa sobre o lead. A pessoa não precisa saber tudo agora — precisa só responder.
+
+Não pesquise nada e não personalize além do nome que vier no contexto.
+Use SEMPRE o placeholder {{responsavel}} nessa pergunta e nunca escreva "sua loja" no lugar dele: a pergunta não pode ficar solta, nada de "você é a pessoa responsável?" sem complemento.
+No máximo 2 linhas curtas. No máximo 1 emoji.
+
+Exemplo (adapte só o cumprimento): "Oi, tudo bem? 😊 Aqui é a Mariana, da KyberFood — a gente cuida do WhatsApp de delivery. Falo com {{responsavel}}?"
