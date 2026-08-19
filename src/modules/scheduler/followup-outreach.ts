@@ -1,5 +1,6 @@
 import type { Conversation, Lead, Message, SdrAgent } from '../../db/schema.js';
-import { isAiReasoningEffort, type AiChatMessage, type AiClient, type AiReasoningEffort } from '../ai/ai-client.js';
+import type { AiChatMessage, AiClient } from '../ai/ai-client.js';
+import { resolveReasoningEffort } from '../ai/reasoning-effort.js';
 import type { AiRunRepository } from '../ai/ai-run-repository.js';
 import { parseAiResponse } from '../ai/ai-response.js';
 import { resolveAiApiKey } from '../ai/resolve-api-key.js';
@@ -18,9 +19,9 @@ import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
 import { startOfDayInTimeZone } from '../timezone.js';
 import type { UazapiClient } from '../uazapi/uazapi-client.js';
 
-/** Valor salvo no SDR, com fallback seguro quando o banco tiver algo fora da lista. */
-function reasoningEffortOf(agent: Pick<SdrAgent, 'aiReasoningEffort'>): AiReasoningEffort {
-  return isAiReasoningEffort(agent.aiReasoningEffort) ? agent.aiReasoningEffort : 'low';
+/** Resolve o nivel salvo para a escala do provider deste SDR; `null` omite o parametro. */
+function reasoningEffortOf(agent: Pick<SdrAgent, 'aiProvider' | 'aiReasoningEffort'>): string | null {
+  return resolveReasoningEffort(agent.aiProvider, agent.aiReasoningEffort);
 }
 
 
@@ -198,9 +199,11 @@ async function buildFollowupMessage(
   const startedAt = Date.now();
 
   try {
+    // Mesmo motivo do initial-outreach: o follow-up le o historico inteiro antes de
+    // escrever, e com teto de 1500 quase 1 em cada 5 voltava vazio.
     const aiResult = await deps.aiClient.generate({
       apiKey,
-      maxTokens: Math.min(agent.aiMaxOutputTokens, 1500),
+      maxTokens: Math.max(agent.aiMaxOutputTokens, 4000),
       messages,
       model: agent.aiModel,
       provider: agent.aiProvider,

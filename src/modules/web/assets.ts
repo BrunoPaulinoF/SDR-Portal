@@ -868,6 +868,12 @@ form[data-inline] {
 .share-box { display: flex; flex-direction: column; gap: 0.5rem; }
 .share-input { width: 100%; padding: 0.6rem 0.75rem; font-family: ui-monospace, monospace; font-size: 0.85rem; border: 1px solid var(--border, #e2e8f0); border-radius: 8px; }
 .public-connect { max-width: 620px; margin: 0 auto; padding: 2rem 1rem; }
+
+.connection-summary { padding: 1rem 1.1rem; background: #f8fafc; border: 1px solid var(--border, #e2e8f0); border-radius: 10px; display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-start; }
+.connection-summary p { margin: 0; }
+.advanced-block { border: 1px solid var(--border, #e2e8f0); border-radius: 10px; padding: 0.75rem 1rem; }
+.advanced-block summary { cursor: pointer; font-weight: 600; }
+.advanced-block > * { margin-top: 0.75rem; }
 `;
 
 export function registerAssetsRoutes(app: FastifyInstance): void {

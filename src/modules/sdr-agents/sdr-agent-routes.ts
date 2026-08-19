@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
+import { allReasoningEffortValues, providerDefaultEffort } from '../ai/reasoning-effort.js';
 import type { AuthRepository } from '../auth/auth-repository.js';
 import { requireUser } from '../auth/access.js';
 import type { CompanyRepository } from '../companies/company-repository.js';
@@ -39,7 +40,7 @@ const sdrAgentFormSchema = z.object({
   aiModel: z.string().trim().min(1),
   aiTemperature: z.coerce.number().min(0).max(2),
   aiMaxOutputTokens: z.coerce.number().int().positive(),
-  aiReasoningEffort: z.enum(['minimal', 'low', 'medium', 'high']).default('low'),
+  aiReasoningEffort: z.string().trim().refine((value) => allReasoningEffortValues().includes(value)).default(providerDefaultEffort),
   openaiApiKeyEncrypted: z.string().trim().optional().default(''),
   openrouterApiKeyEncrypted: z.string().trim().optional().default(''),
   deepseekApiKeyEncrypted: z.string().trim().optional().default(''),

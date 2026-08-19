@@ -50,12 +50,31 @@ export function renderSdrConnectPage(agent: SdrAgent, state: InstanceConnectionS
   const share = shareUrl
     ? `<div class="share-box">
         <p>Link para o cliente conectar, valido por ${shareLinkTtlMinutes} minutos:</p>
-        <input class="share-input" type="text" value="${escapeHtml(shareUrl)}" readonly onclick="this.select()" />
-        <p class="muted">Copie e envie. Depois de ${shareLinkTtlMinutes} minutos o link para de funcionar.</p>
+        <input id="shareUrl" class="share-input" type="text" value="${escapeHtml(shareUrl)}" readonly onclick="this.select()" />
+        <div class="actions">
+          <button class="button" type="button" onclick="copiarLink(this)">Copiar link</button>
+          <button class="button button-secondary" type="button" id="shareNative" hidden onclick="compartilharLink()">Compartilhar</button>
+          <form method="post" action="/sdr-agents/${agent.id}/conectar/compartilhar" data-inline>
+            <button class="button button-secondary" type="submit">Gerar outro link</button>
+          </form>
+        </div>
+        <p class="muted">Depois de ${shareLinkTtlMinutes} minutos o link para de funcionar. Gerar outro cancela este.</p>
+        <script>
+          var campo = document.getElementById('shareUrl');
+          function copiarLink(botao) {
+            campo.select();
+            var pronto = function () { botao.textContent = 'Copiado!'; setTimeout(function () { botao.textContent = 'Copiar link'; }, 2000); };
+            if (navigator.clipboard) { navigator.clipboard.writeText(campo.value).then(pronto, pronto); } else { document.execCommand('copy'); pronto(); }
+          }
+          function compartilharLink() {
+            navigator.share({ title: 'Conectar o WhatsApp', url: campo.value });
+          }
+          if (navigator.share) { document.getElementById('shareNative').hidden = false; }
+        </script>
       </div>`
     : `<form method="post" action="/sdr-agents/${agent.id}/conectar/compartilhar">
         <button class="button" type="submit">Gerar link para compartilhar</button>
-        <p class="muted">Cria um link publico temporario (${shareLinkTtlMinutes} min) para outra pessoa ler o QR code.</p>
+        <p class="muted">Cria um link publico temporario (${shareLinkTtlMinutes} min) para outra pessoa ler o QR code do proprio celular.</p>
       </form>`;
 
   return renderLayout({
