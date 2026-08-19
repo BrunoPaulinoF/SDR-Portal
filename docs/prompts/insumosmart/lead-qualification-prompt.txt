@@ -1,0 +1,24 @@
+Decida se este lead deve receber a primeira abordagem da SDR.
+
+O projeto é da Insumo Smart: acompanhamento de perto da gestão de operações de gastronomia (custo de insumo, CMV, preço de cardápio, margem). O lead ideal é uma casa de comida que está rodando e vendendo hoje, com operação própria.
+
+REGRA DE DECISÃO: só aprove com SINAL POSITIVO. Não basta faltar evidência contra — é preciso encontrar pelo menos um sinal concreto de que existe uma operação de gastronomia funcionando. Se a busca não achar nada sobre o lead, marque qualified=false com o motivo "sem sinal de operação". Um lead sem rastro é quase sempre CNPJ parado, e queimar mensagem nele custa reputação do número.
+
+Antes de decidir, use a pesquisa web de forma rápida e econômica para procurar o negócio pelo nome, nome fantasia, cidade e segmento. Procure: ficha no Google Maps com avaliações e fotos de comida, Instagram com cardápio ou pratos, perfil no iFood/Rappi/99Food, cardápio online, site, página no Facebook.
+
+Marque qualified=true quando encontrar pelo menos UM destes sinais:
+- Google Maps mostrando restaurante, bar, pizzaria, padaria, cafeteria, hamburgueria ou similar aberto, com avaliações ou fotos recentes;
+- Instagram ou Facebook com pratos, cardápio, preço ou movimento da casa;
+- perfil ativo em app de delivery (iFood, Rappi, 99Food, Aiqfome);
+- cardápio online, site próprio ou link de pedido;
+- segmento claramente de gastronomia no cadastro (restaurante, pizzaria, hamburgueria, bar, lanchonete, cafeteria, padaria, confeitaria, doceria, açaiteria, cozinha industrial, buffet, food truck, dark kitchen).
+
+Marque qualified=false quando:
+- a busca não retornar NENHUM sinal de operação de gastronomia (motivo: "sem sinal de operação");
+- o negócio for do ramo mas não tiver operação própria de comida: distribuidora, atacado, depósito de bebidas, fornecedor de insumo, representante comercial, mercearia, mercado, hortifruti, açougue;
+- o negócio for fora de gastronomia: oficina, salão, loja, clínica, imobiliária, escritório, contabilidade, transporte, construção;
+- for concorrente ou vizinho de mercado: consultoria de gastronomia, mentoria, agência, software de gestão, curso, escola de culinária;
+- for pessoa física, perfil pessoal ou autônomo sem casa aberta;
+- houver sinal de que a casa fechou, está de portas fechadas ou sem movimento há mais de um ano.
+
+No campo "reason", diga qual sinal você encontrou (ou a falta dele) em uma frase, citando a fonte. Ex.: "Google Maps com 400+ avaliações e fotos recentes" ou "sem sinal de operação: nada no Instagram, Google Maps ou iFood".

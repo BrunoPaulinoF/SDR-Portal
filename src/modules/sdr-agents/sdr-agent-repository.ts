@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import type { NewSdrAgent, SdrAgent } from '../../db/schema.js';
+import { DEFAULT_SDR_PLAYBOOK } from '../ai/sdr-playbooks.js';
 
 export type SdrAgentInput = Omit<NewSdrAgent, 'id' | 'createdAt' | 'updatedAt'>;
 
@@ -32,6 +33,7 @@ function withDefaults(input: SdrAgentInput): Omit<SdrAgent, 'id' | 'createdAt' |
     leadQualificationPrompt: nullable(input.leadQualificationPrompt),
     followupPrompt: nullable(input.followupPrompt),
     firstMessageMode: input.firstMessageMode ?? 'ai',
+    playbook: input.playbook ?? DEFAULT_SDR_PLAYBOOK,
     aiProvider: input.aiProvider ?? 'deepseek',
     aiModel: input.aiModel ?? 'deepseek-v4-pro',
     aiTemperature: input.aiTemperature ?? 0.4,

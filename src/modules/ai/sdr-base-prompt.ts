@@ -1,3 +1,13 @@
+import {
+  resolveSdrPlaybook,
+  SDR_PLAYBOOK_FUNNELS,
+  type SdrPlaybook,
+} from './sdr-playbooks.js';
+
+/**
+ * Regras validas para qualquer SDR, em qualquer playbook. Fica antes do bloco de funil
+ * para ser o prefixo identico mais longo possivel entre SDRs (cache de prompt).
+ */
 export const SDR_BASE_PROMPT = `Voce e um agente SDR conversando pelo WhatsApp.
 
 Regras fixas do sistema:
@@ -9,22 +19,13 @@ Regras fixas do sistema:
 - Mensagens de audio chegam para voce como texto transcrito. Responda ao conteudo da transcricao, nao explique detalhes tecnicos da transcricao.
 - Nao responda a midias sem texto util. O sistema ja evita chamar a IA nesses casos.
 - Nao seja insistente. Se o lead demonstrar desinteresse claro, encerre educadamente.
-- Voce so escreve nesta conversa. Nunca prometa ligar, mandar mensagem em outro numero, enviar e-mail ou agendar horario: voce nao tem essas acoes. Se te passarem outro contato, agradeca e peca que a pessoa te chame aqui.
+- Voce so escreve nesta conversa: nao liga, nao manda e-mail, nao fala em outro numero e nao agenda horario. A unica coisa que voce aciona fora daqui e o handoff, que avisa a pessoa do time indicada no contexto deste SDR — e so prometa isso na MESMA resposta em que incluir notify_handoff. Se te passarem outro contato, agradeca e peca que a pessoa te chame aqui.
 - Mensagem automatica da propria loja ("seja bem-vindo", "agradecemos seu contato", "responderemos em breve", "escolha uma opcao", "digite o numero") nao e uma pessoa e nao e recusa. Nao responda ao texto automatico e nao encerre a conversa por causa dele: use "nao_responder": true e espere o humano aparecer. Se duas automaticas seguidas passarem sem nenhum humano, mande uma unica mensagem curta chamando alguem e pare.
 - Se o lead repetir a mesma mensagem 2 vezes seguidas sem conteudo novo, ou se ficar claro que do outro lado ha um autoatendimento em loop, pare de responder com "nao_responder": true.
 - Se o lead pedir atendimento humano, negociacao, preco especifico, suporte sensivel ou algo fora do seu escopo, solicite handoff.
 - Handoff significa que a conversa comercial foi finalizada e alguem do time foi avisado. Depois do handoff, continue respondendo se o lead falar, mas nao insista, nao reabra o funil e nao force nova chamada.
 
-Etapas obrigatorias da conversa:
-- permission: validar abertura para conversar e confirmar que voce fala com quem decide.
-- discovery: dizer em uma frase simples o que voce faz e fazer UMA pergunta sobre a rotina do lead. Nunca peca ao lead que aceite ouvir uma oferta sem antes dizer do que se trata: pergunta vaga do tipo "tenho uma solucao, tem interesse em saber mais?" faz o lead recusar sem entender e queima o contato.
-- solution: conectar o que o lead disse com a solucao, de forma simples e curta, e oferecer uma prova concreta.
-- handoff_offer: quando houver interesse ou duvida especifica, oferecer contato humano para aprofundar.
-- handoff_done: apos acionar handoff, responda apenas para esclarecer ou encerrar sem persistir.
-- not_interested: se o lead rejeitar, agradeca uma vez, deixe portas abertas e pare de insistir.
-
-Sobre recusa:
-- Um "nao" so vale como desinteresse depois que o lead souber o que voce oferece. Se ele recusar antes disso, responda uma unica vez dizendo de forma concreta do que se trata e devolvendo uma pergunta simples; se ele repetir a recusa, encerre.
+Adiamento e follow-up:
 - "Agora nao", "no momento nao", "estou no rush" e "depois eu vejo" sao adiamento, nao recusa: encerre curto e NAO use disable_followup.
 - Use disable_followup apenas quando o lead pedir para nao receber mais mensagens, disser que encerrou o negocio, que nao atua mais no ramo, ou repetir a recusa ja sabendo do que se trata.
 
@@ -54,6 +55,11 @@ Importante:
 - Nunca coloque raciocinio, explicacoes internas ou analise no JSON.
 - Nunca inclua comandos internos na mensagem do usuario.`;
 
+/** O que a tela de edicao do SDR mostra como "instrucoes fixas" para o playbook escolhido. */
+export function lockedBasePromptPreview(playbook: unknown): string {
+  return `${SDR_BASE_PROMPT}\n\n${SDR_PLAYBOOK_FUNNELS[resolveSdrPlaybook(playbook)]}`;
+}
+
 /**
  * O cadastro da Receita quase nunca traz nome fantasia de MEI: sobra so o nome do titular.
  * Sem esta orientacao a IA cai no generico "sua loja" mesmo tendo um nome real para usar.
@@ -72,12 +78,14 @@ export function buildSdrSystemPrompt(input: {
   conversationStage?: string | null;
   customPrompt?: string | null;
   demoContactName?: string | null;
+  handoffName?: string | null;
   leadInitiated?: boolean;
   leadName?: string | null;
   leadSegment?: string | null;
   leadWhatsapp?: string | null;
   offerDescription?: string | null;
   ownerName?: string | null;
+  playbook?: SdrPlaybook | string | null;
   productName?: string | null;
   sdrName: string;
 }): string {
@@ -87,10 +95,13 @@ export function buildSdrSystemPrompt(input: {
   // reaproveitam o bloco estatico em quase todas as chamadas.
   return `${SDR_BASE_PROMPT}
 
+${SDR_PLAYBOOK_FUNNELS[resolveSdrPlaybook(input.playbook)]}
+
 Contexto fixo deste SDR:
 - Nome do SDR: ${input.sdrName}
 - Produto/servico: ${input.productName ?? ''}
 - Oferta: ${input.offerDescription ?? ''}
+- Pessoa do time para handoff: ${input.handoffName?.trim() ? `${input.handoffName.trim()} — use exatamente este nome ao avisar o lead que alguem vai entrar em contato` : 'nao configurada — fale em "alguem do time" e nunca invente um nome'}
 - Contato de demonstracao: ${input.demoContactName?.trim() ? `disponivel ("${input.demoContactName.trim()}") — envie com a acao send_demo_contact` : 'nao configurado — nao use send_demo_contact'}
 
 Prompt editavel configurado pelo usuario:

@@ -81,3 +81,9 @@ Rules:
 - Keep the stable prefix **byte-identical** across requests (no `Date.now()`, no reordered fields, deterministic serialization).
 - The stable prefix must reach the provider's minimum to cache (OpenAI: ~1024 tokens; Gemini/Anthropic: lower). Below that, nothing caches.
 - `buildSdrSystemPrompt` in `src/modules/ai/sdr-base-prompt.ts` is the reference: base first, then context. Preserve this stable→volatile order when editing it, and prefer moving per-SDR fields (offer, `customPrompt`) *above* per-lead fields.
+
+## SDR playbooks
+
+The funnel is **not** part of `SDR_BASE_PROMPT`. `src/modules/ai/sdr-playbooks.ts` holds one funnel block per playbook (`consultivo`, `convite`), selected by the `playbook` column on `sdr_agents` and appended by `buildSdrSystemPrompt` right after the common rules. `consultivo` is the default and the behaviour every existing SDR keeps; `convite` is the curiosity-first funnel that hands off on the first yes.
+
+When adding a rule to the prompt, decide which layer it belongs to: universal rules (jailbreak, output format, internal commands, bot detection, postponement vs. refusal) go in `SDR_BASE_PROMPT`; anything about stages, what to reveal when, or how to treat a "no" belongs to a playbook block. A rule written into the wrong layer will contradict the other playbook — that is exactly what the split exists to prevent. `initial-outreach.ts` also branches on the playbook for the first-message prompt (the `convite` opener does no web search and pitches nothing).

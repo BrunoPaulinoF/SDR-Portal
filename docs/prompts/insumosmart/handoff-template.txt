@@ -1,0 +1,10 @@
+Lead topou conhecer o projeto — pode chamar.
+
+Lead: {{companyName}}
+WhatsApp: {{whatsappNumber}}
+Cidade: {{city}}/{{state}}
+Segmento: {{segment}}
+
+O que rolou: {{summary}}
+
+A {{sdrName}} já avisou que você vai entrar em contato.
