@@ -38,7 +38,7 @@ function withDefaults(input: SdrAgentInput): Omit<SdrAgent, 'id' | 'createdAt' |
     aiModel: input.aiModel ?? 'deepseek-v4-pro',
     aiTemperature: input.aiTemperature ?? 0.4,
     aiMaxOutputTokens: input.aiMaxOutputTokens ?? 800,
-    aiReasoningEffort: input.aiReasoningEffort ?? 'low',
+    aiReasoningEffort: input.aiReasoningEffort ?? 'default',
     openaiApiKeyEncrypted: nullable(input.openaiApiKeyEncrypted),
     openrouterApiKeyEncrypted: nullable(input.openrouterApiKeyEncrypted),
     deepseekApiKeyEncrypted: nullable(input.deepseekApiKeyEncrypted),

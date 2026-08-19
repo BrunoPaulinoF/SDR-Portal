@@ -1,1 +1,0 @@
-ALTER TABLE "sdr_agents" ADD COLUMN "playbook" text DEFAULT 'consultivo' NOT NULL;

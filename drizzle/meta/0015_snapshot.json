@@ -1,5 +1,5 @@
 {
-  "id": "f7b1e581-06fb-4eb3-b41f-11750a835ab6",
+  "id": "2b8cea4b-7ea6-4489-bff0-1117a66eca43",
   "prevId": "bff419f0-57aa-4c20-90d3-e004439cec39",
   "version": "7",
   "dialect": "postgresql",
@@ -1438,13 +1438,6 @@
           "notNull": true,
           "default": "'ai'"
         },
-        "playbook": {
-          "name": "playbook",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'consultivo'"
-        },
         "ai_provider": {
           "name": "ai_provider",
           "type": "text",
@@ -1478,7 +1471,7 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'low'"
+          "default": "'default'"
         },
         "openai_api_key_encrypted": {
           "name": "openai_api_key_encrypted",

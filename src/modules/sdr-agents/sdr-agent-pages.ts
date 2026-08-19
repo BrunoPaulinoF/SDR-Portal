@@ -2,6 +2,7 @@ import type { Company, SdrAgent } from '../../db/schema.js';
 import { lockedBasePromptPreview } from '../ai/sdr-base-prompt.js';
 import { DEFAULT_SDR_PLAYBOOK, SDR_PLAYBOOK_LABELS, SDR_PLAYBOOKS, resolveSdrPlaybook } from '../ai/sdr-playbooks.js';
 import { DEFAULT_LEAD_QUALIFICATION_PROMPT } from '../leads/lead-qualification-prompt.js';
+import { reasoningEffortCatalogJson, reasoningEffortOptions } from '../ai/reasoning-effort.js';
 import { escapeHtml, renderLayout } from '../web/html.js';
 
 interface SdrAgentFormData {
@@ -130,10 +131,10 @@ Resumo: {{summary}}`;
 
 const fieldHelp: Partial<Record<keyof SdrAgentFormData, string>> = {
   aiMaxOutputTokens: 'Limite aproximado de tokens que a IA pode gerar. Para WhatsApp, 800 a 2000 costuma ser suficiente; modelos reasoning podem usar mais internamente.',
-  aiReasoningEffort: 'Quanto o modelo raciocina antes de responder. So tem efeito em modelos reasoning da OpenAI (gpt-5, o1, o3...); DeepSeek e OpenRouter ignoram. Mais esforco custa mais tokens e demora mais.',
+  aiReasoningEffort: 'Quanto o modelo raciocina antes de responder. Cada provedor tem a sua escala, entao as opcoes mudam junto com o provedor: DeepSeek usa low/high/max (padrao high), a OpenAI usa minimal/low/medium/high (xhigh e max so em modelos 5.6+) e o OpenRouter repassa a escala do modelo. Deixe em "Padrao do modelo" para nao enviar o parametro. Mais esforco custa mais tokens e demora mais.',
   aiModel: 'Modelo usado por este SDR. Padrao: deepseek-v4-pro (via API direta da DeepSeek, custo baixo e cache automatico). Pode trocar por outro modelo compativel quando quiser.',
   aiProvider: 'Escolha onde a IA sera chamada. DeepSeek usa a API oficial da DeepSeek (recomendado). OpenAI usa sua chave OpenAI; OpenRouter usa sua chave OpenRouter.',
-  aiTemperature: 'Controla variacao/criatividade. Para SDR, valores baixos como 0.3 a 0.6 tendem a ser mais consistentes.',
+  aiTemperature: 'Controla variacao/criatividade. Para SDR, valores baixos como 0.3 a 0.6 tendem a ser mais consistentes. Modelos com raciocinio ligado (como o deepseek-v4-pro) ignoram este campo.',
   dailyFollowupSendLimit: 'Maximo de follow-ups enviados por este SDR em um dia.',
   dailyInitialSendLimit: 'Maximo de primeiras mensagens enviadas por este SDR em um dia.',
   displayName: 'Nome que a IA usa ao se apresentar na conversa. Ex: Kyane.',
@@ -192,7 +193,7 @@ const defaultForm: SdrAgentFormData = {
   aiModel: 'deepseek-v4-pro',
   aiTemperature: '0.4',
   aiMaxOutputTokens: '800',
-  aiReasoningEffort: 'low',
+  aiReasoningEffort: 'default',
   openaiApiKeyEncrypted: '',
   openrouterApiKeyEncrypted: '',
   deepseekApiKeyEncrypted: '',
@@ -339,20 +340,37 @@ function renderProviderSelect(selectedProvider: string): string {
   </div>`;
 }
 
-function renderReasoningEffortSelect(selected: string): string {
-  const efforts: Array<[string, string]> = [
-    ['minimal', 'minimo - mais rapido e barato'],
-    ['low', 'baixo (padrao)'],
-    ['medium', 'medio'],
-    ['high', 'alto - mais lento e caro'],
-  ];
-  const options = efforts
-    .map(([value, label]) => `<option value="${value}"${value === selected ? ' selected' : ''}>${escapeHtml(label)}</option>`)
+function renderReasoningEffortSelect(provider: string, selected: string): string {
+  const options = reasoningEffortOptions(provider)
+    .map((option) => `<option value="${escapeHtml(option.value)}"${option.value === selected ? ' selected' : ''}>${escapeHtml(option.label)}</option>`)
     .join('');
 
+  // Cada provider tem a sua escala, entao as opcoes trocam junto com o provedor escolhido.
   return `<div class="field">
     ${renderLabel('aiReasoningEffort', 'Esforco de raciocinio')}
     <select id="aiReasoningEffort" name="aiReasoningEffort" required>${options}</select>
+    <script>
+      (function () {
+        var catalogo = ${reasoningEffortCatalogJson()};
+        var provedor = document.getElementById('aiProvider');
+        var esforco = document.getElementById('aiReasoningEffort');
+        if (!provedor || !esforco) return;
+        provedor.addEventListener('change', function () {
+          var anterior = esforco.value;
+          var lista = catalogo[provedor.value] || [];
+          esforco.innerHTML = '';
+          lista.forEach(function (item) {
+            var opcao = document.createElement('option');
+            opcao.value = item.value;
+            opcao.textContent = item.label;
+            if (item.value === anterior) opcao.selected = true;
+            esforco.appendChild(opcao);
+          });
+          // Nivel que nao existe na escala nova volta para o padrao do modelo.
+          if (!lista.some(function (item) { return item.value === anterior; })) esforco.value = 'default';
+        });
+      })();
+    </script>
   </div>`;
 }
 
@@ -380,6 +398,33 @@ function renderLockedBasePrompt(playbook: string): string {
     </div>
     <p class="muted">Estas regras sempre sao enviadas para a IA, junto com o funil do playbook selecionado acima. Salve para ver o texto do outro playbook. Use o prompt editavel abaixo apenas para produto, publico, tom e regras comerciais especificas.</p>
     <pre>${escapeHtml(lockedBasePromptPreview(playbook))}</pre>
+  </div>`;
+}
+
+
+/**
+ * Estado da conexao no topo da secao de WhatsApp. No SDR novo nao ha instancia nem id,
+ * entao mostra so a explicacao de que o portal vai criar uma.
+ */
+function renderConnectionSummary(agent?: SdrAgent): string {
+  if (!agent) {
+    return `<div class="connection-summary field-full">
+      <p><strong>Instancia ainda nao criada.</strong></p>
+      <p class="muted">Ao salvar, o portal cria a instancia na UAZAPI e leva voce direto para a tela do QR code.</p>
+    </div>`;
+  }
+
+  if (!agent.uazapiBaseUrl || !agent.uazapiInstanceTokenEncrypted) {
+    return `<div class="connection-summary field-full">
+      <p><strong>Sem instancia configurada.</strong></p>
+      <p class="muted">Preencha a configuracao manual abaixo, ou crie um SDR novo para o portal provisionar sozinho.</p>
+    </div>`;
+  }
+
+  return `<div class="connection-summary field-full">
+    <p><strong>Instancia:</strong> ${escapeHtml(agent.uazapiInstanceId ?? 'sem identificador')}</p>
+    <p class="muted">Para ler o QR code ou mandar o link de conexao para outra pessoa, use o botao abaixo.</p>
+    <a class="button" href="/sdr-agents/${agent.id}/conectar">Conectar / ver QR code</a>
   </div>`;
 }
 
@@ -426,7 +471,7 @@ function renderSdrAgentForm(action: string, companies: Company[], agent?: SdrAge
       ${renderField('aiModel', 'Modelo', data.aiModel, true)}
       ${renderField('aiTemperature', 'Temperatura', data.aiTemperature, true, 'number')}
       ${renderField('aiMaxOutputTokens', 'Maximo de tokens de saida', data.aiMaxOutputTokens, true, 'number')}
-      ${renderReasoningEffortSelect(data.aiReasoningEffort)}
+      ${renderReasoningEffortSelect(data.aiProvider, data.aiReasoningEffort)}
       ${renderField('deepseekApiKeyEncrypted', 'Chave DeepSeek', data.deepseekApiKeyEncrypted, false, 'password')}
       ${renderField('openaiApiKeyEncrypted', 'Chave OpenAI', data.openaiApiKeyEncrypted, false, 'password')}
       ${renderField('openrouterApiKeyEncrypted', 'Chave OpenRouter', data.openrouterApiKeyEncrypted, false, 'password')}
@@ -469,14 +514,19 @@ function renderSdrAgentForm(action: string, companies: Company[], agent?: SdrAge
       )}
 
       ${renderFormSection(
-        'WhatsApp e UAZAPI',
-        'Conexao da instancia, tokens e numero do SDR.',
+        'WhatsApp',
+        'Conexao da instancia usada por este SDR.',
         `
-      ${renderField('uazapiBaseUrl', 'URL base UAZAPI', data.uazapiBaseUrl)}
-      ${renderField('uazapiInstanceId', 'ID ou nome da instancia', data.uazapiInstanceId)}
+      ${renderConnectionSummary(agent)}
       ${renderField('whatsappNumber', 'Numero WhatsApp', data.whatsappNumber)}
-      ${renderField('uazapiInstanceTokenEncrypted', 'Token da instancia', data.uazapiInstanceTokenEncrypted, false, 'password')}
-      ${renderField('uazapiAdminTokenEncrypted', 'Token admin UAZAPI', data.uazapiAdminTokenEncrypted, false, 'password')}
+      <details class="advanced-block field-full">
+        <summary>Configuracao manual da instancia (avancado)</summary>
+        <p class="muted">So use se precisar apontar este SDR para uma instancia que ja existe, ou trocar um token expirado. Ao criar um SDR novo o portal cuida disso sozinho.</p>
+        ${renderField('uazapiBaseUrl', 'URL base UAZAPI', data.uazapiBaseUrl)}
+        ${renderField('uazapiInstanceId', 'ID ou nome da instancia', data.uazapiInstanceId)}
+        ${renderField('uazapiInstanceTokenEncrypted', 'Token da instancia', data.uazapiInstanceTokenEncrypted, false, 'password')}
+        ${renderField('uazapiAdminTokenEncrypted', 'Token admin UAZAPI', data.uazapiAdminTokenEncrypted, false, 'password')}
+      </details>
         `,
       )}
 
@@ -598,6 +648,7 @@ function renderUazapiActions(agent: SdrAgent): string {
     <h2>Acoes UAZAPI</h2>
     <p class="muted">Use estas acoes para testar a instancia, configurar webhook e enviar uma mensagem manual de teste.</p>
     <div class="actions">
+      <a class="button" href="/sdr-agents/${agent.id}/conectar">Conectar / ver QR code</a>
       <form method="post" action="/sdr-agents/${agent.id}/uazapi/status">
         <button type="submit">Testar status</button>
       </form>

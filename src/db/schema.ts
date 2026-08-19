@@ -67,7 +67,7 @@ export const sdrAgents = pgTable('sdr_agents', {
   aiModel: text('ai_model').default('deepseek-v4-pro').notNull(),
   aiTemperature: real('ai_temperature').default(0.4).notNull(),
   aiMaxOutputTokens: integer('ai_max_output_tokens').default(800).notNull(),
-  aiReasoningEffort: text('ai_reasoning_effort').default('low').notNull(),
+  aiReasoningEffort: text('ai_reasoning_effort').default('default').notNull(),
   openaiApiKeyEncrypted: text('openai_api_key_encrypted'),
   openrouterApiKeyEncrypted: text('openrouter_api_key_encrypted'),
   deepseekApiKeyEncrypted: text('deepseek_api_key_encrypted'),
