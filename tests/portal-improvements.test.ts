@@ -673,4 +673,37 @@ describe('saudacao pela hora local e nome sem sufixo societario', () => {
     // nome que e so a sigla nao pode virar vazio (segue o title-case normal)
     expect(prettifyBusinessName('ME')).toBe('Me');
   });
+
+  it('nao trata razao social de pessoa como nome de loja', async () => {
+    const { responsibleReference, tradeBusinessName, ownerPersonName } = await import('../src/modules/leads/lead-display-name.js');
+    const lead = (companyName: string, tradeName: string | null = null) =>
+      ({ whatsappNumber: '5519999999999', contactName: null, companyName, tradeName }) as never;
+
+    // o caso de producao: "Falo com a pessoa responsavel pela Erica Cristina Guimaraes Pereira Luiz?"
+    const pessoa = lead('ERICA CRISTINA GUIMARAES PEREIRA LUIZ');
+    expect(tradeBusinessName(pessoa)).toBe('');
+    expect(ownerPersonName(pessoa)).toBe('Erica Cristina Guimaraes Pereira Luiz');
+    expect(responsibleReference(pessoa)).toBe('a pessoa responsável pela loja');
+
+    // inicial no lugar do primeiro nome ainda e pessoa
+    expect(tradeBusinessName(lead('D. SILVIERO'))).toBe('');
+    // dois termos, sem conectivo, tambem: o que decide e nao haver palavra de ramo
+    expect(tradeBusinessName(lead('ROSILDA CORREIA'))).toBe('');
+  });
+
+  it('mantem como negocio o cadastro que tem forma societaria, palavra de ramo ou fantasia', async () => {
+    const { responsibleReference, tradeBusinessName } = await import('../src/modules/leads/lead-display-name.js');
+    const lead = (companyName: string, tradeName: string | null = null) =>
+      ({ whatsappNumber: '5519999999999', contactName: null, companyName, tradeName }) as never;
+
+    // forma societaria: e empresa mesmo quando o nome dela e o de uma pessoa
+    expect(tradeBusinessName(lead('NATALIA CALDEIRA DOS SANTOS DE CASTRO LIMITADA'))).toBe('Natalia Caldeira dos Santos de Castro');
+    expect(tradeBusinessName(lead('MANA DO BRASIL S.A.'))).toBe('Mana do Brasil');
+    // palavra de ramo no plural
+    expect(tradeBusinessName(lead('F. TORRES LANCHONETES'))).toBe('F. Torres Lanchonetes');
+    expect(tradeBusinessName(lead('PEDRO REIS DE MELO FABRICACAO DE PAES'))).toBe('Pedro Reis de Melo Fabricacao de Paes');
+    // nome fantasia e marca escolhida: nunca passa pelo teste de nome de pessoa
+    expect(responsibleReference(lead('DANIELE G. BERNARDO DE MELLO LTDA', 'Dani Fabrica de Bolos Vo Alzira')))
+      .toBe('a pessoa responsável pelo Dani Fabrica de Bolos Vo Alzira');
+  });
 });
