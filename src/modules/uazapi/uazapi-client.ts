@@ -52,6 +52,14 @@ export interface CheckChatsInput extends UazapiCredentials {
   numbers: string[];
 }
 
+/** Criacao de instancia usa o admintoken do servidor, nao o token de uma instancia. */
+export interface CreateInstanceInput {
+  baseUrl: string;
+  adminToken: string;
+  name: string;
+  systemName?: string;
+}
+
 export interface UazapiResult {
   status: number;
   ok: boolean;
@@ -61,6 +69,8 @@ export interface UazapiResult {
 export interface UazapiClient {
   checkChats(input: CheckChatsInput): Promise<UazapiResult>;
   configureWebhook(input: ConfigureWebhookInput): Promise<UazapiResult>;
+  connectInstance(input: UazapiCredentials): Promise<UazapiResult>;
+  createInstance(input: CreateInstanceInput): Promise<UazapiResult>;
   downloadMessage(input: DownloadMessageInput): Promise<UazapiResult>;
   getInstanceStatus(input: UazapiCredentials): Promise<UazapiResult>;
   sendContact(input: SendContactInput): Promise<UazapiResult>;
@@ -112,6 +122,21 @@ export function createHttpUazapiClient(): UazapiClient {
         method: 'POST',
         body: JSON.stringify({ numbers: input.numbers }),
       });
+    },
+
+    connectInstance(input) {
+      return request('/instance/connect', input, { method: 'POST', body: JSON.stringify({}) });
+    },
+
+    async createInstance(input) {
+      const response = await fetch(`${normalizeBaseUrl(input.baseUrl)}/instance/init`, {
+        method: 'POST',
+        signal: AbortSignal.timeout(env.UAZAPI_REQUEST_TIMEOUT_MS),
+        headers: { admintoken: input.adminToken, 'content-type': 'application/json' },
+        body: JSON.stringify({ name: input.name, systemName: input.systemName ?? input.name }),
+      });
+
+      return { status: response.status, ok: response.ok, body: await parseBody(response) };
     },
 
     configureWebhook(input) {

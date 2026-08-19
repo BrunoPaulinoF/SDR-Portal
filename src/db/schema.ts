@@ -66,6 +66,7 @@ export const sdrAgents = pgTable('sdr_agents', {
   aiModel: text('ai_model').default('deepseek-v4-pro').notNull(),
   aiTemperature: real('ai_temperature').default(0.4).notNull(),
   aiMaxOutputTokens: integer('ai_max_output_tokens').default(800).notNull(),
+  aiReasoningEffort: text('ai_reasoning_effort').default('low').notNull(),
   openaiApiKeyEncrypted: text('openai_api_key_encrypted'),
   openrouterApiKeyEncrypted: text('openrouter_api_key_encrypted'),
   deepseekApiKeyEncrypted: text('deepseek_api_key_encrypted'),
@@ -325,3 +326,20 @@ export const aiRuns = pgTable('ai_runs', {
 
 export type AiRun = typeof aiRuns.$inferSelect;
 export type NewAiRun = typeof aiRuns.$inferInsert;
+
+export const instanceShareLinks = pgTable('instance_share_links', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  sdrAgentId: uuid('sdr_agent_id')
+    .notNull()
+    .references(() => sdrAgents.id, { onDelete: 'cascade' }),
+  /** sha256 do token que vai na URL: o valor cru nunca fica no banco. */
+  tokenHash: text('token_hash').notNull().unique(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  connectedAt: timestamp('connected_at', { withTimezone: true }),
+  createdByUserId: uuid('created_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+export type InstanceShareLink = typeof instanceShareLinks.$inferSelect;
+export type NewInstanceShareLink = typeof instanceShareLinks.$inferInsert;

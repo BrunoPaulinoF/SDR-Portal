@@ -9,12 +9,18 @@ import {
 import type { LeadRepository } from '../leads/lead-repository.js';
 import { decryptSecret } from '../security/secrets.js';
 import type { UazapiClient } from '../uazapi/uazapi-client.js';
-import type { AiChatMessage, AiClient } from './ai-client.js';
+import { isAiReasoningEffort, type AiChatMessage, type AiClient, type AiReasoningEffort } from './ai-client.js';
 import type { AiRunRepository } from './ai-run-repository.js';
 import { parseAiResponse, type ParsedAiResponse } from './ai-response.js';
 import { resolveAiApiKey } from './resolve-api-key.js';
 import { buildResponseParts, waitBeforeSending } from './response-buffer.js';
 import { buildSdrSystemPrompt } from './sdr-base-prompt.js';
+
+/** Valor salvo no SDR, com fallback seguro quando o banco tiver algo fora da lista. */
+function reasoningEffortOf(agent: Pick<SdrAgent, 'aiReasoningEffort'>): AiReasoningEffort {
+  return isAiReasoningEffort(agent.aiReasoningEffort) ? agent.aiReasoningEffort : 'low';
+}
+
 
 interface AiResponseDependencies {
   aiClient: AiClient;
@@ -224,7 +230,15 @@ const MAX_GENERATE_ATTEMPTS = 3;
  */
 async function generateAndParseWithRetry(
   deps: AiResponseDependencies,
-  input: { apiKey: string; maxTokens: number; messages: AiChatMessage[]; model: string; provider: string; temperature: number },
+  input: {
+    apiKey: string;
+    maxTokens: number;
+    messages: AiChatMessage[];
+    model: string;
+    provider: string;
+    reasoningEffort: AiReasoningEffort;
+    temperature: number;
+  },
 ): Promise<{ aiResult: Awaited<ReturnType<AiResponseDependencies['aiClient']['generate']>>; parsed: ParsedAiResponse }> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= MAX_GENERATE_ATTEMPTS; attempt += 1) {
@@ -308,6 +322,7 @@ export function createAiResponseService(deps: AiResponseDependencies) {
           messages,
           model: input.agent.aiModel,
           provider: input.agent.aiProvider,
+          reasoningEffort: reasoningEffortOf(input.agent),
           temperature: input.agent.aiTemperature,
         });
         await deps.aiRunRepository.create({

@@ -15,12 +15,22 @@ export interface AiWebSearchOptions {
   };
 }
 
+export type AiReasoningEffort = 'minimal' | 'low' | 'medium' | 'high';
+
+export const aiReasoningEfforts: readonly AiReasoningEffort[] = ['minimal', 'low', 'medium', 'high'];
+
+export function isAiReasoningEffort(value: string): value is AiReasoningEffort {
+  return (aiReasoningEfforts as readonly string[]).includes(value);
+}
+
 export interface AiGenerateInput {
   apiKey: string;
   maxTokens: number;
   messages: AiChatMessage[];
   model: string;
   provider: string;
+  /** So tem efeito em modelo reasoning da OpenAI; os demais providers ignoram. */
+  reasoningEffort?: AiReasoningEffort;
   temperature: number;
   webSearch?: AiWebSearchOptions;
 }
@@ -103,7 +113,7 @@ function buildRequestBody(input: AiGenerateInput): Record<string, unknown> {
     return {
       model: input.model,
       input: input.messages,
-      reasoning: { effort: 'low' },
+      reasoning: { effort: input.reasoningEffort ?? 'low' },
       max_output_tokens: Math.max(input.maxTokens, 2000),
       ...(tool ? { tools: [tool], tool_choice: 'auto' } : {}),
       ...(tool ? {} : { text: { format: { type: 'json_object' } } }),

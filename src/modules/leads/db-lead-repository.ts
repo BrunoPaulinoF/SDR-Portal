@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gt, gte, isNotNull, isNull, lte, ne, notExists, or, sql, type SQL } from 'drizzle-orm';
+import { and, count, desc, eq, gt, gte, inArray, isNotNull, isNull, lte, ne, notExists, or, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 
 import { db } from '../../db/client.js';
@@ -47,6 +47,16 @@ export function createDbLeadRepository(): LeadRepository {
         throw new Error('Failed to create lead import');
       }
       return leadImport;
+    },
+
+    async deleteBySdrAndStatuses(sdrAgentId, statuses) {
+      if (statuses.length === 0) return 0;
+      // O cascade do schema leva junto conversas, mensagens e pesquisa do lead.
+      const deleted = await db
+        .delete(leads)
+        .where(and(eq(leads.sdrAgentId, sdrAgentId), inArray(leads.status, statuses)))
+        .returning({ id: leads.id });
+      return deleted.length;
     },
 
     async delete(id) {

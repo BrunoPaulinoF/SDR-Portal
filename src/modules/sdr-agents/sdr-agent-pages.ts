@@ -19,6 +19,7 @@ interface SdrAgentFormData {
   aiModel: string;
   aiTemperature: string;
   aiMaxOutputTokens: string;
+  aiReasoningEffort: string;
   openaiApiKeyEncrypted: string;
   openrouterApiKeyEncrypted: string;
   deepseekApiKeyEncrypted: string;
@@ -127,13 +128,13 @@ Resumo: {{summary}}`;
 
 const fieldHelp: Partial<Record<keyof SdrAgentFormData, string>> = {
   aiMaxOutputTokens: 'Limite aproximado de tokens que a IA pode gerar. Para WhatsApp, 800 a 2000 costuma ser suficiente; modelos reasoning podem usar mais internamente.',
+  aiReasoningEffort: 'Quanto o modelo raciocina antes de responder. So tem efeito em modelos reasoning da OpenAI (gpt-5, o1, o3...); DeepSeek e OpenRouter ignoram. Mais esforco custa mais tokens e demora mais.',
   aiModel: 'Modelo usado por este SDR. Padrao: deepseek-v4-pro (via API direta da DeepSeek, custo baixo e cache automatico). Pode trocar por outro modelo compativel quando quiser.',
   aiProvider: 'Escolha onde a IA sera chamada. DeepSeek usa a API oficial da DeepSeek (recomendado). OpenAI usa sua chave OpenAI; OpenRouter usa sua chave OpenRouter.',
   aiTemperature: 'Controla variacao/criatividade. Para SDR, valores baixos como 0.3 a 0.6 tendem a ser mais consistentes.',
   dailyFollowupSendLimit: 'Maximo de follow-ups enviados por este SDR em um dia.',
   dailyInitialSendLimit: 'Maximo de primeiras mensagens enviadas por este SDR em um dia.',
   displayName: 'Nome que a IA usa ao se apresentar na conversa. Ex: Kyane.',
-  firstMessagePrompt: 'Instrucao usada pela IA para criar a primeira mensagem. Pode usar as variaveis listadas abaixo.',
   leadQualificationPrompt: 'Prompt usado antes da primeira mensagem para decidir se o lead deve ser abordado ou descartado. A IA deve retornar qualified=false apenas quando houver baixo fit claro.',
   followupAfterHours: 'Quantidade de horas apos a primeira mensagem para tentar o follow-up unico, somente se o lead ja respondeu.',
   followupCooldownMaxMinutes: 'Intervalo maximo entre follow-ups automaticos.',
@@ -187,6 +188,7 @@ const defaultForm: SdrAgentFormData = {
   aiModel: 'deepseek-v4-pro',
   aiTemperature: '0.4',
   aiMaxOutputTokens: '800',
+  aiReasoningEffort: 'low',
   openaiApiKeyEncrypted: '',
   openrouterApiKeyEncrypted: '',
   deepseekApiKeyEncrypted: '',
@@ -240,6 +242,7 @@ function agentToForm(agent?: SdrAgent): SdrAgentFormData {
     aiModel: agent.aiModel,
     aiTemperature: String(agent.aiTemperature),
     aiMaxOutputTokens: String(agent.aiMaxOutputTokens),
+    aiReasoningEffort: agent.aiReasoningEffort,
     openaiApiKeyEncrypted: '',
     openrouterApiKeyEncrypted: '',
     deepseekApiKeyEncrypted: '',
@@ -331,33 +334,20 @@ function renderProviderSelect(selectedProvider: string): string {
   </div>`;
 }
 
-function renderFirstMessageVariables(): string {
-  const variables: Array<[string, string]> = [
-    ['{{responsavel}}', 'complemento de "Falo com ___?": nome do negocio ou primeiro nome do titular'],
-    ['{{restaurante}}', 'nome do negocio (fantasia ou razao social), sem CPF/CNPJ de MEI'],
-    ['{{nome}}', 'contato do lead ou, na falta dele, titular do MEI'],
-    ['{{titular}}', 'nome completo do titular quando a razao social e MEI'],
-    ['{{companyName}}', 'nome da empresa lead'],
-    ['{{company_name}}', 'alias de companyName'],
-    ['{{tradeName}}', 'nome fantasia do lead'],
-    ['{{contactName}}', 'nome do contato/dono'],
-    ['{{cnpj}}', 'CNPJ do lead'],
-    ['{{segment}}', 'segmento do lead'],
-    ['{{city}}', 'cidade do lead'],
-    ['{{state}}', 'estado do lead'],
-    ['{{extraData}}', 'dados extras importados'],
-    ['{{whatsappNumber}}', 'WhatsApp do lead'],
-    ['{{sdrName}}', 'nome do SDR'],
-    ['{{productName}}', 'produto/servico'],
-    ['{{researchSummary}}', 'resumo da pesquisa web, quando houver'],
-    ['{{researchSources}}', 'fontes da pesquisa web, quando houver'],
+function renderReasoningEffortSelect(selected: string): string {
+  const efforts: Array<[string, string]> = [
+    ['minimal', 'minimo - mais rapido e barato'],
+    ['low', 'baixo (padrao)'],
+    ['medium', 'medio'],
+    ['high', 'alto - mais lento e caro'],
   ];
-  const items = variables.map(([key, description]) => `<li><code>${escapeHtml(key)}</code><span>${escapeHtml(description)}</span></li>`).join('');
+  const options = efforts
+    .map(([value, label]) => `<option value="${value}"${value === selected ? ' selected' : ''}>${escapeHtml(label)}</option>`)
+    .join('');
 
-  return `<div class="template-vars field-full">
-    <strong>Variaveis permitidas para copiar e colar</strong>
-    <p class="muted">Use no prompt da primeira mensagem. Se alguma informacao nao existir, ela fica vazia.</p>
-    <ul>${items}</ul>
+  return `<div class="field">
+    ${renderLabel('aiReasoningEffort', 'Esforco de raciocinio')}
+    <select id="aiReasoningEffort" name="aiReasoningEffort" required>${options}</select>
   </div>`;
 }
 
@@ -419,6 +409,7 @@ function renderSdrAgentForm(action: string, companies: Company[], agent?: SdrAge
       ${renderField('aiModel', 'Modelo', data.aiModel, true)}
       ${renderField('aiTemperature', 'Temperatura', data.aiTemperature, true, 'number')}
       ${renderField('aiMaxOutputTokens', 'Maximo de tokens de saida', data.aiMaxOutputTokens, true, 'number')}
+      ${renderReasoningEffortSelect(data.aiReasoningEffort)}
       ${renderField('deepseekApiKeyEncrypted', 'Chave DeepSeek', data.deepseekApiKeyEncrypted, false, 'password')}
       ${renderField('openaiApiKeyEncrypted', 'Chave OpenAI', data.openaiApiKeyEncrypted, false, 'password')}
       ${renderField('openrouterApiKeyEncrypted', 'Chave OpenRouter', data.openrouterApiKeyEncrypted, false, 'password')}
@@ -427,7 +418,7 @@ function renderSdrAgentForm(action: string, companies: Company[], agent?: SdrAge
         true,
       )}
 
-      <p class="flow-intro">Fluxo de conversa do SDR: os 4 prompts abaixo seguem a ordem em que a IA realmente os usa, do primeiro contato ate o follow-up.</p>
+      <p class="flow-intro">Fluxo de conversa do SDR: os 3 prompts abaixo seguem a ordem em que a IA realmente os usa. A primeira mensagem enviada ao lead e configurada na tela <a href="/sdr-agents">Msg inicial</a>.</p>
 
       ${renderFlowSection(
         1,
@@ -441,17 +432,6 @@ function renderSdrAgentForm(action: string, companies: Company[], agent?: SdrAge
 
       ${renderFlowSection(
         2,
-        'Primeira mensagem',
-        'Gera a abordagem inicial enviada ao lead, usando pesquisa e dados disponiveis quando houver.',
-        `
-      ${renderTextArea('firstMessagePrompt', 'Prompt da primeira mensagem', data.firstMessagePrompt, 6)}
-      ${renderFirstMessageVariables()}
-        `,
-        true,
-      )}
-
-      ${renderFlowSection(
-        3,
         'Conversa principal',
         'Conduz o restante da conversa depois que o lead responde: persona, tom, objecoes e regras comerciais.',
         `
@@ -462,7 +442,7 @@ function renderSdrAgentForm(action: string, companies: Company[], agent?: SdrAge
       )}
 
       ${renderFlowSection(
-        4,
+        3,
         'Follow-up',
         'Escreve a unica mensagem de retomada para leads que responderam e depois sumiram.',
         `
@@ -545,6 +525,7 @@ export function renderSdrAgentsListPage(agents: SdrAgent[], companies: Company[]
         <td class="table-actions">
           <a href="/sdr-agents/${agent.id}/edit">Editar</a>
           <a href="/sdr-agents/${agent.id}/first-messages">Msg inicial</a>
+          <a href="/sdr-agents/${agent.id}/conectar">Conectar</a>
           <form method="post" action="/sdr-agents/${agent.id}/toggle" data-inline><button class="link-button" type="submit">${toggleLabel}</button></form>
           <form method="post" action="/sdr-agents/${agent.id}/delete" data-inline onsubmit="return confirm('Tem certeza que deseja excluir este SDR?')"><button class="link-button" type="submit">Excluir</button></form>
         </td>

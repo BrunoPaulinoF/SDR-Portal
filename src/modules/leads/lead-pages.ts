@@ -123,7 +123,51 @@ function renderLeadForm(action: string, companies: Company[], agents: SdrAgent[]
   </form>`;
 }
 
-export function renderLeadsListPage(leads: Lead[], companies: Company[], agents: SdrAgent[]): string {
+/** Status que valem uma limpeza em massa, com a contagem atual para o usuario decidir. */
+const bulkDeleteStatuses: Array<[string, string]> = [
+  ['pending', 'Pendente'],
+  ['invalid_phone', 'Telefone inexistente'],
+  ['discarded', 'Descartado'],
+  ['not_interested', 'Sem interesse'],
+  ['initial_sent', 'Abordado'],
+  ['in_conversation', 'Em conversa'],
+  ['followup_sent', 'Follow-up enviado'],
+  ['human_paused', 'Pausado por humano'],
+  ['transferred', 'Handoff feito'],
+];
+
+function renderBulkDeletePanel(leads: Lead[], agents: SdrAgent[]): string {
+  if (agents.length === 0) return '';
+
+  const agentOptions = agents
+    .map((agent) => `<option value="${escapeHtml(agent.id)}">${escapeHtml(agent.name)}</option>`)
+    .join('');
+
+  const checkboxes = bulkDeleteStatuses
+    .map(([value, label]) => {
+      const total = leads.filter((lead) => lead.status === value).length;
+      return `<label class="check-item">
+        <input type="checkbox" name="statuses" value="${escapeHtml(value)}" />
+        <span>${escapeHtml(label)} <span class="muted">(${total})</span></span>
+      </label>`;
+    })
+    .join('');
+
+  return `<section class="panel">
+    <h2>Limpar leads</h2>
+    <p class="muted">Apaga os leads do SDR escolhido nos status marcados. Conversas e mensagens desses leads vao junto, e nao da para desfazer.</p>
+    <form method="post" action="/leads/limpar" onsubmit="return confirm('Isso apaga os leads selecionados e o historico de conversa deles. Confirmar?')">
+      <div class="field">
+        <label for="bulkSdrAgentId">SDR</label>
+        <select id="bulkSdrAgentId" name="sdrAgentId" required>${agentOptions}</select>
+      </div>
+      <div class="check-grid">${checkboxes}</div>
+      <button class="button button-danger" type="submit">Limpar leads selecionados</button>
+    </form>
+  </section>`;
+}
+
+export function renderLeadsListPage(leads: Lead[], companies: Company[], agents: SdrAgent[], notice?: string): string {
   const companiesById = new Map(companies.map((company) => [company.id, company.name]));
   const agentsById = new Map(agents.map((agent) => [agent.id, agent.name]));
   const rows = leads
@@ -142,9 +186,11 @@ export function renderLeadsListPage(leads: Lead[], companies: Company[], agents:
     ? `<div class="table-wrap"><table><thead><tr><th>Lead</th><th>Empresa</th><th>SDR</th><th>Segmento</th><th>Status</th><th>Acoes</th></tr></thead><tbody>${rows}</tbody></table></div>`
     : '<section class="empty-state"><h2>Nenhum lead cadastrado</h2><p class="muted">Importe uma planilha Excel ou crie um lead manualmente para iniciar a operacao.</p><div class="actions"><a class="button button-secondary" href="/leads/import">Importar Excel</a><a class="button" href="/leads/new">Novo lead</a></div></section>';
 
+  const noticeHtml = notice ? `<p class="form-notice">${escapeHtml(notice)}</p>` : '';
+
   return renderLayout({
     title: 'Leads - SDR Portal',
-    body: `<main class="app-shell"><header class="topbar"><div><h1>Leads</h1><p class="muted">Cadastre, edite e importe contatos para os SDRs.</p></div><div class="actions"><a class="button button-secondary" href="/leads/import">Importar Excel</a><a class="button" href="/leads/new">Novo lead</a></div></header>${table}</main>`,
+    body: `<main class="app-shell"><header class="topbar"><div><h1>Leads</h1><p class="muted">Cadastre, edite e importe contatos para os SDRs.</p></div><div class="actions"><a class="button button-secondary" href="/leads/import">Importar Excel</a><a class="button" href="/leads/new">Novo lead</a></div></header>${noticeHtml}${table}${renderBulkDeletePanel(leads, agents)}</main>`,
   });
 }
 

@@ -1,13 +1,20 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
-import type { AiClient } from '../ai/ai-client.js';
+import type { SdrAgent } from '../../db/schema.js';
+import { isAiReasoningEffort, type AiClient, type AiReasoningEffort } from '../ai/ai-client.js';
 import type { AiRunRepository } from '../ai/ai-run-repository.js';
 import type { AuthRepository } from '../auth/auth-repository.js';
 import { requireUser } from '../auth/access.js';
 import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
 import { renderPromptAssistantFormPage } from './prompt-assistant-pages.js';
 import { resolveAiApiKey } from './resolve-api-key.js';
+
+/** Valor salvo no SDR, com fallback seguro quando o banco tiver algo fora da lista. */
+function reasoningEffortOf(agent: Pick<SdrAgent, 'aiReasoningEffort'>): AiReasoningEffort {
+  return isAiReasoningEffort(agent.aiReasoningEffort) ? agent.aiReasoningEffort : 'low';
+}
+
 
 const generateSchema = z.object({
   sdrAgentId: z.string().uuid(),
@@ -112,6 +119,7 @@ export function registerPromptAssistantRoutes(
         messages,
         model: agent.aiModel,
         provider: agent.aiProvider,
+        reasoningEffort: reasoningEffortOf(agent),
         temperature: agent.aiTemperature,
       });
 

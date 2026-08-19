@@ -119,6 +119,26 @@ function pruneImportDrafts(importDrafts: Map<string, LeadImportDraft>, now = Dat
   }
 }
 
+const allowedBulkStatuses = [
+  'pending',
+  'initial_sent',
+  'in_conversation',
+  'followup_sent',
+  'transferred',
+  'not_interested',
+  'discarded',
+  'invalid_phone',
+  'human_paused',
+] as const;
+
+/** Checkbox de mesmo nome chega como string quando so um e marcado, e como array quando ha varios. */
+const bulkDeleteSchema = z.object({
+  sdrAgentId: z.string().uuid(),
+  statuses: z
+    .preprocess((value) => (Array.isArray(value) ? value : value === undefined ? [] : [value]), z.array(z.enum(allowedBulkStatuses)))
+    .refine((statuses) => statuses.length > 0, 'Selecione ao menos um status'),
+});
+
 export function registerLeadRoutes(
   app: FastifyInstance,
   authRepository: AuthRepository,
@@ -134,7 +154,32 @@ export function registerLeadRoutes(
     const user = await requireUser(request, reply, authRepository);
     if (!user) return undefined;
     const [leads, companies, agents] = await Promise.all([leadRepository.list(), companyRepository.list(), sdrAgentRepository.list()]);
-    return reply.type('text/html').send(renderLeadsListPage(leads, companies, agents));
+    const notice = typeof (request.query as { removidos?: string } | undefined)?.removidos === 'string'
+      ? `${(request.query as { removidos: string }).removidos} lead(s) removido(s).`
+      : undefined;
+    return reply.type('text/html').send(renderLeadsListPage(leads, companies, agents, notice));
+  });
+
+  app.post('/leads/limpar', async (request, reply) => {
+    const user = await requireUser(request, reply, authRepository);
+    if (!user) return undefined;
+
+    const parsed = bulkDeleteSchema.safeParse(request.body);
+    if (!parsed.success) {
+      const [leads, companies, agents] = await Promise.all([
+        leadRepository.list(),
+        companyRepository.list(),
+        sdrAgentRepository.list(),
+      ]);
+      return reply
+        .status(400)
+        .type('text/html')
+        .send(renderLeadsListPage(leads, companies, agents, 'Escolha um SDR e ao menos um status para limpar.'));
+    }
+
+    const removed = await leadRepository.deleteBySdrAndStatuses(parsed.data.sdrAgentId, parsed.data.statuses);
+    request.log.warn({ sdrAgentId: parsed.data.sdrAgentId, statuses: parsed.data.statuses, removed }, 'Bulk lead deletion');
+    return reply.redirect(`/leads?removidos=${removed}`);
   });
 
   app.get('/leads/new', async (request, reply) => {
