@@ -1,5 +1,6 @@
 import type { Company, SdrAgent } from '../../db/schema.js';
-import { SDR_BASE_PROMPT } from '../ai/sdr-base-prompt.js';
+import { lockedBasePromptPreview } from '../ai/sdr-base-prompt.js';
+import { DEFAULT_SDR_PLAYBOOK, SDR_PLAYBOOK_LABELS, SDR_PLAYBOOKS, resolveSdrPlaybook } from '../ai/sdr-playbooks.js';
 import { DEFAULT_LEAD_QUALIFICATION_PROMPT } from '../leads/lead-qualification-prompt.js';
 import { reasoningEffortCatalogJson, reasoningEffortOptions } from '../ai/reasoning-effort.js';
 import { escapeHtml, renderLayout } from '../web/html.js';
@@ -16,6 +17,7 @@ interface SdrAgentFormData {
   firstMessagePrompt: string;
   leadQualificationPrompt: string;
   followupPrompt: string;
+  playbook: string;
   aiProvider: string;
   aiModel: string;
   aiTemperature: string;
@@ -136,6 +138,7 @@ const fieldHelp: Partial<Record<keyof SdrAgentFormData, string>> = {
   dailyFollowupSendLimit: 'Maximo de follow-ups enviados por este SDR em um dia.',
   dailyInitialSendLimit: 'Maximo de primeiras mensagens enviadas por este SDR em um dia.',
   displayName: 'Nome que a IA usa ao se apresentar na conversa. Ex: Kyane.',
+  playbook: 'Estrategia de conversa. Consultivo: a IA diz do que se trata, entende a rotina do lead e so depois chama o humano. Convite: a IA nao apresenta o produto, so gera curiosidade e passa o lead para o humano no primeiro sim.',
   leadQualificationPrompt: 'Prompt usado antes da primeira mensagem para decidir se o lead deve ser abordado ou descartado. A IA deve retornar qualified=false apenas quando houver baixo fit claro.',
   followupAfterHours: 'Quantidade de horas apos a primeira mensagem para tentar o follow-up unico, somente se o lead ja respondeu.',
   followupCooldownMaxMinutes: 'Intervalo maximo entre follow-ups automaticos.',
@@ -185,6 +188,7 @@ const defaultForm: SdrAgentFormData = {
   firstMessagePrompt: exampleFirstMessagePrompt,
   leadQualificationPrompt: DEFAULT_LEAD_QUALIFICATION_PROMPT,
   followupPrompt: exampleFollowupPrompt,
+  playbook: DEFAULT_SDR_PLAYBOOK,
   aiProvider: 'deepseek',
   aiModel: 'deepseek-v4-pro',
   aiTemperature: '0.4',
@@ -239,6 +243,7 @@ function agentToForm(agent?: SdrAgent): SdrAgentFormData {
     firstMessagePrompt: agent.firstMessagePrompt ?? '',
     leadQualificationPrompt: agent.leadQualificationPrompt ?? DEFAULT_LEAD_QUALIFICATION_PROMPT,
     followupPrompt: agent.followupPrompt ?? '',
+    playbook: resolveSdrPlaybook(agent.playbook),
     aiProvider: agent.aiProvider,
     aiModel: agent.aiModel,
     aiTemperature: String(agent.aiTemperature),
@@ -373,14 +378,26 @@ function renderSecretHint(): string {
   return '<p class="muted field-full">Campos de chave/token ficam em branco na edicao. Preencha apenas quando quiser substituir o valor salvo.</p>';
 }
 
-function renderLockedBasePrompt(): string {
+function renderPlaybookSelect(selected: string): string {
+  const options = SDR_PLAYBOOKS.map(
+    (playbook) =>
+      `<option value="${playbook}"${playbook === selected ? ' selected' : ''}>${escapeHtml(SDR_PLAYBOOK_LABELS[playbook])}</option>`,
+  ).join('');
+
+  return `<div class="field field-full">
+    ${renderLabel('playbook', 'Playbook de conversa')}
+    <select id="playbook" name="playbook" required>${options}</select>
+  </div>`;
+}
+
+function renderLockedBasePrompt(playbook: string): string {
   return `<div class="field field-full locked-prompt">
     <div class="locked-prompt-header">
       <label>Instrucoes fixas do SDR</label>
       <span>Nao editavel</span>
     </div>
-    <p class="muted">Estas regras sempre sao enviadas para a IA. Use o prompt editavel abaixo apenas para produto, publico, tom e regras comerciais especificas.</p>
-    <pre>${escapeHtml(SDR_BASE_PROMPT)}</pre>
+    <p class="muted">Estas regras sempre sao enviadas para a IA, junto com o funil do playbook selecionado acima. Salve para ver o texto do outro playbook. Use o prompt editavel abaixo apenas para produto, publico, tom e regras comerciais especificas.</p>
+    <pre>${escapeHtml(lockedBasePromptPreview(playbook))}</pre>
   </div>`;
 }
 
@@ -480,7 +497,8 @@ function renderSdrAgentForm(action: string, companies: Company[], agent?: SdrAge
         'Conversa principal',
         'Conduz o restante da conversa depois que o lead responde: persona, tom, objecoes e regras comerciais.',
         `
-      ${renderLockedBasePrompt()}
+      ${renderPlaybookSelect(data.playbook)}
+      ${renderLockedBasePrompt(data.playbook)}
       ${renderTextArea('prompt', 'Prompt editavel do SDR', data.prompt, 10)}
         `,
         true,

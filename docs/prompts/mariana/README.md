@@ -45,5 +45,18 @@ Mudanças:
 6. **A oferta parou de duplicar o funil.** O roteiro estava escrito duas vezes, com palavras
    diferentes, no prompt e na oferta. Agora a oferta descreve só o que é vendido.
 
+## Playbook
+
+A Mariana usa o playbook **`consultivo`**, que é o padrão. O funil dela (permissão →
+descoberta → solução → handoff) saiu do `SDR_BASE_PROMPT` e virou o bloco `consultivo` em
+`src/modules/ai/sdr-playbooks.ts`, com o texto preservado — a mudança foi de arquitetura, não
+de comportamento. O que separou os dois blocos foi a Insumo Smart, que precisa do funil
+oposto (ver `docs/prompts/insumosmart/`).
+
+Duas regras comuns mudaram de redação nessa separação e valem para a Mariana também: a de
+"você só escreve nesta conversa" agora diz explicitamente que o handoff é a única ação fora
+do chat (antes dava para ler como proibição de prometer que o Igor ia chamar), e as regras de
+adiamento/`disable_followup` saíram do bloco de recusa do funil para as regras gerais.
+
 Também mudou fora dos prompts: `followupEnabled` ligado, `aiMaxOutputTokens` de 10.000 para
 1.500 e `aiTemperature` de 0.5 para 0.4.

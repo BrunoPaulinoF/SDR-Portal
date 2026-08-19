@@ -192,6 +192,7 @@ Motor IA de resposta:
 - Usa chave criptografada do SDR ou fallback `DEEPSEEK_API_KEY`/`OPENAI_API_KEY`/`OPENROUTER_API_KEY` do ambiente conforme o provider.
 - Exige resposta em JSON estrito com `mensagem_usuario`, `nao_responder`, `status_sugerido` e `actions`.
 - O prompt do sistema mantem um prefixo estatico (instrucoes fixas + prompt do SDR) e move os dados variaveis do lead/etapa para o final, para maximizar o cache automatico de prompt do provedor e reduzir custo.
+- Cada SDR escolhe um **playbook** (`consultivo` ou `convite`), que define o bloco de funil enviado logo depois das instrucoes fixas. `consultivo` (padrao) explica do que se trata, entende a rotina do lead e so entao chama humano; `convite` nao apresenta o produto, gera curiosidade e aciona o handoff no primeiro sim. As demais regras fixas sao iguais nos dois.
 - Registra chamadas em `ai_runs` com input, output, JSON parseado, tokens, tokens de cache hit e latencia e erro quando houver.
 - Ao receber mensagem inbound via webhook, se o SDR estiver ativo e tiver credenciais de IA/UAZAPI, gera resposta, envia via UAZAPI e salva a mensagem outbound no historico.
 - Se `human_paused_until` ainda estiver no futuro, a IA nao responde. Ao vencer o horario, a IA volta automaticamente no proximo inbound do lead.

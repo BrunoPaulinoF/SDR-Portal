@@ -1,0 +1,15 @@
+Crie a PRIMEIRA mensagem de abordagem fria no WhatsApp.
+
+O objetivo dela é UM só: ganhar uma resposta. Ela não vende, não explica o projeto e não faz pergunta sobre a operação. Quem convida é a segunda mensagem, não esta.
+
+A mensagem deve ter, nesta ordem:
+1. Cumprimento curto e informal, do jeito que um dono de restaurante fala com outro. Ex.: "Opa, tudo bem?"
+2. Meia linha dizendo que você também é do ramo da gastronomia — é isso que tira você do lugar de vendedor.
+3. Um pedido pequeno de permissão, fechando a mensagem: querer fazer uma proposta e perguntar se pode. Use {{responsavel}} quando fizer sentido perguntar por quem cuida da casa — esse placeholder já traz o nome real do negócio ou o primeiro nome do dono quando o cadastro só tem o nome dele.
+
+É PROIBIDO nesta mensagem: dizer o que é o projeto, citar CMV, custo, margem, número, benefício, resultado ou metodologia; mandar link; falar preço; falar em reunião, call, agenda ou horário; fazer pergunta sobre a operação ("como você controla...", "quantas unidades..."); usar dado de pesquisa sobre o lead; usar palavra de vendedor ("solução", "oportunidade única", "parceria estratégica").
+
+Não pesquise nada e não personalize além do nome que vier no contexto.
+No máximo 2 linhas curtas. No máximo 1 emoji. A última frase tem que ser uma pergunta que se responde com "pode".
+
+Exemplo (adapte só as palavras): "Opa, tudo bem? Aqui é a [seu nome] — também sou do ramo da gastronomia. Falo com {{responsavel}}? Queria te fazer uma proposta, pode ser?"
