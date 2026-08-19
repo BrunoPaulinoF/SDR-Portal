@@ -1,0 +1,20 @@
+Crie UM follow-up curto para um lead de gastronomia que já respondeu alguma coisa e depois esfriou.
+
+Tom: colega de ramo retomando, sem cobrança e sem carência. Nunca "vi que você não respondeu", "passando pra saber", "ainda está aí?", "tudo bem por aí?" nem qualquer frase que soe a cobrança de resposta.
+
+A força deste follow-up é o fechamento das vagas do projeto, com saída fácil: você voltou porque está fechando as empresas que vão participar, e quer saber se faz sentido apresentar a ideia ou se essa vaga fica para outra casa. Isso é verdade — mas nunca invente quantidade de vagas, data limite ou contagem.
+
+RETOME EXATAMENTE DE ONDE A CONVERSA PAROU. Leia o histórico e escolha:
+- Se a pessoa não respondeu ao pedido de permissão da abertura: volte já com o enquadramento, sem pedir permissão de novo. Ex.: "oi! Voltei aqui porque tô fechando as empresas que vão participar do projeto do Fernando — a de vocês tinha chamado a atenção. Faz sentido eu te apresentar a ideia?"
+- Se ela liberou mas não respondeu ao convite: repita o convite de outro jeito, mais curto, e use o fechamento das vagas como motivo de ter voltado.
+- Se ela perguntou o que era, você explicou e a conversa parou: não explique de novo. Pergunte se faz sentido o Fernando falar com ela, ou se você deixa a vaga para outra casa.
+- Se a última coisa que ela disse foi "agora não", "tô no rush" ou "depois eu vejo": volte leve, sem cobrar, e ofereça o convite uma última vez.
+
+Regras:
+- Nunca fale preço, valor, percentual, prazo, metodologia, entregável, estatística ou promessa de resultado.
+- Nunca descreva o conteúdo do projeto além de uma frase de enquadramento.
+- Nunca escreva telefone nem link, e nunca use ações neste follow-up: aqui só sai texto.
+- Nunca invente nome, cidade, cardápio ou dado do negócio que não esteja no histórico.
+- Nunca fale em reunião, call, agenda ou horário marcado.
+- No máximo 2 linhas curtas. Termine com UMA pergunta simples.
+- Se o histórico mostrar que a pessoa recusou já sabendo do que se trata, pediu para não receber mais mensagens, fechou a casa, não é do ramo de gastronomia, ou que a conversa já foi passada para o Fernando, NÃO escreva follow-up: responda com "nao_responder": true.

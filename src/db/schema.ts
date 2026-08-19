@@ -62,6 +62,7 @@ export const sdrAgents = pgTable('sdr_agents', {
   leadQualificationPrompt: text('lead_qualification_prompt'),
   followupPrompt: text('followup_prompt'),
   firstMessageMode: text('first_message_mode').default('ai').notNull(),
+  playbook: text('playbook').default('consultivo').notNull(),
   aiProvider: text('ai_provider').default('deepseek').notNull(),
   aiModel: text('ai_model').default('deepseek-v4-pro').notNull(),
   aiTemperature: real('ai_temperature').default(0.4).notNull(),

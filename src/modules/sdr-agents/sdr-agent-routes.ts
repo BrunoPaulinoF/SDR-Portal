@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
 import { allReasoningEffortValues, providerDefaultEffort } from '../ai/reasoning-effort.js';
+import { DEFAULT_SDR_PLAYBOOK, SDR_PLAYBOOKS } from '../ai/sdr-playbooks.js';
 import type { AuthRepository } from '../auth/auth-repository.js';
 import { requireUser } from '../auth/access.js';
 import type { CompanyRepository } from '../companies/company-repository.js';
@@ -36,6 +37,7 @@ const sdrAgentFormSchema = z.object({
   firstMessagePrompt: z.string().trim().optional(),
   leadQualificationPrompt: z.string().trim().optional().default(''),
   followupPrompt: z.string().trim().optional().default(''),
+  playbook: z.enum(SDR_PLAYBOOKS).default(DEFAULT_SDR_PLAYBOOK),
   aiProvider: z.enum(['deepseek', 'openai', 'openrouter']).default('deepseek'),
   aiModel: z.string().trim().min(1),
   aiTemperature: z.coerce.number().min(0).max(2),
@@ -102,6 +104,7 @@ function parseSdrAgentInput(body: unknown, current?: SdrAgentInput): SdrAgentInp
     firstMessagePrompt: data.firstMessagePrompt === undefined ? (current?.firstMessagePrompt ?? null) : emptyToNull(data.firstMessagePrompt),
     leadQualificationPrompt: emptyToNull(data.leadQualificationPrompt),
     followupPrompt: emptyToNull(data.followupPrompt),
+    playbook: data.playbook,
     aiProvider: data.aiProvider,
     aiModel: data.aiModel,
     aiTemperature: data.aiTemperature,
