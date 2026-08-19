@@ -366,6 +366,33 @@ function renderLockedBasePrompt(): string {
   </div>`;
 }
 
+
+/**
+ * Estado da conexao no topo da secao de WhatsApp. No SDR novo nao ha instancia nem id,
+ * entao mostra so a explicacao de que o portal vai criar uma.
+ */
+function renderConnectionSummary(agent?: SdrAgent): string {
+  if (!agent) {
+    return `<div class="connection-summary field-full">
+      <p><strong>Instancia ainda nao criada.</strong></p>
+      <p class="muted">Ao salvar, o portal cria a instancia na UAZAPI e leva voce direto para a tela do QR code.</p>
+    </div>`;
+  }
+
+  if (!agent.uazapiBaseUrl || !agent.uazapiInstanceTokenEncrypted) {
+    return `<div class="connection-summary field-full">
+      <p><strong>Sem instancia configurada.</strong></p>
+      <p class="muted">Preencha a configuracao manual abaixo, ou crie um SDR novo para o portal provisionar sozinho.</p>
+    </div>`;
+  }
+
+  return `<div class="connection-summary field-full">
+    <p><strong>Instancia:</strong> ${escapeHtml(agent.uazapiInstanceId ?? 'sem identificador')}</p>
+    <p class="muted">Para ler o QR code ou mandar o link de conexao para outra pessoa, use o botao abaixo.</p>
+    <a class="button" href="/sdr-agents/${agent.id}/conectar">Conectar / ver QR code</a>
+  </div>`;
+}
+
 function renderFormSection(title: string, description: string, content: string, open = false): string {
   return `<details class="form-section"${open ? ' open' : ''}>
     <summary>${escapeHtml(title)}<span>${escapeHtml(description)}</span></summary>
@@ -451,14 +478,19 @@ function renderSdrAgentForm(action: string, companies: Company[], agent?: SdrAge
       )}
 
       ${renderFormSection(
-        'WhatsApp e UAZAPI',
-        'Conexao da instancia, tokens e numero do SDR.',
+        'WhatsApp',
+        'Conexao da instancia usada por este SDR.',
         `
-      ${renderField('uazapiBaseUrl', 'URL base UAZAPI', data.uazapiBaseUrl)}
-      ${renderField('uazapiInstanceId', 'ID ou nome da instancia', data.uazapiInstanceId)}
+      ${renderConnectionSummary(agent)}
       ${renderField('whatsappNumber', 'Numero WhatsApp', data.whatsappNumber)}
-      ${renderField('uazapiInstanceTokenEncrypted', 'Token da instancia', data.uazapiInstanceTokenEncrypted, false, 'password')}
-      ${renderField('uazapiAdminTokenEncrypted', 'Token admin UAZAPI', data.uazapiAdminTokenEncrypted, false, 'password')}
+      <details class="advanced-block field-full">
+        <summary>Configuracao manual da instancia (avancado)</summary>
+        <p class="muted">So use se precisar apontar este SDR para uma instancia que ja existe, ou trocar um token expirado. Ao criar um SDR novo o portal cuida disso sozinho.</p>
+        ${renderField('uazapiBaseUrl', 'URL base UAZAPI', data.uazapiBaseUrl)}
+        ${renderField('uazapiInstanceId', 'ID ou nome da instancia', data.uazapiInstanceId)}
+        ${renderField('uazapiInstanceTokenEncrypted', 'Token da instancia', data.uazapiInstanceTokenEncrypted, false, 'password')}
+        ${renderField('uazapiAdminTokenEncrypted', 'Token admin UAZAPI', data.uazapiAdminTokenEncrypted, false, 'password')}
+      </details>
         `,
       )}
 
@@ -580,6 +612,7 @@ function renderUazapiActions(agent: SdrAgent): string {
     <h2>Acoes UAZAPI</h2>
     <p class="muted">Use estas acoes para testar a instancia, configurar webhook e enviar uma mensagem manual de teste.</p>
     <div class="actions">
+      <a class="button" href="/sdr-agents/${agent.id}/conectar">Conectar / ver QR code</a>
       <form method="post" action="/sdr-agents/${agent.id}/uazapi/status">
         <button type="submit">Testar status</button>
       </form>

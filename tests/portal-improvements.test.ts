@@ -357,3 +357,82 @@ describe('prompt da primeira mensagem fora do formulario', () => {
     await app.close();
   });
 });
+
+describe('acesso a tela de conexao', () => {
+  it('a tela de editar SDR leva para o QR e recolhe a configuracao manual', async () => {
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const companyRepository = createMemoryCompanyRepository();
+    const company = await companyRepository.create({ name: 'Kybernan' });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'Mariana',
+      displayName: 'Mariana',
+      uazapiBaseUrl: 'https://uazapi.test',
+      uazapiInstanceId: 'SDR-Teste',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+    });
+
+    const { app, cookie } = await loggedInApp({ sdrAgentRepository, companyRepository });
+    const response = await app.inject({ method: 'GET', url: `/sdr-agents/${agent.id}/edit`, headers: { cookie } });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain(`/sdr-agents/${agent.id}/conectar`);
+    // os campos continuam no formulario, apenas recolhidos, para nao apagar o que ja esta salvo
+    expect(response.body).toContain('<details');
+    expect(response.body).toContain('name="uazapiInstanceTokenEncrypted"');
+    await app.close();
+  });
+
+  it('salvar pelo formulario preserva a instancia ja configurada', async () => {
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const companyRepository = createMemoryCompanyRepository();
+    const company = await companyRepository.create({ name: 'Kybernan' });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'Mariana',
+      displayName: 'Mariana',
+      uazapiBaseUrl: 'https://uazapi.test',
+      uazapiInstanceId: 'SDR-Teste',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+    });
+
+    const { app, cookie } = await loggedInApp({ sdrAgentRepository, companyRepository });
+    await app.inject({
+      method: 'POST',
+      url: `/sdr-agents/${agent.id}`,
+      headers: { cookie },
+      payload: {
+        companyId: company.id,
+        name: 'Mariana',
+        displayName: 'Mariana',
+        uazapiBaseUrl: 'https://uazapi.test',
+        uazapiInstanceId: 'SDR-Teste',
+        aiModel: 'deepseek-v4-pro',
+        aiTemperature: '0.4',
+        aiMaxOutputTokens: '1500',
+        aiReasoningEffort: 'low',
+        timezone: 'America/Sao_Paulo',
+        sendWindowStart: '08:00',
+        sendWindowEnd: '18:00',
+        sendDaysOfWeek: '1,2,3,4,5',
+        initialCooldownMinMinutes: '10',
+        initialCooldownMaxMinutes: '30',
+        followupAfterHours: '24',
+        followupCooldownMinMinutes: '10',
+        followupCooldownMaxMinutes: '30',
+        dailyInitialSendLimit: '45',
+        dailyFollowupSendLimit: '50',
+        responseDelayBaseMs: '1200',
+        responseDelayPerCharMs: '35',
+        responseDelayMaxMs: '12000',
+        messageSplitMaxChars: '450',
+        humanPauseHours: '24',
+      },
+    });
+
+    const saved = await sdrAgentRepository.findById(agent.id);
+    expect(saved?.uazapiInstanceTokenEncrypted).toBe(agent.uazapiInstanceTokenEncrypted);
+    expect(saved?.uazapiBaseUrl).toBe('https://uazapi.test');
+    await app.close();
+  });
+});
