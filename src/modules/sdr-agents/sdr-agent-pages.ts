@@ -1,6 +1,7 @@
 import type { Company, SdrAgent } from '../../db/schema.js';
 import { SDR_BASE_PROMPT } from '../ai/sdr-base-prompt.js';
 import { DEFAULT_LEAD_QUALIFICATION_PROMPT } from '../leads/lead-qualification-prompt.js';
+import { reasoningEffortCatalogJson, reasoningEffortOptions } from '../ai/reasoning-effort.js';
 import { escapeHtml, renderLayout } from '../web/html.js';
 
 interface SdrAgentFormData {
@@ -128,10 +129,10 @@ Resumo: {{summary}}`;
 
 const fieldHelp: Partial<Record<keyof SdrAgentFormData, string>> = {
   aiMaxOutputTokens: 'Limite aproximado de tokens que a IA pode gerar. Para WhatsApp, 800 a 2000 costuma ser suficiente; modelos reasoning podem usar mais internamente.',
-  aiReasoningEffort: 'Quanto o modelo raciocina antes de responder. So tem efeito em modelos reasoning da OpenAI (gpt-5, o1, o3...); DeepSeek e OpenRouter ignoram. Mais esforco custa mais tokens e demora mais.',
+  aiReasoningEffort: 'Quanto o modelo raciocina antes de responder. Cada provedor tem a sua escala, entao as opcoes mudam junto com o provedor: DeepSeek usa low/high/max (padrao high), a OpenAI usa minimal/low/medium/high (xhigh e max so em modelos 5.6+) e o OpenRouter repassa a escala do modelo. Deixe em "Padrao do modelo" para nao enviar o parametro. Mais esforco custa mais tokens e demora mais.',
   aiModel: 'Modelo usado por este SDR. Padrao: deepseek-v4-pro (via API direta da DeepSeek, custo baixo e cache automatico). Pode trocar por outro modelo compativel quando quiser.',
   aiProvider: 'Escolha onde a IA sera chamada. DeepSeek usa a API oficial da DeepSeek (recomendado). OpenAI usa sua chave OpenAI; OpenRouter usa sua chave OpenRouter.',
-  aiTemperature: 'Controla variacao/criatividade. Para SDR, valores baixos como 0.3 a 0.6 tendem a ser mais consistentes.',
+  aiTemperature: 'Controla variacao/criatividade. Para SDR, valores baixos como 0.3 a 0.6 tendem a ser mais consistentes. Modelos com raciocinio ligado (como o deepseek-v4-pro) ignoram este campo.',
   dailyFollowupSendLimit: 'Maximo de follow-ups enviados por este SDR em um dia.',
   dailyInitialSendLimit: 'Maximo de primeiras mensagens enviadas por este SDR em um dia.',
   displayName: 'Nome que a IA usa ao se apresentar na conversa. Ex: Kyane.',
@@ -188,7 +189,7 @@ const defaultForm: SdrAgentFormData = {
   aiModel: 'deepseek-v4-pro',
   aiTemperature: '0.4',
   aiMaxOutputTokens: '800',
-  aiReasoningEffort: 'low',
+  aiReasoningEffort: 'default',
   openaiApiKeyEncrypted: '',
   openrouterApiKeyEncrypted: '',
   deepseekApiKeyEncrypted: '',
@@ -334,20 +335,37 @@ function renderProviderSelect(selectedProvider: string): string {
   </div>`;
 }
 
-function renderReasoningEffortSelect(selected: string): string {
-  const efforts: Array<[string, string]> = [
-    ['minimal', 'minimo - mais rapido e barato'],
-    ['low', 'baixo (padrao)'],
-    ['medium', 'medio'],
-    ['high', 'alto - mais lento e caro'],
-  ];
-  const options = efforts
-    .map(([value, label]) => `<option value="${value}"${value === selected ? ' selected' : ''}>${escapeHtml(label)}</option>`)
+function renderReasoningEffortSelect(provider: string, selected: string): string {
+  const options = reasoningEffortOptions(provider)
+    .map((option) => `<option value="${escapeHtml(option.value)}"${option.value === selected ? ' selected' : ''}>${escapeHtml(option.label)}</option>`)
     .join('');
 
+  // Cada provider tem a sua escala, entao as opcoes trocam junto com o provedor escolhido.
   return `<div class="field">
     ${renderLabel('aiReasoningEffort', 'Esforco de raciocinio')}
     <select id="aiReasoningEffort" name="aiReasoningEffort" required>${options}</select>
+    <script>
+      (function () {
+        var catalogo = ${reasoningEffortCatalogJson()};
+        var provedor = document.getElementById('aiProvider');
+        var esforco = document.getElementById('aiReasoningEffort');
+        if (!provedor || !esforco) return;
+        provedor.addEventListener('change', function () {
+          var anterior = esforco.value;
+          var lista = catalogo[provedor.value] || [];
+          esforco.innerHTML = '';
+          lista.forEach(function (item) {
+            var opcao = document.createElement('option');
+            opcao.value = item.value;
+            opcao.textContent = item.label;
+            if (item.value === anterior) opcao.selected = true;
+            esforco.appendChild(opcao);
+          });
+          // Nivel que nao existe na escala nova volta para o padrao do modelo.
+          if (!lista.some(function (item) { return item.value === anterior; })) esforco.value = 'default';
+        });
+      })();
+    </script>
   </div>`;
 }
 
@@ -436,7 +454,7 @@ function renderSdrAgentForm(action: string, companies: Company[], agent?: SdrAge
       ${renderField('aiModel', 'Modelo', data.aiModel, true)}
       ${renderField('aiTemperature', 'Temperatura', data.aiTemperature, true, 'number')}
       ${renderField('aiMaxOutputTokens', 'Maximo de tokens de saida', data.aiMaxOutputTokens, true, 'number')}
-      ${renderReasoningEffortSelect(data.aiReasoningEffort)}
+      ${renderReasoningEffortSelect(data.aiProvider, data.aiReasoningEffort)}
       ${renderField('deepseekApiKeyEncrypted', 'Chave DeepSeek', data.deepseekApiKeyEncrypted, false, 'password')}
       ${renderField('openaiApiKeyEncrypted', 'Chave OpenAI', data.openaiApiKeyEncrypted, false, 'password')}
       ${renderField('openrouterApiKeyEncrypted', 'Chave OpenRouter', data.openrouterApiKeyEncrypted, false, 'password')}

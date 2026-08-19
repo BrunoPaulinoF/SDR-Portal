@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { buildApp } from '../src/app.js';
 import type { AiClient, AiGenerateInput } from '../src/modules/ai/ai-client.js';
+import { providerDefaultEffort, reasoningEffortOptions, resolveReasoningEffort } from '../src/modules/ai/reasoning-effort.js';
 import { createMemoryAuthRepository } from '../src/modules/auth/auth-repository.js';
 import { createMemoryCompanyRepository } from '../src/modules/companies/company-repository.js';
 import { createMemoryLeadRepository } from '../src/modules/leads/lead-repository.js';
@@ -256,7 +257,7 @@ describe('esforco de raciocinio', () => {
     await app.close();
   });
 
-  it('cai para low quando o banco tiver um valor fora da lista', async () => {
+  it('omite o parametro quando o nivel salvo nao existe na escala do provider', async () => {
     const calls: AiGenerateInput[] = [];
     const aiClient: AiClient = {
       async generate(input) {
@@ -275,7 +276,8 @@ describe('esforco de raciocinio', () => {
       companyId: 'c1',
       name: 'Mariana',
       displayName: 'Mariana',
-      aiReasoningEffort: 'turbo',
+      aiProvider: 'deepseek',
+      aiReasoningEffort: 'medium',
       deepseekApiKeyEncrypted: encryptSecret('sk-teste'),
     });
 
@@ -287,7 +289,8 @@ describe('esforco de raciocinio', () => {
       payload: { sdrAgentId: agent.id, briefing: 'briefing com tamanho suficiente' },
     });
 
-    expect(calls[0]?.reasoningEffort).toBe('low');
+    // 'medium' e da escala da OpenAI: no DeepSeek (low/high/max) o parametro nao vai.
+    expect(calls[0]?.reasoningEffort).toBeNull();
     await app.close();
   });
 });
@@ -433,6 +436,49 @@ describe('acesso a tela de conexao', () => {
     const saved = await sdrAgentRepository.findById(agent.id);
     expect(saved?.uazapiInstanceTokenEncrypted).toBe(agent.uazapiInstanceTokenEncrypted);
     expect(saved?.uazapiBaseUrl).toBe('https://uazapi.test');
+    await app.close();
+  });
+});
+
+describe('escala de esforco por provider', () => {
+  it('cada provider oferece a sua propria escala', () => {
+    const valores = (provider: string) => reasoningEffortOptions(provider).map((option) => option.value);
+
+    expect(valores('deepseek')).toEqual(['default', 'low', 'high', 'max']);
+    expect(valores('openai')).toContain('minimal');
+    expect(valores('openai')).toContain('medium');
+    expect(valores('deepseek')).not.toContain('medium');
+    expect(valores('deepseek')).not.toContain('minimal');
+    expect(valores('openrouter')).toContain('none');
+  });
+
+  it('resolve o nivel apenas quando ele existe na escala do provider', () => {
+    expect(resolveReasoningEffort('deepseek', 'max')).toBe('max');
+    expect(resolveReasoningEffort('deepseek', 'medium')).toBeNull();
+    expect(resolveReasoningEffort('openai', 'medium')).toBe('medium');
+    expect(resolveReasoningEffort('openai', 'max')).toBe('max');
+    expect(resolveReasoningEffort('deepseek', providerDefaultEffort)).toBeNull();
+    expect(resolveReasoningEffort('deepseek', null)).toBeNull();
+  });
+
+  it('o formulario mostra a escala do provider salvo', async () => {
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const companyRepository = createMemoryCompanyRepository();
+    const company = await companyRepository.create({ name: 'Kybernan' });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'Mariana',
+      displayName: 'Mariana',
+      aiProvider: 'deepseek',
+    });
+
+    const { app, cookie } = await loggedInApp({ sdrAgentRepository, companyRepository });
+    const response = await app.inject({ method: 'GET', url: `/sdr-agents/${agent.id}/edit`, headers: { cookie } });
+    const select = /name="aiReasoningEffort"[^>]*>([\s\S]*?)<\/select>/.exec(response.body)?.[1] ?? '';
+
+    expect(select).toContain('value="max"');
+    expect(select).not.toContain('value="medium"');
+    expect(select).not.toContain('value="minimal"');
     await app.close();
   });
 });
