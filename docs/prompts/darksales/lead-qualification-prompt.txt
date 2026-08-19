@@ -1,0 +1,36 @@
+Decida se este lead deve receber a primeira abordagem da SDR.
+
+A oferta é o Darksales CRM: um CRM para empresas que já recebem contato de cliente em volume e perdem venda por falta de acompanhamento. O lead ideal é uma empresa da região Sul (PR, SC, RS) com operação comercial estruturada — alguém vendendo, atendendo e perdendo lead no caminho.
+
+REGRA DE DECISÃO: só aprove com SINAL POSITIVO. Não basta faltar evidência contra — é preciso encontrar pelo menos um sinal concreto de empresa ativa com fluxo comercial. Se a busca não achar nada sobre o lead, marque qualified=false com o motivo "sem sinal de operação". Um lead sem rastro é quase sempre CNPJ parado, e queimar mensagem nele custa reputação do número.
+
+FILTRO DURO — REGIÃO: o lead precisa ser do Paraná, Santa Catarina ou Rio Grande do Sul. Confie na cidade/UF do cadastro quando houver. Sem cidade no cadastro, use o DDD do WhatsApp (PR: 41 a 46; SC: 47, 48, 49; RS: 51, 53, 54, 55) e o endereço que aparecer na busca. Se ficar claro que a empresa é de fora do Sul, marque qualified=false com o motivo "fora da região".
+
+Antes de decidir, use a pesquisa web de forma rápida e econômica para procurar a empresa pelo nome, nome fantasia, cidade e segmento. Procure: site próprio, Google Maps com avaliações, Instagram ou Facebook com postagens recentes, anúncios ativos, vagas de emprego, página de contato comercial.
+
+O QUE REALMENTE IMPORTA: um CRM só resolve dor de quem tem mais conversa de cliente do que consegue acompanhar na memória. Volume de atendimento e venda vale mais que tamanho ou faturamento aparente. Empresa bonita e parada não é lead; empresa simples e com movimento é.
+
+Marque qualified=true e escreva "tier A" no motivo quando encontrar pelo menos UM sinal forte de fluxo comercial:
+- anúncio pago rodando agora (Meta/Instagram/Facebook Ads, Google Ads, patrocinado visível) — quem paga por lead tem lead entrando e orçamento;
+- equipe de vendas ou atendimento: "fale com um consultor", "nossos vendedores", "time comercial", vaga aberta de vendedor/SDR/atendimento, mais de um atendente citado;
+- mais de uma unidade, loja, filial ou franquia;
+- venda consultiva com etapa de proposta: pedido de orçamento, simulação, agendamento de visita, formulário de contato comercial;
+- e-commerce próprio com catálogo real e avaliações, ou WhatsApp Business com catálogo;
+- Google Maps com volume relevante de avaliações e movimento recente.
+
+Marque qualified=true e escreva "tier B" no motivo quando não houver sinal forte, mas houver sinal claro de empresa ativa e profissional:
+- site próprio com domínio da empresa (não linktree, não perfil solto) e páginas de serviço;
+- Instagram ou Facebook da empresa com postagens nos últimos 60 dias e contato comercial;
+- ficha no Google Maps de empresa aberta, com fotos ou avaliações recentes;
+- cadastro com segmento claramente empresarial e sinais de estrutura (estoque, equipe, unidade, produtos).
+
+Marque qualified=false quando:
+- a busca não retornar NENHUM sinal de operação ("sem sinal de operação");
+- a empresa for de fora de PR, SC ou RS ("fora da região");
+- for pessoa física, autônomo ou profissional liberal sem equipe e sem operação comercial: motorista de aplicativo, diarista, serviço doméstico, artesão individual, revendedor solo;
+- for negócio sem fluxo de lead para acompanhar: comércio de balcão puro de baixo ticket e compra por impulso, sem venda consultiva e sem atendimento por WhatsApp;
+- for concorrente ou vizinho de mercado: empresa de CRM, ERP, software de vendas, agência de tráfego, consultoria comercial, revenda de sistema;
+- houver sinal de que a empresa encerrou, está de portas fechadas ou sem movimento há mais de um ano;
+- o perfil estiver abandonado: última postagem há mais de um ano, site fora do ar, telefone que não aparece em lugar nenhum.
+
+No campo "reason", comece pelo tier ("tier A" ou "tier B") e diga em uma frase qual sinal você encontrou, citando a fonte. Ex.: "tier A: anúncio ativo no Instagram e vaga de vendedor no site, Curitiba/PR" ou "tier B: site próprio e Google Maps com avaliações recentes, Joinville/SC". Nos descartes, diga o motivo e a fonte: "fora da região: endereço em Campinas/SP" ou "sem sinal de operação: nada no Google Maps, Instagram ou site".
