@@ -1,5 +1,5 @@
 import type { Lead, SdrAgent } from '../../db/schema.js';
-import type { AiChatMessage, AiClient } from '../ai/ai-client.js';
+import { isAiReasoningEffort, type AiChatMessage, type AiClient, type AiReasoningEffort } from '../ai/ai-client.js';
 import type { AiRunRepository } from '../ai/ai-run-repository.js';
 import { parseAiResponse } from '../ai/ai-response.js';
 import { resolveAiApiKey } from '../ai/resolve-api-key.js';
@@ -22,6 +22,12 @@ import { decryptSecret } from '../security/secrets.js';
 import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
 import { startOfDayInTimeZone } from '../timezone.js';
 import type { UazapiClient } from '../uazapi/uazapi-client.js';
+
+/** Valor salvo no SDR, com fallback seguro quando o banco tiver algo fora da lista. */
+function reasoningEffortOf(agent: Pick<SdrAgent, 'aiReasoningEffort'>): AiReasoningEffort {
+  return isAiReasoningEffort(agent.aiReasoningEffort) ? agent.aiReasoningEffort : 'low';
+}
+
 
 export interface InitialOutreachResult {
   sent: number;
@@ -302,6 +308,7 @@ async function assessLeadForInitialOutreach(
       messages,
       model: agent.aiModel,
       provider: agent.aiProvider,
+      reasoningEffort: reasoningEffortOf(agent),
       temperature: 0.1,
       webSearch: webSearchOptions('low'),
     });
@@ -430,6 +437,7 @@ export async function buildFirstMessage(
       messages,
       model: agent.aiModel,
       provider: agent.aiProvider,
+      reasoningEffort: reasoningEffortOf(agent),
       temperature: agent.aiTemperature,
       webSearch: webSearchOptions('medium'),
     });

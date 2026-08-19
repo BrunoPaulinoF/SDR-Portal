@@ -857,6 +857,17 @@ form[data-inline] {
     font-size: 26px;
   }
 }
+
+.qr-panel { display: flex; flex-direction: column; gap: 1.25rem; align-items: flex-start; }
+.qr-box { display: flex; flex-direction: column; gap: 0.75rem; align-items: center; padding: 1.25rem; background: #fff; border-radius: 12px; border: 1px solid var(--border, #e2e8f0); align-self: center; }
+.qr-box svg, .qr-box img { width: 288px; height: 288px; display: block; }
+.qr-connected { border-color: #16a34a; }
+.qr-status-ok { color: #16a34a; font-weight: 600; font-size: 1.1rem; margin: 0; }
+.qr-steps { margin: 0; padding-left: 1.25rem; line-height: 1.7; }
+.qr-steps li { margin-bottom: 0.25rem; }
+.share-box { display: flex; flex-direction: column; gap: 0.5rem; }
+.share-input { width: 100%; padding: 0.6rem 0.75rem; font-family: ui-monospace, monospace; font-size: 0.85rem; border: 1px solid var(--border, #e2e8f0); border-radius: 8px; }
+.public-connect { max-width: 620px; margin: 0 auto; padding: 2rem 1rem; }
 `;
 
 export function registerAssetsRoutes(app: FastifyInstance): void {

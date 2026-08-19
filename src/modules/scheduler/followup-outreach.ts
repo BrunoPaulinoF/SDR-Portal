@@ -1,5 +1,5 @@
 import type { Conversation, Lead, Message, SdrAgent } from '../../db/schema.js';
-import type { AiChatMessage, AiClient } from '../ai/ai-client.js';
+import { isAiReasoningEffort, type AiChatMessage, type AiClient, type AiReasoningEffort } from '../ai/ai-client.js';
 import type { AiRunRepository } from '../ai/ai-run-repository.js';
 import { parseAiResponse } from '../ai/ai-response.js';
 import { resolveAiApiKey } from '../ai/resolve-api-key.js';
@@ -17,6 +17,12 @@ import { decryptSecret } from '../security/secrets.js';
 import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
 import { startOfDayInTimeZone } from '../timezone.js';
 import type { UazapiClient } from '../uazapi/uazapi-client.js';
+
+/** Valor salvo no SDR, com fallback seguro quando o banco tiver algo fora da lista. */
+function reasoningEffortOf(agent: Pick<SdrAgent, 'aiReasoningEffort'>): AiReasoningEffort {
+  return isAiReasoningEffort(agent.aiReasoningEffort) ? agent.aiReasoningEffort : 'low';
+}
+
 
 /** Atraso aplicado ao follow-up quando nao foi possivel gerar a mensagem, para nao travar a fila. */
 const FOLLOWUP_RETRY_DELAY_MINUTES = 60;
@@ -198,6 +204,7 @@ async function buildFollowupMessage(
       messages,
       model: agent.aiModel,
       provider: agent.aiProvider,
+      reasoningEffort: reasoningEffortOf(agent),
       temperature: agent.aiTemperature,
     });
     const parsed = parseAiResponse(aiResult.outputText);

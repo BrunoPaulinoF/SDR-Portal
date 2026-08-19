@@ -10,6 +10,8 @@ export function escapeHtml(value: string): string {
 interface LayoutOptions {
   title: string;
   body: string;
+  /** Paginas publicas (sem sessao) nao podem exibir o menu do portal. */
+  hideNavigation?: boolean;
 }
 
 function navItem(href: string, label: string, title: string, matches: string[]): string {
@@ -50,9 +52,9 @@ function renderAppNavigation(title: string): string {
   </aside>`;
 }
 
-export function renderLayout({ title, body }: LayoutOptions): string {
+export function renderLayout({ title, body, hideNavigation = false }: LayoutOptions): string {
   const pageTitle = escapeHtml(title);
-  const isAppPage = body.includes('app-shell');
+  const isAppPage = !hideNavigation && body.includes('app-shell');
   const bodyHtml = isAppPage ? `<div class="app-frame">${renderAppNavigation(title)}${body}</div>` : body;
 
   return `<!doctype html>

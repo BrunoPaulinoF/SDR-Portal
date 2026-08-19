@@ -4,7 +4,9 @@ import { z } from 'zod';
 import type { AuthRepository } from '../auth/auth-repository.js';
 import { requireUser } from '../auth/access.js';
 import type { CompanyRepository } from '../companies/company-repository.js';
-import { encryptSecret } from '../security/secrets.js';
+import { decryptSecret, encryptSecret } from '../security/secrets.js';
+import { configureInstanceWebhook, isInstanceProvisioningEnabled, provisionInstance } from '../uazapi/instance-provisioning.js';
+import type { UazapiClient } from '../uazapi/uazapi-client.js';
 import type { SdrAgentInput, SdrAgentRepository } from './sdr-agent-repository.js';
 import {
   renderEditSdrAgentPage,
@@ -28,13 +30,16 @@ const sdrAgentFormSchema = z.object({
   productDescription: z.string().trim().optional().default(''),
   offerDescription: z.string().trim().optional().default(''),
   prompt: z.string().trim().optional().default(''),
-  firstMessagePrompt: z.string().trim().optional().default(''),
+  // Nao esta mais no formulario (a primeira mensagem vive na tela Msg inicial):
+  // quando ausente, preserva o valor ja salvo em vez de apagar.
+  firstMessagePrompt: z.string().trim().optional(),
   leadQualificationPrompt: z.string().trim().optional().default(''),
   followupPrompt: z.string().trim().optional().default(''),
   aiProvider: z.enum(['deepseek', 'openai', 'openrouter']).default('deepseek'),
   aiModel: z.string().trim().min(1),
   aiTemperature: z.coerce.number().min(0).max(2),
   aiMaxOutputTokens: z.coerce.number().int().positive(),
+  aiReasoningEffort: z.enum(['minimal', 'low', 'medium', 'high']).default('low'),
   openaiApiKeyEncrypted: z.string().trim().optional().default(''),
   openrouterApiKeyEncrypted: z.string().trim().optional().default(''),
   deepseekApiKeyEncrypted: z.string().trim().optional().default(''),
@@ -93,13 +98,14 @@ function parseSdrAgentInput(body: unknown, current?: SdrAgentInput): SdrAgentInp
     productDescription: emptyToNull(data.productDescription),
     offerDescription: emptyToNull(data.offerDescription),
     prompt: emptyToNull(data.prompt),
-    firstMessagePrompt: emptyToNull(data.firstMessagePrompt),
+    firstMessagePrompt: data.firstMessagePrompt === undefined ? (current?.firstMessagePrompt ?? null) : emptyToNull(data.firstMessagePrompt),
     leadQualificationPrompt: emptyToNull(data.leadQualificationPrompt),
     followupPrompt: emptyToNull(data.followupPrompt),
     aiProvider: data.aiProvider,
     aiModel: data.aiModel,
     aiTemperature: data.aiTemperature,
     aiMaxOutputTokens: data.aiMaxOutputTokens,
+    aiReasoningEffort: data.aiReasoningEffort,
     openaiApiKeyEncrypted: secretOrCurrent(data.openaiApiKeyEncrypted, current?.openaiApiKeyEncrypted),
     openrouterApiKeyEncrypted: secretOrCurrent(data.openrouterApiKeyEncrypted, current?.openrouterApiKeyEncrypted),
     deepseekApiKeyEncrypted: secretOrCurrent(data.deepseekApiKeyEncrypted, current?.deepseekApiKeyEncrypted),
@@ -138,6 +144,7 @@ export function registerSdrAgentRoutes(
   authRepository: AuthRepository,
   companyRepository: CompanyRepository,
   sdrAgentRepository: SdrAgentRepository,
+  uazapiClient: UazapiClient,
 ): void {
   app.get('/sdr-agents', async (request, reply) => {
     const user = await requireUser(request, reply, authRepository);
@@ -176,7 +183,46 @@ export function registerSdrAgentRoutes(
       return reply.status(400).type('text/html').send(renderNewSdrAgentPage(companies, 'Confira os campos obrigatorios do SDR.'));
     }
 
-    await sdrAgentRepository.create(input);
+    // Sem instancia informada na mao e com servidor UAZAPI configurado, provisiona uma
+    // ja apontando o webhook pra ca — o usuario so precisa ler o QR code depois.
+    const shouldProvision = isInstanceProvisioningEnabled() && !input.uazapiBaseUrl && !input.uazapiInstanceTokenEncrypted;
+    let provisioned = input;
+
+    if (shouldProvision) {
+      try {
+        const instance = await provisionInstance(uazapiClient, input.name);
+        provisioned = {
+          ...input,
+          isActive: true,
+          uazapiBaseUrl: instance.baseUrl,
+          uazapiInstanceId: instance.instanceId,
+          uazapiInstanceTokenEncrypted: encryptSecret(instance.token),
+        };
+      } catch (error) {
+        request.log.error({ error }, 'Failed to provision UAZAPI instance');
+        const message = error instanceof Error ? error.message : 'Erro desconhecido ao criar a instancia.';
+        return reply
+          .status(502)
+          .type('text/html')
+          .send(renderNewSdrAgentPage(companies, `SDR nao criado: ${message} Cadastre a instancia manualmente ou tente de novo.`));
+      }
+    }
+
+    const agent = await sdrAgentRepository.create(provisioned);
+
+    if (shouldProvision && provisioned.uazapiBaseUrl && provisioned.uazapiInstanceTokenEncrypted) {
+      // Webhook e o unico passo que pode falhar sem invalidar o SDR: ele ja existe e a
+      // tela de conexao permite reconfigurar. So registramos e seguimos.
+      const configured = await configureInstanceWebhook(
+        uazapiClient,
+        { baseUrl: provisioned.uazapiBaseUrl, token: decryptSecret(provisioned.uazapiInstanceTokenEncrypted) },
+        agent.id,
+      ).catch(() => false);
+      if (!configured) request.log.warn({ sdrAgentId: agent.id }, 'Instance created but webhook was not configured');
+
+      return reply.redirect(`/sdr-agents/${agent.id}/conectar`);
+    }
+
     return reply.redirect('/sdr-agents');
   });
 

@@ -32,6 +32,10 @@ const envSchema = z
     INBOUND_RESPONSE_BUFFER_MS: z.coerce.number().int().min(20000).default(20000),
     AI_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(90000),
     UAZAPI_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
+    // Servidor UAZAPI usado para criar a instancia de um SDR novo. Sem os dois, o portal
+    // segue funcionando e o usuario cadastra a instancia na mao.
+    UAZAPI_BASE_URL: optionalUrl,
+    UAZAPI_ADMIN_TOKEN: z.string().optional(),
   })
   .superRefine((value, context) => {
     if (value.NODE_ENV !== 'test' && !value.DATABASE_URL) {

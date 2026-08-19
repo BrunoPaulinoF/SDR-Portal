@@ -41,6 +41,11 @@ import { createMemorySdrAgentRepository, type SdrAgentRepository } from './modul
 import { registerSdrAgentRoutes } from './modules/sdr-agents/sdr-agent-routes.js';
 import { createHttpUazapiClient, type UazapiClient } from './modules/uazapi/uazapi-client.js';
 import { registerUazapiRoutes } from './modules/uazapi/uazapi-routes.js';
+import { registerInstanceConnectRoutes } from './modules/uazapi/instance-connect-routes.js';
+import {
+  createMemoryInstanceShareLinkRepository,
+  type InstanceShareLinkRepository,
+} from './modules/uazapi/instance-share-link-repository.js';
 import { registerAssetsRoutes } from './modules/web/assets.js';
 import { registerWebhookEventRoutes } from './modules/webhooks/webhook-event-routes.js';
 import { createMemoryWebhookEventRepository, type WebhookEventRepository } from './modules/webhooks/webhook-event-repository.js';
@@ -62,6 +67,7 @@ export interface AppOptions extends FastifyServerOptions {
   leadResearchRepository?: LeadResearchRepository;
   leadRepository?: LeadRepository;
   inboundResponseBufferMs?: number;
+  instanceShareLinkRepository?: InstanceShareLinkRepository;
   sdrAgentRepository?: SdrAgentRepository;
   uazapiClient?: UazapiClient;
   webhookEventRepository?: WebhookEventRepository;
@@ -334,6 +340,11 @@ function createLazyDbLeadRepository(): LeadRepository {
       return createDbLeadRepository().delete(id);
     },
 
+    async deleteBySdrAndStatuses(sdrAgentId, statuses) {
+      const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
+      return createDbLeadRepository().deleteBySdrAndStatuses(sdrAgentId, statuses);
+    },
+
     async findById(id) {
       const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
       return createDbLeadRepository().findById(id);
@@ -456,6 +467,27 @@ function createLazyDbLeadRepository(): LeadRepository {
   };
 }
 
+function createLazyDbInstanceShareLinkRepository(): InstanceShareLinkRepository {
+  return {
+    async create(input) {
+      const { createDbInstanceShareLinkRepository } = await import('./modules/uazapi/db-instance-share-link-repository.js');
+      return createDbInstanceShareLinkRepository().create(input);
+    },
+    async findByTokenHash(tokenHash) {
+      const { createDbInstanceShareLinkRepository } = await import('./modules/uazapi/db-instance-share-link-repository.js');
+      return createDbInstanceShareLinkRepository().findByTokenHash(tokenHash);
+    },
+    async markConnected(id, connectedAt) {
+      const { createDbInstanceShareLinkRepository } = await import('./modules/uazapi/db-instance-share-link-repository.js');
+      return createDbInstanceShareLinkRepository().markConnected(id, connectedAt);
+    },
+    async revokeActiveForAgent(sdrAgentId, revokedAt) {
+      const { createDbInstanceShareLinkRepository } = await import('./modules/uazapi/db-instance-share-link-repository.js');
+      return createDbInstanceShareLinkRepository().revokeActiveForAgent(sdrAgentId, revokedAt);
+    },
+  };
+}
+
 function createLazyDbLeadResearchRepository(): LeadResearchRepository {
   return {
     async findByLeadId(leadId) {
@@ -484,6 +516,7 @@ export function buildApp(options: AppOptions = {}): AppInstance {
     leadResearchRepository,
     leadRepository,
     inboundResponseBufferMs,
+    instanceShareLinkRepository,
     sdrAgentRepository,
     uazapiClient,
     webhookEventRepository,
@@ -506,6 +539,9 @@ export function buildApp(options: AppOptions = {}): AppInstance {
     webhookEventRepository ??
     (env.NODE_ENV === 'test' ? createMemoryWebhookEventRepository() : createLazyDbWebhookEventRepository());
   const uazapi = uazapiClient ?? createHttpUazapiClient();
+  const instanceShareLinks =
+    instanceShareLinkRepository ??
+    (env.NODE_ENV === 'test' ? createMemoryInstanceShareLinkRepository() : createLazyDbInstanceShareLinkRepository());
   const ai = aiClient ?? createHttpAiClient();
   const aiRuns = aiRunRepository ?? (env.NODE_ENV === 'test' ? createMemoryAiRunRepository() : createLazyDbAiRunRepository());
   const leadResearchRepo =
@@ -579,10 +615,11 @@ export function buildApp(options: AppOptions = {}): AppInstance {
   registerAuthRoutes(app, repository);
   registerDashboardRoutes(app, repository, companies, sdrAgents, leads, conversations, aiRuns, jobLogs);
   registerCompanyRoutes(app, repository, companies);
-  registerSdrAgentRoutes(app, repository, companies, sdrAgents);
+  registerSdrAgentRoutes(app, repository, companies, sdrAgents, uazapi);
   registerFirstMessageVariantRoutes(app, repository, sdrAgents, firstMessageVariants);
   registerLeadRoutes(app, repository, companies, sdrAgents, leads, aiRuns, jobLogs);
   registerUazapiRoutes(app, repository, sdrAgents, uazapi);
+  registerInstanceConnectRoutes(app, repository, sdrAgents, instanceShareLinks, uazapi);
   registerSchedulerRoutes(app, repository, initialOutreach, followupOutreach);
   registerConversationRoutes(app, repository, conversations, leads, sdrAgents);
   registerWebhookEventRoutes(app, repository, webhookEvents);

@@ -39,6 +39,7 @@ export interface LeadRepository {
   create(input: LeadInput): Promise<Lead>;
   createImport(input: LeadImportInput): Promise<LeadImport>;
   delete(id: string): Promise<void>;
+  deleteBySdrAndStatuses(sdrAgentId: string, statuses: string[]): Promise<number>;
   findById(id: string): Promise<Lead | null>;
   findBySdrAndWhatsappIdentity(sdrAgentId: string, identity: { jid?: string | null; lid?: string | null }): Promise<Lead | null>;
   findLastFollowupSentForSdr(sdrAgentId: string): Promise<Lead | null>;
@@ -160,6 +161,13 @@ export function createMemoryLeadRepository(seedLeads: Lead[] = []): LeadReposito
 
     async delete(id) {
       rows.delete(id);
+    },
+
+    async deleteBySdrAndStatuses(sdrAgentId, statuses) {
+      if (statuses.length === 0) return 0;
+      const doomed = [...rows.values()].filter((lead) => lead.sdrAgentId === sdrAgentId && statuses.includes(lead.status));
+      for (const lead of doomed) rows.delete(lead.id);
+      return doomed.length;
     },
 
     async findById(id) {
