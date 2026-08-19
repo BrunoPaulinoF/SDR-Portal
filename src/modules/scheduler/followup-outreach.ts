@@ -199,9 +199,11 @@ async function buildFollowupMessage(
   const startedAt = Date.now();
 
   try {
+    // Mesmo motivo do initial-outreach: o follow-up le o historico inteiro antes de
+    // escrever, e com teto de 1500 quase 1 em cada 5 voltava vazio.
     const aiResult = await deps.aiClient.generate({
       apiKey,
-      maxTokens: Math.min(agent.aiMaxOutputTokens, 1500),
+      maxTokens: Math.max(agent.aiMaxOutputTokens, 4000),
       messages,
       model: agent.aiModel,
       provider: agent.aiProvider,
