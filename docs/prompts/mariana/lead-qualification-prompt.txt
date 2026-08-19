@@ -1,25 +1,27 @@
 Decida se este lead deve receber a primeira abordagem da SDR.
 
-A oferta é o KyberFood: um atendente de IA que atende e VENDE pelo WhatsApp para negócios de delivery/alimentação. O lead ideal é um negócio de comida que recebe pedido pelo WhatsApp e entrega ou monta pedido para retirada.
+A oferta é o KyberFood: um atendente de IA que atende e VENDE pelo WhatsApp para negócios de alimentação. O lead ideal é um negócio de comida que vende pelo WhatsApp — delivery, retirada ou pedido por mensagem.
 
-REGRA DE DECISÃO: só aprove com SINAL POSITIVO. Não basta faltar evidência contra — é preciso encontrar pelo menos um sinal concreto de que existe um negócio de alimentação vendendo hoje. Se a busca não achar nada sobre o lead, marque qualified=false com o motivo "sem sinal de operação". Um lead sem rastro é quase sempre CNPJ parado, e queimar mensagem nele custa reputação do número.
+O QUE VOCÊ TEM PARA DECIDIR
+Você recebe apenas o cadastro do lead: razão social, nome fantasia, CNPJ, segmento/CNAE, cidade e dados extras. Você NÃO tem ferramenta de pesquisa web nesta chamada. Decida com o que está no cadastro e não invente evidência externa: nunca escreva que pesquisou, que "não encontrou presença online" ou que "não há perfil no Instagram/iFood/Google Maps" — você não tem como saber isso.
 
-Antes de decidir, use a pesquisa web de forma rápida e econômica para procurar o negócio pelo nome, nome fantasia, cidade e segmento. Procure: perfil no iFood/Rappi/99Food, Instagram com fotos de comida e preço, cardápio online, ficha no Google Maps com avaliações, página no Facebook, número de WhatsApp divulgado para pedidos.
+REGRA DE DECISÃO
+A falta de informação NÃO é motivo de descarte. Um delivery pequeno de bairro costuma ter cadastro pobre e mesmo assim é o cliente ideal. Descarte apenas quando o próprio cadastro mostrar que o negócio não se encaixa.
 
-Marque qualified=true quando encontrar pelo menos UM destes sinais:
-- perfil ativo em app de delivery (iFood, Rappi, 99Food, Aiqfome);
-- Instagram, Facebook ou Google Maps com produtos de alimentação, cardápio, preço ou avaliações recentes;
-- cardápio online, link de pedido, ou WhatsApp divulgado como canal de pedido;
-- Google Maps mostrando estabelecimento de alimentação aberto, com fotos ou avaliações;
-- segmento claramente de delivery no cadastro (pizzaria, hamburgueria, lanchonete, restaurante, pastelaria, açaiteria, sorveteria, gelateria, marmitaria, comida caseira, doceria, confeitaria com entrega, food truck, dark kitchen, padaria que entrega).
+Marque qualified=false quando o cadastro indicar claramente:
+- alimentação sem venda ao consumidor final: fabricação, indústria, atacado, distribuidora, depósito de bebidas, comércio atacadista;
+- varejo alimentar de balcão sem pedido por mensagem: supermercado, hipermercado, mercearia, mercadinho, hortifruti, açougue, adega, tabacaria, loja de conveniência;
+- fora de alimentação: oficina, salão, barbearia, loja de roupa, imobiliária, clínica, escritório, contabilidade, transporte, construção, agropecuária;
+- empresa de software, agência, revenda ou robô de WhatsApp — é concorrente, não cliente final;
+- pessoa física ou autônomo cujo cadastro não indica nenhuma atividade de alimentação;
+- cadastro que indica encerramento da atividade.
 
-Marque qualified=false quando:
-- a busca não retornar NENHUM sinal de operação de alimentação (motivo: "sem sinal de operação");
-- o negócio for de alimentação mas claramente sem delivery nem pedido por WhatsApp: mercearia, mercadinho, supermercado, hortifruti de balcão, padaria só de balcão, açougue, adega, distribuidora ou depósito de bebidas, atacado, venda B2B para outras empresas;
-- o negócio for fora de alimentação: oficina, salão, loja de roupa, imobiliária, clínica, escritório, contabilidade, transporte, construção;
-- for restaurante exclusivamente à la carte, self-service ou por reserva, sem qualquer sinal de entrega ou pedido por WhatsApp;
-- for pessoa física, perfil pessoal ou autônomo sem operação de alimentação;
-- for empresa de software, agência, revenda ou robô de WhatsApp — é concorrente, não cliente final;
-- houver sinal de que a empresa encerrou, está de portas fechadas ou sem movimento há mais de um ano.
+Marque qualified=true em todo o resto, incluindo:
+- pizzaria, hamburgueria, lanchonete, restaurante, pastelaria, açaiteria, sorveteria, gelateria, marmitaria, comida caseira, doceria, confeitaria, padaria, food truck, dark kitchen, bar que serve comida, cafeteria;
+- qualquer CNAE de restaurante, lanchonete, serviço de alimentação, fornecimento de comida preparada ou food service;
+- cadastro pobre ou ambíguo, sem indicação clara de que está fora do perfil. NA DÚVIDA, MANTENHA.
 
-No campo "reason", diga qual sinal você encontrou (ou a falta dele) em uma frase, citando a fonte. Ex.: "perfil ativo no iFood, 200+ avaliações" ou "sem sinal de operação: nada no Instagram, Google Maps ou iFood".
+ATENÇÃO À PANIFICAÇÃO
+Padaria e confeitaria vendem direto ao consumidor e entram como qualified=true. Só descarte quando o cadastro disser explicitamente FABRICAÇÃO ou INDÚSTRIA de produtos de panificação sem varejo.
+
+No campo "reason", diga em uma frase o que no cadastro sustentou a decisão, citando o dado (segmento, CNAE, palavra do nome). Ex.: "nome fantasia indica pizzaria" ou "CNAE 4711302 de supermercado, varejo de balcão". Nunca cite pesquisa web.

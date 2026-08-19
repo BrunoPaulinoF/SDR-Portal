@@ -3,6 +3,10 @@ import { describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
 import type { AiClient, AiGenerateInput } from '../src/modules/ai/ai-client.js';
 import { providerDefaultEffort, reasoningEffortOptions, resolveReasoningEffort } from '../src/modules/ai/reasoning-effort.js';
+import { createMemoryAiRunRepository } from '../src/modules/ai/ai-run-repository.js';
+import { createMemoryConversationRepository } from '../src/modules/conversations/conversation-repository.js';
+import { createMemoryFirstMessageVariantRepository } from '../src/modules/first-message-variants/first-message-variant-repository.js';
+import { createMemoryJobLogRepository } from '../src/modules/jobs/job-log-repository.js';
 import { createMemoryAuthRepository } from '../src/modules/auth/auth-repository.js';
 import { createMemoryCompanyRepository } from '../src/modules/companies/company-repository.js';
 import { createMemoryLeadRepository } from '../src/modules/leads/lead-repository.js';
@@ -565,5 +569,72 @@ describe('excluir SDR apaga a instancia na UAZAPI', () => {
     expect(response.statusCode).toBe(302);
     expect(await sdrAgentRepository.findById(agent.id)).toBeNull();
     await app.close();
+  });
+});
+
+describe('instrucao de pesquisa web so quando a ferramenta existe', () => {
+  it('deepseek nao recebe ordem de pesquisar e nao pode descartar por falta de dado', async () => {
+    const calls: AiGenerateInput[] = [];
+    const aiClient: AiClient = {
+      async generate(input) {
+        calls.push(input);
+        return {
+          outputText: JSON.stringify({ qualified: true, reason: 'nome fantasia indica pizzaria' }),
+          promptTokens: 1,
+          completionTokens: 1,
+          totalTokens: 2,
+          promptCacheHitTokens: null,
+        };
+      },
+    };
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const agent = await sdrAgentRepository.create({
+      companyId: 'c1',
+      name: 'Mariana',
+      displayName: 'Mariana',
+      isActive: true,
+      aiProvider: 'deepseek',
+      aiModel: 'deepseek-v4-pro',
+      deepseekApiKeyEncrypted: encryptSecret('sk-teste'),
+      uazapiBaseUrl: 'https://uazapi.test',
+      uazapiInstanceTokenEncrypted: encryptSecret('token'),
+      sendDaysOfWeek: '0,1,2,3,4,5,6',
+      sendWindowStart: '00:00',
+      sendWindowEnd: '23:59',
+      firstMessagePrompt: 'Escreva a abordagem.',
+    });
+    await leadRepository.create({
+      companyId: 'c1',
+      sdrAgentId: agent.id,
+      whatsappNumber: '5519999999999',
+      companyName: 'PIZZARIA DO ZE',
+      status: 'pending',
+      source: 'manual',
+    });
+
+    const { createInitialOutreachService } = await import('../src/modules/scheduler/initial-outreach.js');
+    const service = createInitialOutreachService({
+      aiClient,
+      aiRunRepository: createMemoryAiRunRepository(),
+      conversationRepository: createMemoryConversationRepository(),
+      firstMessageVariantRepository: createMemoryFirstMessageVariantRepository(),
+      jobLogRepository: createMemoryJobLogRepository(),
+      leadResearchService: { async researchLead() { return null; } },
+      leadRepository,
+      sdrAgentRepository,
+      uazapiClient: stubUazapiClient({
+        checkChats: async () => ok([{ isInWhatsapp: true, jid: '5519999999999@s.whatsapp.net' }]),
+        sendText: async () => ok({}),
+        sendPresence: async () => ok({}),
+      }),
+    });
+
+    await service.runOnce();
+
+    const sistema = calls.map((call) => call.messages[0]?.content ?? '').join('\n');
+    expect(sistema).toContain('NAO tem ferramenta de pesquisa web');
+    expect(sistema).not.toContain('use a ferramenta de pesquisa web');
+    expect(sistema).toContain('nunca descarte um lead so por faltar informacao');
   });
 });

@@ -81,8 +81,17 @@ function endpointFor(provider: string, model: string): string {
   return 'https://api.openai.com/v1/chat/completions';
 }
 
+/**
+ * So a Responses API da OpenAI aceita a ferramenta de busca do jeito que montamos aqui.
+ * Exportado porque quem escreve prompt precisa saber se pode pedir pesquisa: pedir sem a
+ * ferramenta faz o modelo relatar uma busca que nunca aconteceu.
+ */
+export function supportsWebSearch(provider: string, model: string): boolean {
+  return isOpenAiReasoningModel(provider, model);
+}
+
 function webSearchTool(input: AiGenerateInput): Record<string, unknown> | null {
-  if (!input.webSearch || !isOpenAiReasoningModel(input.provider, input.model)) return null;
+  if (!input.webSearch || !supportsWebSearch(input.provider, input.model)) return null;
 
   const tool: Record<string, unknown> = {
     type: 'web_search',

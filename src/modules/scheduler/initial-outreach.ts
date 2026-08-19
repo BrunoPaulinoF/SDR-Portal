@@ -1,5 +1,5 @@
 import type { Lead, SdrAgent } from '../../db/schema.js';
-import type { AiChatMessage, AiClient } from '../ai/ai-client.js';
+import { supportsWebSearch, type AiChatMessage, type AiClient } from '../ai/ai-client.js';
 import { resolveReasoningEffort } from '../ai/reasoning-effort.js';
 import type { AiRunRepository } from '../ai/ai-run-repository.js';
 import { parseAiResponse } from '../ai/ai-response.js';
@@ -243,6 +243,11 @@ function webSearchOptions(searchContextSize: 'low' | 'medium' | 'high') {
 
 function leadQualificationMessages(agent: SdrAgent, lead: Lead, research: LeadResearchResult | null): AiChatMessage[] {
   const qualificationPrompt = agent.leadQualificationPrompt?.trim() || DEFAULT_LEAD_QUALIFICATION_PROMPT;
+  // Sem a ferramenta anexada, pedir pesquisa faz o modelo relatar uma busca que nao aconteceu
+  // ("nada encontrado") e descartar lead bom por evidencia que ele nunca teve como obter.
+  const searchRule = supportsWebSearch(agent.aiProvider, agent.aiModel)
+    ? 'Antes de decidir, use a ferramenta de pesquisa web de forma rapida e economica para validar se ha sinais de empresa real, produto, operacao, dono, equipe, unidade, setor ou atividade individual.'
+    : 'Voce NAO tem ferramenta de pesquisa web nesta chamada. Decida apenas com o cadastro recebido, nunca afirme ter pesquisado, e nunca descarte um lead so por faltar informacao.';
   return [
     {
       role: 'system',
@@ -259,7 +264,7 @@ Campos obrigatorios:
 Use o prompt configurado para decidir o fit.
 Use "qualified": false somente quando houver evidencia forte de que o lead nao se encaixa no perfil desejado.
 Se os dados forem insuficientes, mantenha "qualified": true para evitar descarte indevido.
-Antes de decidir, use a ferramenta de pesquisa web de forma rapida e economica para validar se ha sinais de empresa real, produto, operacao, dono, equipe, unidade, setor ou atividade individual.
+${searchRule}
 
 Prompt configurado para este SDR:
 ${qualificationPrompt}`,
@@ -358,6 +363,13 @@ async function assessLeadForInitialOutreach(
 }
 
 function firstMessageSystemPrompt(agent: SdrAgent): string {
+  const searchRules = supportsWebSearch(agent.aiProvider, agent.aiModel)
+    ? [
+        '- Antes de escrever, use a ferramenta de pesquisa web para buscar informacoes reais sobre o lead pelo CNPJ, nome da empresa, nome fantasia, cidade, setor, site, LinkedIn, Instagram e produtos/servicos.',
+        '- Use a pesquisa para encontrar um gancho genuino: o que a empresa faz, produtos/servicos, setor, cidade, unidade, movimento recente, crescimento, contratacao, premio, lancamento ou algo operacional concreto.',
+      ].join('\n')
+    : '- Voce NAO tem ferramenta de pesquisa web nesta chamada: use somente os dados do lead fornecidos abaixo e nunca invente fato sobre a empresa.';
+
   return `Voce escreve apenas a primeira mensagem de abordagem para WhatsApp.
 
 Regras:
@@ -366,8 +378,7 @@ Regras:
 - Use somente as instrucoes e dados fornecidos nesta chamada.
 - Personalize com pesquisa real quando houver: nome da pessoa, nome da empresa, setor, cidade, produto, servico ou movimento concreto encontrado.
 - Mostre que houve pesquisa sem parecer invasivo, exagerado ou generico.
-- Antes de escrever, use a ferramenta de pesquisa web para buscar informacoes reais sobre o lead pelo CNPJ, nome da empresa, nome fantasia, cidade, setor, site, LinkedIn, Instagram e produtos/servicos.
-- Use a pesquisa para encontrar um gancho genuino: o que a empresa faz, produtos/servicos, setor, cidade, unidade, movimento recente, crescimento, contratacao, premio, lancamento ou algo operacional concreto.
+${searchRules}
 - Se nao houver contato/dono, fale com a empresa de forma natural.
 - Faca apenas uma pergunta simples sobre a operacao no fim.
 - Nao invente informacoes sobre produto, empresa, preco, agenda ou disponibilidade.
