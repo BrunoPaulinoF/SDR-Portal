@@ -44,16 +44,25 @@ ideia". Na prática o Fernando viu a IA fazendo a pergunta errada, e a decisão 
 é o do roteiro. Do sim em diante nada muda — a SDR aciona o handoff, o Fernando é avisado no
 WhatsApp dele e o lead ouve *"Já pedi pro Fernando entrar em contato com você"*.
 
-Duas mensagens dão conta do funil inteiro, e as duas são texto fixo:
+A abordagem são **quatro mensagens, uma por vez**, esperando o lead responder entre elas —
+não um bloco de texto só. As quatro juntas leem como anúncio; separadas, cada resposta é um
+compromisso pequeno que puxa o próximo:
 
-1. **Abertura** (`first-message-variants.md`) — cumprimento, "também estou no ramo",
-   o projeto com poucas empresas, e o convite. O convite já vai aqui, na primeira mensagem.
-2. **Follow-up** (`followup-prompt.txt`) — "passei novamente porque estou fechando as
-   empresas", com a saída fácil de deixar a vaga para outra casa.
+| Bloco | Texto | Onde vive |
+| --- | --- | --- |
+| 1 | Opa, tudo bom? | `first-message-variants.md` (mensagem fixa do disparo) |
+| 2 | Também estou no ramo da gastronomia e queria te fazer uma proposta, pode ser? | `prompt.txt`, seção O ROTEIRO EM BLOCOS |
+| 3 | Então, tô iniciando um projeto onde vou acompanhar poucas empresas gastronômicas de perto, e a de vocês chamou minha atenção. | idem |
+| 4 | Acho que podemos fazer esse projeto juntos, bora trocar uma ideia? | idem |
 
-Como o convite já sai na primeira mensagem, a resposta do lead é resposta ao convite: a SDR
-lê o sim e chama o Fernando, sem reformular a pergunta. Reformular era exatamente o erro
-apontado.
+Só o bloco 1 sai pelo disparo. Os outros três a IA manda copiados palavra por palavra, um por
+resposta do lead — a regra está escrita no `prompt.txt` e reforçada no bloco de funil do
+playbook `convite`. Se o lead perguntar algo no meio, ela responde em uma linha e emenda o
+bloco seguinte; se aceitar antes do bloco 4, pula o resto e chama o Fernando.
+
+O **follow-up** (`followup-prompt.txt`) é a quinta mensagem, quando o lead some: "passei
+novamente porque estou fechando as empresas", com a saída fácil de deixar a vaga para outra
+casa.
 
 Daí o desenho: **a SDR tem uma decisão só na conversa inteira** — a pessoa aceita ou não
 trocar uma ideia sobre o projeto. Ela não apresenta, não faz discovery, não qualifica em profundidade e não
@@ -154,15 +163,15 @@ deste diretório muda isso: os prompts vivem no banco.
 | --- | --- | --- |
 | `/sdr-agents/<id>/edit` → Playbook de conversa | **Convite** | Em Consultivo a IA explica, pergunta a rotina e vende — o funil oposto |
 | `/sdr-agents/<id>/first-messages` → Modo | **Mensagem fixa** | Em "gerada por IA" a abertura é reescrita a cada lead |
-| `/sdr-agents/<id>/first-messages` → Variante ativa | O texto de `first-message-variants.md` | Sem variante ativa o portal cai na IA mesmo em modo fixo |
+| `/sdr-agents/<id>/first-messages` → Variante ativa | `Opa, tudo bom?` (bloco 1) | Sem variante ativa o portal cai na IA mesmo em modo fixo |
 
 ## O que medir
 
 O funil desta SDR tem quatro números, e o terceiro é o que importa:
 
-1. **enviadas → responderam** — mede a mensagem de abertura, que já carrega o convite.
-2. **responderam → disseram sim** — mede o convite em si. É a métrica da estratégia.
-3. **follow-up enviado → responderam** — mede a segunda mensagem, a das vagas.
+1. **enviadas → responderam** — mede o bloco 1, o "opa, tudo bom?".
+2. **responderam → chegaram ao bloco 4** — mede se a conversa sobrevive aos blocos do meio.
+3. **chegaram ao convite → disseram sim** — mede o convite em si. É a métrica da estratégia.
 4. **sim → handoff acionado** — mede a IA, não o roteiro. Se o lead disse sim e o handoff não
    saiu, o problema é o prompt reconhecendo o aceite; olhe os `ai_runs` da conversa.
 
