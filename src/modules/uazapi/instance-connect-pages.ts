@@ -139,7 +139,40 @@ function qrScript(endpoint: string): string {
   </script>`;
 }
 
-export function renderSdrConnectPage(agent: SdrAgent, state: InstanceConnectionState, shareUrl: string | null): string {
+/**
+ * Bloco so da tela logada: mostra o que esta salvo no SDR e o que a UAZAPI respondeu de
+ * fato. Serve para separar "QR nao veio" de "credencial recusada" sem abrir o log.
+ * O corpo cru ja vem sem token (redigido em `redactBody`), mas o bloco nunca aparece na
+ * pagina publica — quem tem o link nao precisa saber a URL do gateway.
+ */
+function renderDiagnostics(agent: SdrAgent, state: InstanceConnectionState, provisioningEnabled: boolean): string {
+  const linhas = [
+    ['URL base UAZAPI', agent.uazapiBaseUrl ?? 'nao configurada'],
+    ['Instancia', agent.uazapiInstanceId ?? 'sem identificador'],
+    ['Token da instancia', agent.uazapiInstanceTokenEncrypted ? 'salvo' : 'nao configurado'],
+    ['Endpoint consultado', agent.uazapiBaseUrl ? `${agent.uazapiBaseUrl.replace(/\/+$/, '')}/instance/status` : '—'],
+    ['HTTP da UAZAPI', state.httpStatus === null ? '—' : String(state.httpStatus)],
+    ['Status da instancia', state.status ?? 'desconhecido'],
+    ['Criar instancia pelo portal', provisioningEnabled ? 'disponivel (UAZAPI_BASE_URL e UAZAPI_ADMIN_TOKEN definidos)' : 'indisponivel (falta UAZAPI_BASE_URL ou UAZAPI_ADMIN_TOKEN)'],
+  ];
+
+  return `<details class="advanced-block">
+    <summary>Diagnostico da instancia</summary>
+    <dl class="diagnostic-list">
+      ${linhas.map(([rotulo, valor]) => `<dt>${escapeHtml(rotulo ?? '')}</dt><dd>${escapeHtml(valor ?? '')}</dd>`).join('')}
+    </dl>
+    ${state.detail ? `<p class="muted">${escapeHtml(state.detail)}</p>` : ''}
+    <p class="muted">Resposta da UAZAPI (sem os tokens):</p>
+    <pre class="diagnostic-raw">${escapeHtml(state.rawBody ?? '(sem resposta)')}</pre>
+  </details>`;
+}
+
+export function renderSdrConnectPage(
+  agent: SdrAgent,
+  state: InstanceConnectionState,
+  shareUrl: string | null,
+  provisioningEnabled = false,
+): string {
   const share = shareUrl
     ? `<div class="share-box">
         <p>Link para o cliente conectar, valido por ${shareLinkTtlMinutes} minutos:</p>
@@ -185,6 +218,7 @@ export function renderSdrConnectPage(agent: SdrAgent, state: InstanceConnectionS
         ${state.connected ? '' : renderInstructions()}
       </section>
       <section class="panel">${share}</section>
+      <section class="panel">${renderDiagnostics(agent, state, provisioningEnabled)}</section>
     </main>${state.connected ? '' : qrScript(`/sdr-agents/${agent.id}/conectar/qr`)}`,
   });
 }

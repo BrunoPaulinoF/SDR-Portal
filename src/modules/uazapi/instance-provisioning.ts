@@ -18,6 +18,9 @@ export interface InstanceConnectionState {
   status: string | null;
   /** Motivo legivel quando nao deu para mostrar o QR — vai para a tela e para o log. */
   detail: string | null;
+  /** HTTP da ultima resposta da UAZAPI e o corpo dela, para o bloco de diagnostico. */
+  httpStatus: number | null;
+  rawBody: string | null;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -87,6 +90,30 @@ export async function configureInstanceWebhook(
   return result.ok;
 }
 
+const secretKeyPattern = /token|apikey|api_key|secret|password|senha|jwt/i;
+const rawBodyLimit = 800;
+
+/** Corpo cru para diagnostico: sem segredos e sem o QR gigante, cortado no limite. */
+function redactBody(body: unknown): string {
+  const hide = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(hide);
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(
+        Object.entries(value as Record<string, unknown>).map(([key, item]) => {
+          if (secretKeyPattern.test(key)) return [key, '***'];
+          if (/^qrcode$/i.test(key) && typeof item === 'string') return [key, `<${item.length} caracteres>`];
+          return [key, hide(item)];
+        }),
+      );
+    }
+    return value;
+  };
+
+  const text = typeof body === 'string' ? body : JSON.stringify(hide(body), null, 2);
+  if (!text) return '(resposta vazia)';
+  return text.length > rawBodyLimit ? `${text.slice(0, rawBodyLimit)}...` : text;
+}
+
 /** O campo `qrcode` vem ora como data URI/base64 de imagem, ora como o payload cru do QR. */
 async function toQrSvg(qrcode: string): Promise<string | null> {
   const value = qrcode.trim();
@@ -113,7 +140,8 @@ export async function readConnectionStatus(
   uazapiClient: UazapiClient,
   credentials: { baseUrl: string; token: string },
 ): Promise<InstanceConnectionState> {
-  const record = instanceRecord((await uazapiClient.getInstanceStatus(credentials)).body);
+  const result = await uazapiClient.getInstanceStatus(credentials);
+  const record = instanceRecord(result.body);
   const status = readString(record, 'status');
 
   return {
@@ -121,7 +149,9 @@ export async function readConnectionStatus(
     pairCode: null,
     connected: status === 'connected',
     status,
-    detail: null,
+    detail: result.ok ? null : failureDetail('ao consultar a instancia', result),
+    httpStatus: result.status,
+    rawBody: redactBody(result.body),
   };
 }
 
@@ -172,6 +202,7 @@ export async function requestConnectionQr(
   let status = readString(record, 'status');
   let qrcode = readString(record, 'qrcode', 'qrCode');
   let detail = first.ok ? null : failureDetail('ao consultar a instancia', first);
+  let last: { status: number; body: unknown } = first;
 
   if (status !== 'connected' && !qrcode) {
     const connect = await uazapiClient.connectInstance(credentials);
@@ -180,6 +211,7 @@ export async function requestConnectionQr(
     qrcode = readString(connectRecord, 'qrcode', 'qrCode');
     if (qrcode || connect.ok) record = connectRecord;
     detail = connect.ok ? null : failureDetail('ao pedir a conexao', connect);
+    last = connect;
 
     for (let attempt = 0; !qrcode && status !== 'connected' && attempt < qrPollAttempts; attempt += 1) {
       await wait(pollDelayMs);
@@ -188,6 +220,7 @@ export async function requestConnectionQr(
       status = readString(pollRecord, 'status') ?? status;
       qrcode = readString(pollRecord, 'qrcode', 'qrCode');
       if (qrcode) record = pollRecord;
+      last = poll;
       if (!poll.ok) detail = failureDetail('ao consultar a instancia', poll);
     }
   }
@@ -204,6 +237,8 @@ export async function requestConnectionQr(
     connected: status === 'connected',
     status,
     detail: qrCodeSvg ? null : detail,
+    httpStatus: last.status,
+    rawBody: redactBody(last.body),
   };
 }
 

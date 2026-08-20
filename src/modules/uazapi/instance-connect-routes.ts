@@ -21,7 +21,7 @@ import {
   shareLinkExpiresAt,
   type InstanceShareLinkRepository,
 } from './instance-share-link-repository.js';
-import { readConnectionStatus, requestConnectionQr } from './instance-provisioning.js';
+import { isInstanceProvisioningEnabled, readConnectionStatus, requestConnectionQr } from './instance-provisioning.js';
 import type { UazapiClient } from './uazapi-client.js';
 
 const agentParamsSchema = z.object({ id: z.string().uuid() });
@@ -87,7 +87,10 @@ export function registerInstanceConnectRoutes(
     const shareToken = query.success ? query.data.link : undefined;
 
     const state = await readConnectionStatus(uazapiClient, loaded.credentials);
-    return reply.type('text/html').send(renderSdrConnectPage(loaded.agent, state, shareToken ? shareUrlFor(shareToken) : null));
+    if (state.detail) request.log.warn({ sdrAgentId: loaded.agent.id, status: state.status, detail: state.detail }, 'instancia uazapi indisponivel');
+    return reply
+      .type('text/html')
+      .send(renderSdrConnectPage(loaded.agent, state, shareToken ? shareUrlFor(shareToken) : null, isInstanceProvisioningEnabled()));
   });
 
   // Fragmento HTML: so aqui o QR e realmente pedido a UAZAPI, quando alguem clica no botao.

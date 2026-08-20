@@ -304,6 +304,69 @@ describe('link publico de conexao', () => {
     expect(state.detail).toContain('token desta instancia foi recusado');
   });
 
+  it('a tela do SDR mostra o diagnostico da instancia sem vazar o token', async () => {
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const agent = await sdrAgentRepository.create({
+      companyId: 'c1',
+      name: 'Mariana',
+      displayName: 'Mariana',
+      uazapiBaseUrl: 'https://uazapi.test',
+      uazapiInstanceId: 'mariana-01',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+    });
+
+    const { app, cookie } = await loggedInApp({
+      sdrAgentRepository,
+      uazapiClient: stubUazapiClient({
+        getInstanceStatus: async () => ({ ok: false, status: 401, body: { error: 'Invalid token', token: 'segredo-que-nao-pode-vazar' } }),
+      }),
+    });
+
+    const response = await app.inject({ method: 'GET', url: `/sdr-agents/${agent.id}/conectar`, headers: { cookie } });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain('Diagnostico da instancia');
+    expect(response.body).toContain('https://uazapi.test/instance/status');
+    expect(response.body).toContain('mariana-01');
+    expect(response.body).toContain('Invalid token');
+    expect(response.body).toContain('token desta instancia foi recusado');
+    expect(response.body).not.toContain('segredo-que-nao-pode-vazar');
+    await app.close();
+  });
+
+  it('a pagina publica nao mostra o diagnostico nem a URL do gateway', async () => {
+    const shareLinks = createMemoryInstanceShareLinkRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const agent = await sdrAgentRepository.create({
+      companyId: 'c1',
+      name: 'Mariana',
+      displayName: 'Mariana',
+      uazapiBaseUrl: 'https://uazapi.test',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+    });
+    const token = generateShareToken();
+    await shareLinks.create({
+      sdrAgentId: agent.id,
+      createdByUserId: null,
+      expiresAt: shareLinkExpiresAt(new Date()),
+      tokenHash: hashShareToken(token),
+    });
+
+    const app = buildApp({
+      instanceShareLinkRepository: shareLinks,
+      sdrAgentRepository,
+      uazapiClient: stubUazapiClient({
+        getInstanceStatus: async () => ({ ok: false, status: 401, body: { error: 'Invalid token' } }),
+      }),
+    });
+    const response = await app.inject({ method: 'GET', url: `/conectar/${token}` });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).not.toContain('Diagnostico da instancia');
+    expect(response.body).not.toContain('uazapi.test');
+    await app.close();
+  });
+
   it('o link continua valido depois de recarregar a pagina do SDR', async () => {
     const shareLinks = createMemoryInstanceShareLinkRepository();
     const sdrAgentRepository = createMemorySdrAgentRepository();
