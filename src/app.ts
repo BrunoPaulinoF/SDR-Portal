@@ -120,6 +120,14 @@ function createLazyDbConversationRepository(): ConversationRepository {
       const { createDbConversationRepository } = await import('./modules/conversations/db-conversation-repository.js');
       return createDbConversationRepository().listAllMessages();
     },
+    async listBySdr(sdrAgentId) {
+      const { createDbConversationRepository } = await import('./modules/conversations/db-conversation-repository.js');
+      return createDbConversationRepository().listBySdr(sdrAgentId);
+    },
+    async listLastMessages(conversationIds) {
+      const { createDbConversationRepository } = await import('./modules/conversations/db-conversation-repository.js');
+      return createDbConversationRepository().listLastMessages(conversationIds);
+    },
     async listMessages(conversationId) {
       const { createDbConversationRepository } = await import('./modules/conversations/db-conversation-repository.js');
       return createDbConversationRepository().listMessages(conversationId);
@@ -388,6 +396,11 @@ function createLazyDbLeadRepository(): LeadRepository {
     async list() {
       const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
       return createDbLeadRepository().list();
+    },
+
+    async listByIds(ids) {
+      const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
+      return createDbLeadRepository().listByIds(ids);
     },
 
     async listImports() {

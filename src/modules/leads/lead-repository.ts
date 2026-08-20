@@ -48,6 +48,8 @@ export interface LeadRepository {
   findNextPendingForSdr(sdrAgentId: string): Promise<Lead | null>;
   findBySdrAndWhatsapp(sdrAgentId: string, whatsappNumber: string): Promise<Lead | null>;
   list(): Promise<Lead[]>;
+  /** Leads de um conjunto conhecido de ids (ex.: os donos das conversas de um SDR). */
+  listByIds(ids: string[]): Promise<Lead[]>;
   listImports(): Promise<LeadImport[]>;
   markHumanPaused(id: string, pausedAt: Date, pausedUntil: Date, reason: string): Promise<Lead | null>;
   markInboundReceived(id: string, receivedAt: Date, followupDueAt?: Date | null): Promise<Lead | null>;
@@ -246,6 +248,11 @@ export function createMemoryLeadRepository(seedLeads: Lead[] = []): LeadReposito
 
     async list() {
       return [...rows.values()].sort((a, b) => a.companyName.localeCompare(b.companyName));
+    },
+
+    async listByIds(ids) {
+      const wanted = new Set(ids);
+      return [...rows.values()].filter((lead) => wanted.has(lead.id));
     },
 
     async listImports() {

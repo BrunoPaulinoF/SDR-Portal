@@ -36,6 +36,42 @@ export function startOfDayInTimeZone(value: Date, timeZone: string): Date {
   return new Date(utcMidnight - offsetMinutes * 60 * 1000);
 }
 
+/** Fuso invalido no cadastro nao pode derrubar a tela: cai no padrao do portal. */
+export function resolveTimeZone(timeZone: string | null | undefined): string {
+  const candidate = timeZone?.trim();
+  if (!candidate) return 'America/Sao_Paulo';
+
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: candidate });
+    return candidate;
+  } catch {
+    return 'America/Sao_Paulo';
+  }
+}
+
+/** "14:32" no fuso do SDR: a hora que vai no balao da conversa. */
+export function formatTimeInTimeZone(value: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat('pt-BR', { timeZone, hour: '2-digit', minute: '2-digit', hour12: false }).format(value);
+}
+
+/** "20/08/2026" no fuso do SDR. */
+export function formatDayInTimeZone(value: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat('pt-BR', { timeZone, day: '2-digit', month: '2-digit', year: 'numeric' }).format(value);
+}
+
+/** "2026-08-20": chave de dia no fuso do SDR, usada para separar a conversa por data. */
+export function dayKeyInTimeZone(value: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(value);
+  const get = (type: Intl.DateTimeFormatPartTypes): string => parts.find((part) => part.type === type)?.value ?? '';
+
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
 export function formatDateTimeInTimeZone(value: Date | null | undefined, timeZone: string): string {
   if (!value) return '-';
 

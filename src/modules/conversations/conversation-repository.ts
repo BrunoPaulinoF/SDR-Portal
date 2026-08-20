@@ -28,6 +28,10 @@ export interface ConversationRepository {
   findBySdrAndWhatsapp(sdrAgentId: string, whatsappNumber: string): Promise<Conversation | null>;
   list(): Promise<Conversation[]>;
   listAllMessages(): Promise<Message[]>;
+  /** Conversas de um SDR, da mais recente para a mais antiga: e a lista de chats da caixa de conversas. */
+  listBySdr(sdrAgentId: string): Promise<Conversation[]>;
+  /** Ultima mensagem de cada conversa pedida, para a previa da lista de chats sem um SELECT por conversa. */
+  listLastMessages(conversationIds: string[]): Promise<Message[]>;
   listMessages(conversationId: string): Promise<Message[]>;
   touch(id: string, lastMessageAt: Date): Promise<Conversation | null>;
 }
@@ -103,6 +107,27 @@ export function createMemoryConversationRepository(seedConversations: Conversati
 
     async listAllMessages() {
       return [...messages.values()].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    },
+
+    async listBySdr(sdrAgentId) {
+      return [...conversations.values()]
+        .filter((item) => item.sdrAgentId === sdrAgentId)
+        .sort((a, b) => (b.lastMessageAt?.getTime() ?? b.createdAt.getTime()) - (a.lastMessageAt?.getTime() ?? a.createdAt.getTime()));
+    },
+
+    async listLastMessages(conversationIds) {
+      const wanted = new Set(conversationIds);
+      const latest = new Map<string, Message>();
+
+      for (const message of messages.values()) {
+        if (!wanted.has(message.conversationId)) continue;
+        const current = latest.get(message.conversationId);
+        if (!current || message.createdAt.getTime() >= current.createdAt.getTime()) {
+          latest.set(message.conversationId, message);
+        }
+      }
+
+      return [...latest.values()];
     },
 
     async listMessages(conversationId) {
