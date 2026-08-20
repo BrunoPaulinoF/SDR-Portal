@@ -951,6 +951,82 @@ describe('lead routes and import', () => {
 });
 
 describe('initial outreach scheduler', () => {
+  it('descarta lead pendente repetido quando o numero ja tem conversa', async () => {
+    const user = await createTestUser();
+    const calls: string[] = [];
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const conversationRepository = createMemoryConversationRepository();
+    const jobLogRepository = createMemoryJobLogRepository();
+    const company = await companyRepository.create({
+      name: 'Insumo Smart',
+      legalName: null,
+      cnpj: null,
+      segment: 'Gastronomia',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'sdr-insumo-smart',
+      displayName: 'Franciely',
+      isActive: true,
+      firstMessagePrompt: 'Olá {{companyName}}, aqui é {{sdrName}}.',
+      uazapiBaseUrl: 'https://api.uazapi.com',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+      sendDaysOfWeek: '0,1,2,3,4,5,6',
+      sendWindowStart: '00:00',
+      sendWindowEnd: '23:59',
+      initialCooldownMinMinutes: 0,
+      initialCooldownMaxMinutes: 0,
+      dailyInitialSendLimit: 10,
+    });
+    const baseLead = {
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5534999969911',
+      cnpj: null,
+      tradeName: null,
+      segment: 'Gastronomia',
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'pending',
+      source: 'manual',
+    };
+    // Mesma empresa duas vezes na planilha: e o segundo lead que virava abordagem fria
+    // num numero que ja tinha conversa aberta.
+    const first = await leadRepository.create({ ...baseLead, companyName: 'Restaurante A' });
+    const duplicate = await leadRepository.create({ ...baseLead, companyName: 'Restaurante A (repetido)' });
+
+    app = buildApp({
+      authRepository: createMemoryAuthRepository([user]),
+      companyRepository,
+      conversationRepository,
+      jobLogRepository,
+      leadRepository,
+      sdrAgentRepository,
+      uazapiClient: createMockUazapiClient(calls, {}, { '5534999969911': '553499969911' }),
+    });
+    const sessionCookie = await login();
+
+    const runScheduler = (): Promise<unknown> =>
+      app.inject({ method: 'POST', url: '/scheduler/initial-outreach/run', cookies: { sdr_portal_session: sessionCookie } });
+
+    await runScheduler();
+    await runScheduler();
+
+    const sentTexts = calls.filter((call) => call.startsWith('text:'));
+    expect(sentTexts).toHaveLength(1);
+    expect((await leadRepository.findById(first.id))?.status).toBe('initial_sent');
+    expect((await leadRepository.findById(duplicate.id))?.status).toBe('discarded');
+    expect((await conversationRepository.list())).toHaveLength(1);
+  });
+
   it('sends the first pending lead message and marks lead as contacted', async () => {
     const user = await createTestUser();
     const calls: string[] = [];

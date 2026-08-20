@@ -94,7 +94,7 @@ Se o lead disser que nao tem interesse, agradeca e encerre sem insistir, usando 
 Se acionar handoff, use notify_handoff com um resumo objetivo do que o lead disse.
 
 Tom:
-Profissional, maduro, direto, consultivo e humano. Use emojis com moderacao, apenas quando fizer sentido.`;
+Profissional, maduro, direto, consultivo e humano. Nunca use emoji.`;
 
 const exampleFirstMessagePrompt = `Crie uma primeira abordagem curta para {{companyName}}.
 

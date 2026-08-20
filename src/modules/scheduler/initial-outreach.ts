@@ -1,5 +1,6 @@
 import type { Lead, SdrAgent } from '../../db/schema.js';
 import { supportsWebSearch, type AiChatMessage, type AiClient } from '../ai/ai-client.js';
+import { stripEmoji } from '../ai/message-text.js';
 import { resolveReasoningEffort } from '../ai/reasoning-effort.js';
 import type { AiRunRepository } from '../ai/ai-run-repository.js';
 import { parseAiResponse } from '../ai/ai-response.js';
@@ -9,6 +10,7 @@ import type { ConversationRepository } from '../conversations/conversation-repos
 import type { FirstMessageVariantRepository } from '../first-message-variants/first-message-variant-repository.js';
 import type { JobLogRepository } from '../jobs/job-log-repository.js';
 import { DEFAULT_LEAD_QUALIFICATION_PROMPT } from '../leads/lead-qualification-prompt.js';
+import { whatsappNumberVariants } from '../phone/whatsapp-number.js';
 import {
   contactDisplayName,
   leadNameForPrompt,
@@ -213,14 +215,16 @@ export async function resolveFirstMessage(
   lead: Lead,
   research: LeadResearchResult | null,
 ): Promise<{ text: string; variantId: string | null }> {
+  // stripEmoji nos dois caminhos: a variante escrita a mao e a mensagem da IA saem
+  // pelo mesmo lugar, e nenhuma das duas pode levar emoji para o lead.
   if (agent.firstMessageMode === 'ab_test') {
     const variant = await deps.firstMessageVariantRepository.pickNextForAgent(agent.id);
     if (variant) {
-      return { text: renderVariantMessage(variant.body, agent, lead, research), variantId: variant.id };
+      return { text: stripEmoji(renderVariantMessage(variant.body, agent, lead, research)), variantId: variant.id };
     }
   }
   const text = await buildFirstMessage(deps, agent, lead, research);
-  return { text, variantId: null };
+  return { text: stripEmoji(text), variantId: null };
 }
 
 function buildFallbackFirstMessage(agent: SdrAgent, lead: Lead, research: LeadResearchResult | null): string {
@@ -625,6 +629,23 @@ async function checkWhatsappExists(
   return { body: result.body, exists: item.isInWhatsapp, jid: normalizeWhatsappJid(item.jid) };
 }
 
+/**
+ * A mesma empresa costuma aparecer duas vezes na planilha importada. Sem esta checagem
+ * o segundo lead recebia a abordagem fria num numero que ja tinha conversado (as vezes ja
+ * transferido para o time), e do lado do lead isso e a IA mandando mensagem do nada.
+ */
+async function alreadyTalkedToThisNumber(
+  deps: InitialOutreachDependencies,
+  sdrAgentId: string,
+  lead: Lead,
+): Promise<boolean> {
+  for (const candidate of whatsappNumberVariants(lead.whatsappNumber)) {
+    const conversation = await deps.conversationRepository.findBySdrAndWhatsapp(sdrAgentId, candidate);
+    if (conversation && conversation.leadId !== lead.id) return true;
+  }
+  return false;
+}
+
 export function createInitialOutreachService(deps: InitialOutreachDependencies) {
   async function createInitialConversation(
     lead: Lead,
@@ -706,6 +727,26 @@ export function createInitialOutreachService(deps: InitialOutreachDependencies) 
           }
           details.push(`${agent.name}: nenhum outro lead pendente apos descartes.`);
           return { ...emptyProcessResult(), skipped };
+        }
+
+        if (await alreadyTalkedToThisNumber(deps, agent.id, lead)) {
+          await deps.leadRepository.markDiscarded(lead.id, now);
+          await deps.jobLogRepository.create({
+            jobName: 'initial-outreach',
+            jobKey: `duplicate-${lead.id}`,
+            sdrAgentId: agent.id,
+            leadId: lead.id,
+            status: 'skipped',
+            attempt: 1,
+            payload: JSON.stringify({ number: lead.whatsappNumber, companyName: lead.companyName }),
+            result: JSON.stringify({ reason: 'ja existe conversa com este WhatsApp neste SDR' }),
+            error: null,
+            startedAt,
+            finishedAt: new Date(),
+          });
+          skipped += 1;
+          details.push(`${agent.name}: ${lead.companyName} descartado (ja existe conversa com ${lead.whatsappNumber}).`);
+          continue;
         }
 
         const phoneCheck = await checkWhatsappExists(deps, credentials, lead.whatsappNumber);

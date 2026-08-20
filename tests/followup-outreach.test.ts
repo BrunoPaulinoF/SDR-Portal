@@ -268,13 +268,49 @@ describe('followup outreach guards', () => {
     expect(updated?.followupDueAt?.getTime()).toBe(NOW.getTime() + HOUR);
   });
 
-  it('respeita nao_responder do modelo e nao envia nada', async () => {
+  it('desativa o follow-up de vez quando o modelo recusa, em vez de tentar de novo daqui a pouco', async () => {
     const cold = makeLead();
-    const { service, uazapi } = await buildHarness([cold], fakeAiClient(aiReply('', true)));
+    const { service, leads, uazapi } = await buildHarness([cold], fakeAiClient(aiReply('', true)));
 
     await service.runOnce(NOW);
 
     expect(uazapi.sent).toHaveLength(0);
+    const updated = await leads.findById(cold.id);
+    // Recusa nao muda com o tempo: reagendar fazia o lead voltar de hora em hora ate
+    // alguma tentativa escapar e mandar mensagem numa conversa ja encerrada.
+    expect(updated?.followupDisabledAt).not.toBeNull();
+    expect(updated?.followupDueAt?.getTime()).toBe(cold.followupDueAt?.getTime());
+  });
+
+  it('nao dispara follow-up quando a IA marcou a etapa de handoff sem desativar o follow-up', async () => {
+    // A IA as vezes promete o handoff so no texto e nao emite notify_handoff: o lead
+    // ficava "in_conversation", com follow-up armado, e recebia mensagem do nada depois.
+    const handedOff = makeLead({ conversationStage: 'handoff_done' });
+    const { service, uazapi } = await buildHarness([handedOff], fakeAiClient(aiReply('nao deveria sair')));
+
+    await service.runOnce(NOW);
+
+    expect(uazapi.sent).toHaveLength(0);
+  });
+
+  it('nao dispara follow-up para lead que ja pediu handoff nem para quem ja recusou', async () => {
+    const requested = makeLead({ id: 'lead-handoff', handoffRequestedAt: new Date(NOW.getTime() - 3 * HOUR) });
+    const refused = makeLead({ id: 'lead-recusa', notInterestedAt: new Date(NOW.getTime() - 3 * HOUR) });
+    const { service, uazapi } = await buildHarness([requested, refused], fakeAiClient(aiReply('nao deveria sair')));
+
+    await service.runOnce(NOW);
+
+    expect(uazapi.sent).toHaveLength(0);
+  });
+
+  it('tira emoji da mensagem de follow-up antes de enviar', async () => {
+    const cold = makeLead();
+    const { service, uazapi } = await buildHarness([cold], fakeAiClient(aiReply('Conseguiu dar uma olhada? 😊')));
+
+    await service.runOnce(NOW);
+
+    expect(uazapi.sent).toHaveLength(1);
+    expect(uazapi.sent[0]?.text).toBe('Conseguiu dar uma olhada?');
   });
 
   it('nao envia quando o SDR nao tem followup_prompt configurado', async () => {

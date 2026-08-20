@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gt, gte, inArray, isNotNull, isNull, lte, ne, notExists, or, sql, type SQL } from 'drizzle-orm';
+import { and, count, desc, eq, gt, gte, inArray, isNotNull, isNull, lte, ne, notExists, notInArray, or, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 
 import { db } from '../../db/client.js';
@@ -6,6 +6,9 @@ import { leadImports, leads } from '../../db/schema.js';
 import type { LeadRepository } from './lead-repository.js';
 
 type LeadActivityColumns = Pick<typeof leads, 'lastInboundAt' | 'lastOutboundAt'>;
+
+/** Etapas em que a conversa ja acabou: nada de follow-up depois delas. */
+const ENDED_CONVERSATION_STAGES = ['handoff_done', 'not_interested'];
 
 /** Nenhuma mensagem (entrada ou saida) nesse lead depois de `since`. */
 function quietSinceCondition(table: LeadActivityColumns, since: Date): SQL {
@@ -126,6 +129,11 @@ export function createDbLeadRepository(): LeadRepository {
         lte(leads.followupDueAt, now),
         isNull(leads.followupSentAt),
         isNull(leads.followupDisabledAt),
+        // Conversa encerrada nao recebe follow-up nem quando a IA marcou so a etapa
+        // (ou prometeu o handoff no texto) sem desativar o follow-up na hora.
+        isNull(leads.handoffRequestedAt),
+        isNull(leads.notInterestedAt),
+        notInArray(leads.conversationStage, ENDED_CONVERSATION_STAGES),
         notExists(
           db
             .select({ one: sql`1` })

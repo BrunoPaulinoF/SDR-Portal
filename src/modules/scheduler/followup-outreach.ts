@@ -3,6 +3,7 @@ import type { AiChatMessage, AiClient } from '../ai/ai-client.js';
 import { resolveReasoningEffort } from '../ai/reasoning-effort.js';
 import type { AiRunRepository } from '../ai/ai-run-repository.js';
 import { parseAiResponse } from '../ai/ai-response.js';
+import { stripEmoji } from '../ai/message-text.js';
 import { resolveAiApiKey } from '../ai/resolve-api-key.js';
 import type { ConversationRepository } from '../conversations/conversation-repository.js';
 import type { JobLogRepository } from '../jobs/job-log-repository.js';
@@ -183,18 +184,29 @@ ${historyBlock(history)}`,
   ];
 }
 
-/** Devolve `null` quando o follow-up nao deve ser enviado (sem prompt, sem chave, falha da IA ou recusa do modelo). */
+type FollowupMessageResult =
+  | { kind: 'message'; text: string }
+  /** O modelo leu o historico e decidiu que nao cabe follow-up (recusa, handoff, conversa quente). */
+  | { kind: 'refused' }
+  /** Falha tecnica (sem prompt, sem chave, erro ou JSON vazio da IA): vale tentar de novo. */
+  | { kind: 'failed' };
+
+/**
+ * Recusa e falha tecnica precisam ser distinguidas: reagendar uma recusa fazia o mesmo
+ * lead voltar de hora em hora ate alguma tentativa escapar e mandar mensagem numa
+ * conversa ja encerrada.
+ */
 async function buildFollowupMessage(
   deps: FollowupOutreachDependencies,
   agent: SdrAgent,
   lead: Lead,
   history: Message[],
-): Promise<string | null> {
+): Promise<FollowupMessageResult> {
   const prompt = agent.followupPrompt?.trim();
-  if (!prompt) return null;
+  if (!prompt) return { kind: 'failed' };
 
   const apiKey = resolveAiApiKey(agent);
-  if (!apiKey) return null;
+  if (!apiKey) return { kind: 'failed' };
 
   const messages = followupAiMessages(agent, lead, history);
   const startedAt = Date.now();
@@ -230,7 +242,10 @@ async function buildFollowupMessage(
       latencyMs: Date.now() - startedAt,
     });
 
-    return parsed.nao_responder || !parsed.mensagem_usuario.trim() ? null : parsed.mensagem_usuario.trim();
+    if (parsed.nao_responder) return { kind: 'refused' };
+
+    const text = stripEmoji(parsed.mensagem_usuario);
+    return text ? { kind: 'message', text } : { kind: 'failed' };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown follow-up AI error';
     await deps.aiRunRepository.create({
@@ -250,7 +265,7 @@ async function buildFollowupMessage(
       promptCacheHitTokens: null,
       latencyMs: Date.now() - startedAt,
     });
-    return null;
+    return { kind: 'failed' };
   }
 }
 
@@ -353,8 +368,30 @@ export function createFollowupOutreachService(deps: FollowupOutreachDependencies
       if (!credentials) throw new Error('SDR sem URL/token UAZAPI configurado.');
 
       const { conversation, history } = await loadHistory(lead);
-      const text = await buildFollowupMessage(deps, agent, lead, history);
-      if (!text) {
+      const message = await buildFollowupMessage(deps, agent, lead, history);
+
+      if (message.kind === 'refused') {
+        // O modelo leu a conversa e decidiu que nao cabe follow-up. Isso nao muda com o
+        // tempo: desativa de vez em vez de tentar de novo daqui a pouco.
+        await deps.leadRepository.disableFollowup(lead.id, now);
+        await deps.jobLogRepository.create({
+          jobName: 'followup-outreach',
+          jobKey: `followup-refused-${lead.id}`,
+          sdrAgentId: agent.id,
+          leadId: lead.id,
+          status: 'skipped',
+          attempt: 1,
+          payload: JSON.stringify({ number: lead.whatsappNumber, historyMessages: history.length }),
+          result: JSON.stringify({ reason: 'IA decidiu nao enviar follow-up', followupDisabled: true }),
+          error: null,
+          startedAt,
+          finishedAt: new Date(),
+        });
+        details.push(`${agent.name}: follow-up desativado para ${lead.companyName} (IA decidiu nao enviar).`);
+        return 'skipped';
+      }
+
+      if (message.kind === 'failed') {
         // Sem mensagem gerada nao enviamos nada generico: adia e tenta de novo depois.
         const retryAt = new Date(now.getTime() + FOLLOWUP_RETRY_DELAY_MINUTES * 60 * 1000);
         await deps.leadRepository.rescheduleFollowup(lead.id, retryAt, now);
@@ -374,6 +411,8 @@ export function createFollowupOutreachService(deps: FollowupOutreachDependencies
         details.push(`${agent.name}: follow-up nao enviado para ${lead.companyName} (mensagem nao gerada).`);
         return 'skipped';
       }
+
+      const text = message.text;
 
       await deps.uazapiClient.sendPresence({ ...credentials, number: lead.whatsappNumber, presence: 'composing', delay: 1000 });
       const result = await deps.uazapiClient.sendText({
