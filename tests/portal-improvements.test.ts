@@ -301,6 +301,7 @@ describe('link publico de conexao', () => {
     expect(state.qrCodeSvg).toBeNull();
     expect(state.detail).toContain('HTTP 401');
     expect(state.detail).toContain('invalid token');
+    expect(state.detail).toContain('token desta instancia foi recusado');
   });
 
   it('o link continua valido depois de recarregar a pagina do SDR', async () => {
