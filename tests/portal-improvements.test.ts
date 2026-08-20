@@ -21,6 +21,7 @@ import {
 } from '../src/modules/uazapi/instance-share-link-repository.js';
 import { hashPassword } from '../src/modules/auth/password.js';
 import { encryptSecret } from '../src/modules/security/secrets.js';
+import { requestConnectionQr } from '../src/modules/uazapi/instance-provisioning.js';
 import type { UazapiClient, UazapiResult } from '../src/modules/uazapi/uazapi-client.js';
 
 const ok = (body: unknown): UazapiResult => ({ ok: true, status: 200, body });
@@ -263,6 +264,43 @@ describe('link publico de conexao', () => {
     expect(fragmento.body).toContain('<svg');
     expect(conexoes).toBe(1);
     await app.close();
+  });
+
+  it('espera a UAZAPI publicar o QR em vez de desistir na primeira leitura', async () => {
+    let leituras = 0;
+    const state = await requestConnectionQr(
+      stubUazapiClient({
+        // Primeiro status sem QR, connect responde 'connecting' vazio, o codigo so aparece depois.
+        getInstanceStatus: async () => {
+          leituras += 1;
+          return leituras >= 3
+            ? ok({ instance: { status: 'connecting', qrcode: '2@abcdef', paircode: 'ABC-123' } })
+            : ok({ instance: { status: 'disconnected' } });
+        },
+        connectInstance: async () => ok({ instance: { status: 'connecting' } }),
+      }),
+      { baseUrl: 'https://uazapi.test', token: 'instance-token' },
+      { pollDelayMs: 0 },
+    );
+
+    expect(state.qrCodeSvg).toContain('<svg');
+    expect(state.pairCode).toBe('ABC-123');
+    expect(state.detail).toBeNull();
+  });
+
+  it('conta o motivo quando a UAZAPI recusa o pedido de conexao', async () => {
+    const state = await requestConnectionQr(
+      stubUazapiClient({
+        getInstanceStatus: async () => ok({ instance: { status: 'disconnected' } }),
+        connectInstance: async () => ({ ok: false, status: 401, body: { error: 'invalid token' } }),
+      }),
+      { baseUrl: 'https://uazapi.test', token: 'instance-token' },
+      { pollDelayMs: 0 },
+    );
+
+    expect(state.qrCodeSvg).toBeNull();
+    expect(state.detail).toContain('HTTP 401');
+    expect(state.detail).toContain('invalid token');
   });
 
   it('o link continua valido depois de recarregar a pagina do SDR', async () => {
