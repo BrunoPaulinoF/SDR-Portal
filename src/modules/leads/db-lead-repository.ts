@@ -168,6 +168,11 @@ export function createDbLeadRepository(): LeadRepository {
       return db.select().from(leads).orderBy(desc(leads.createdAt));
     },
 
+    async listByIds(ids) {
+      if (ids.length === 0) return [];
+      return db.select().from(leads).where(inArray(leads.id, ids));
+    },
+
     async listImports() {
       return db.select().from(leadImports).orderBy(desc(leadImports.createdAt));
     },

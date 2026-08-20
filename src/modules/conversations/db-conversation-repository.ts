@@ -1,4 +1,4 @@
-import { asc, desc, eq, and } from 'drizzle-orm';
+import { asc, desc, eq, and, inArray, sql } from 'drizzle-orm';
 
 import { db } from '../../db/client.js';
 import { conversations, messages } from '../../db/schema.js';
@@ -49,6 +49,24 @@ export function createDbConversationRepository(): ConversationRepository {
 
     async listAllMessages() {
       return db.select().from(messages).orderBy(desc(messages.createdAt));
+    },
+
+    async listBySdr(sdrAgentId) {
+      // Conversa sem mensagem nenhuma tem last_message_at nulo e no DESC do Postgres viria primeiro.
+      return db
+        .select()
+        .from(conversations)
+        .where(eq(conversations.sdrAgentId, sdrAgentId))
+        .orderBy(sql`${conversations.lastMessageAt} desc nulls last`, desc(conversations.createdAt));
+    },
+
+    async listLastMessages(conversationIds) {
+      if (conversationIds.length === 0) return [];
+      return db
+        .selectDistinctOn([messages.conversationId])
+        .from(messages)
+        .where(inArray(messages.conversationId, conversationIds))
+        .orderBy(messages.conversationId, desc(messages.createdAt));
     },
 
     async listMessages(conversationId) {

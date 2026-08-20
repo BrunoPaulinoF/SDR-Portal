@@ -50,3 +50,17 @@ export function whatsappNumberFromUazapiSendResult(body: unknown, fallback: stri
   const record = body as Record<string, unknown>;
   return whatsappNumberFromJid(record.chatid) ?? whatsappNumberFromJid(record.jid) ?? fallback;
 }
+
+/**
+ * "5519999999999" -> "+55 19 99999-9999". Numero fora do formato brasileiro sai so com o "+",
+ * porque o portal opera numeros do WhatsApp de qualquer pais sem tentar adivinhar o DDD.
+ */
+export function formatWhatsappNumber(value: string | null | undefined): string {
+  const digits = digitsOnly(value);
+  if (!digits) return '';
+
+  const brazilian = /^55(\d{2})(\d{4,5})(\d{4})$/.exec(digits);
+  if (!brazilian) return `+${digits}`;
+
+  return `+55 ${brazilian[1]} ${brazilian[2]}-${brazilian[3]}`;
+}

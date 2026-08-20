@@ -167,8 +167,8 @@ Follow-up unico:
 Webhook e conversas:
 
 - `POST /webhooks/uazapi/:sdrAgentId`: recebe webhooks da UAZAPI.
-- `GET /conversations`: lista conversas registradas.
-- `GET /conversations/:id`: exibe mensagens da conversa.
+- `GET /conversations`: caixa de conversas no estilo WhatsApp Web — lista de chats do SDR a esquerda e a conversa escolhida a direita. Aceita `?sdr=<id>` (SDR exibido), `?chat=<id>` (conversa aberta) e `?q=<texto>` (busca por nome, numero ou mensagem). Sem parametros abre o primeiro SDR que tem conversa, ja com o chat mais recente aberto.
+- `GET /conversations/:id`: link antigo de conversa; redireciona para `GET /conversations?sdr=...&chat=...`.
 - `GET /webhook-events`: exibe logs brutos dos webhooks recebidos.
 - `GET /ai-runs`: exibe chamadas de IA com provider, modelo, proposito, tokens, latencia e erros.
 - `GET /job-logs`: exibe execucoes do scheduler com job name, status, tentativa, payload e erros.
