@@ -16,6 +16,8 @@ export interface InstanceConnectionState {
   pairCode: string | null;
   connected: boolean;
   status: string | null;
+  /** Motivo legivel quando nao deu para mostrar o QR — vai para a tela e para o log. */
+  detail: string | null;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -119,32 +121,78 @@ export async function readConnectionStatus(
     pairCode: null,
     connected: status === 'connected',
     status,
+    detail: null,
   };
 }
 
+/** Tentativas de reler o status ate a UAZAPI publicar o QR, e a pausa entre elas. */
+const qrPollAttempts = 5;
+const qrPollDelayMs = 1500;
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Mensagem de erro que a UAZAPI devolve no corpo, quando devolve alguma. */
+function errorMessage(body: unknown): string | null {
+  const record = asRecord(body);
+  return readString(record, 'error', 'message', 'erro');
+}
+
+function failureDetail(step: string, result: { status: number; body: unknown }): string {
+  const message = errorMessage(result.body);
+  return `A UAZAPI respondeu HTTP ${result.status} ${step}${message ? `: ${message}` : '.'}`;
+}
+
 /**
- * Pede o pareamento de fato. Chama `/instance/connect` quando ainda nao ha QR,
- * porque a UAZAPI so gera o pareamento depois que a conexao e solicitada.
+ * Pede o pareamento de fato. Chama `/instance/connect` quando ainda nao ha QR e depois
+ * insiste no status por alguns segundos: a UAZAPI costuma responder o connect com
+ * `connecting` e so publicar o `qrcode` logo em seguida — desistir na primeira leitura
+ * era o que fazia a tela dizer que nao deu para gerar o codigo.
  */
 export async function requestConnectionQr(
   uazapiClient: UazapiClient,
   credentials: { baseUrl: string; token: string },
+  options: { pollDelayMs?: number } = {},
 ): Promise<InstanceConnectionState> {
-  let record = instanceRecord((await uazapiClient.getInstanceStatus(credentials)).body);
+  const pollDelayMs = options.pollDelayMs ?? qrPollDelayMs;
+  const first = await uazapiClient.getInstanceStatus(credentials);
+  let record = instanceRecord(first.body);
   let status = readString(record, 'status');
   let qrcode = readString(record, 'qrcode', 'qrCode');
+  let detail = first.ok ? null : failureDetail('ao consultar a instancia', first);
 
   if (status !== 'connected' && !qrcode) {
-    record = instanceRecord((await uazapiClient.connectInstance(credentials)).body);
-    status = readString(record, 'status') ?? status;
-    qrcode = readString(record, 'qrcode', 'qrCode');
+    const connect = await uazapiClient.connectInstance(credentials);
+    const connectRecord = instanceRecord(connect.body);
+    status = readString(connectRecord, 'status') ?? status;
+    qrcode = readString(connectRecord, 'qrcode', 'qrCode');
+    if (qrcode || connect.ok) record = connectRecord;
+    detail = connect.ok ? null : failureDetail('ao pedir a conexao', connect);
+
+    for (let attempt = 0; !qrcode && status !== 'connected' && attempt < qrPollAttempts; attempt += 1) {
+      await wait(pollDelayMs);
+      const poll = await uazapiClient.getInstanceStatus(credentials);
+      const pollRecord = instanceRecord(poll.body);
+      status = readString(pollRecord, 'status') ?? status;
+      qrcode = readString(pollRecord, 'qrcode', 'qrCode');
+      if (qrcode) record = pollRecord;
+      if (!poll.ok) detail = failureDetail('ao consultar a instancia', poll);
+    }
+  }
+
+  const qrCodeSvg = qrcode ? await toQrSvg(qrcode) : null;
+  if (qrcode && !qrCodeSvg) detail = 'A UAZAPI devolveu um codigo que nao deu para desenhar.';
+  else if (!qrcode && !detail && status !== 'connected') {
+    detail = 'A UAZAPI aceitou o pedido mas ainda nao publicou o QR code.';
   }
 
   return {
-    qrCodeSvg: qrcode ? await toQrSvg(qrcode) : null,
+    qrCodeSvg,
     pairCode: readString(record, 'paircode', 'pairCode'),
     connected: status === 'connected',
     status,
+    detail: qrCodeSvg ? null : detail,
   };
 }
 

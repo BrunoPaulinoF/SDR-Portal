@@ -99,6 +99,7 @@ export function registerInstanceConnectRoutes(
     if (!loaded) return undefined;
 
     const state = await requestConnectionQr(uazapiClient, loaded.credentials);
+    if (state.detail) request.log.warn({ sdrAgentId: loaded.agent.id, status: state.status, detail: state.detail }, 'qr indisponivel');
     return reply.type('text/html').send(renderQrPanel(state));
   });
 
@@ -171,6 +172,7 @@ export function registerInstanceConnectRoutes(
     if (!link) return undefined;
 
     const state = await requestConnectionQr(uazapiClient, link.credentials);
+    if (state.detail) request.log.warn({ shareLinkId: link.linkId, status: state.status, detail: state.detail }, 'qr indisponivel');
     if (state.connected && !link.connectedAt) await shareLinkRepository.markConnected(link.linkId, new Date());
 
     return reply.type('text/html').send(renderQrPanel(state));

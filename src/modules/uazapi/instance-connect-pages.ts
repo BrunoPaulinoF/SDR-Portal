@@ -5,6 +5,10 @@ import { shareLinkTtlMinutes } from './instance-share-link-repository.js';
 
 /** Intervalo de renovacao do QR: a UAZAPI expira o codigo em poucos segundos. */
 const qrRefreshSeconds = 25;
+/** Quando nem veio QR, insiste mais rapido — pode ser so a UAZAPI ainda publicando. */
+const qrRetrySeconds = 5;
+/** Depois de tantas tentativas seguidas sem QR, para e devolve a decisao ao usuario. */
+const qrMaxRetries = 3;
 
 /**
  * O SVG do QR e gerado por nos (biblioteca qrcode) ou e um <img> com data URI montado
@@ -20,9 +24,10 @@ export function renderQrPanel(state: InstanceConnectionState): string {
   }
 
   if (!state.qrCodeSvg) {
-    return `<div class="qr-box" data-connected="false">
+    return `<div class="qr-box" data-connected="false" data-qr="ausente" data-retry-seconds="${qrRetrySeconds}">
       <p class="muted">Nao foi possivel gerar o QR code agora.</p>
       <p class="muted">Status atual: ${escapeHtml(state.status ?? 'desconhecido')}</p>
+      ${state.detail ? `<p class="muted">${escapeHtml(state.detail)}</p>` : ''}
       <button class="button" type="button" data-qr-start>Tentar de novo</button>
     </div>`;
   }
@@ -31,7 +36,7 @@ export function renderQrPanel(state: InstanceConnectionState): string {
     ? `<p class="muted">Ou use o codigo de pareamento: <strong>${escapeHtml(state.pairCode)}</strong></p>`
     : '';
 
-  return `<div class="qr-box" data-connected="false">
+  return `<div class="qr-box" data-connected="false" data-qr="ok" data-retry-seconds="${qrRefreshSeconds}">
     ${state.qrCodeSvg}
     ${pairCode}
     <p class="muted">O codigo se renova sozinho enquanto esta pagina estiver aberta.</p>
@@ -69,15 +74,31 @@ function qrScript(endpoint: string): string {
       if (!painel) return;
       var timer = null;
       var ativo = false;
+      var falhas = 0;
+
+      function caixa() {
+        return painel.querySelector('[data-connected]');
+      }
 
       function conectado() {
-        var box = painel.querySelector('[data-connected]');
+        var box = caixa();
         return !!box && box.getAttribute('data-connected') === 'true';
       }
 
-      function agendar() {
+      function segundos() {
+        var box = caixa();
+        var valor = box && parseInt(box.getAttribute('data-retry-seconds'), 10);
+        return valor > 0 ? valor : ${qrRefreshSeconds};
+      }
+
+      function agendar(espera) {
         if (timer) clearTimeout(timer);
-        timer = setTimeout(carregar, ${qrRefreshSeconds * 1000});
+        timer = setTimeout(carregar, espera * 1000);
+      }
+
+      function parar() {
+        ativo = false;
+        if (timer) clearTimeout(timer);
       }
 
       function carregar() {
@@ -86,10 +107,22 @@ function qrScript(endpoint: string): string {
           .then(function (r) { return r.ok ? r.text() : Promise.reject(new Error('http ' + r.status)); })
           .then(function (html) {
             painel.innerHTML = html;
-            if (conectado()) { ativo = false; if (timer) clearTimeout(timer); return; }
-            agendar();
+            if (conectado()) return parar();
+            var box = caixa();
+            // Sem QR na resposta: insiste algumas vezes e depois deixa o botao decidir.
+            if (box && box.getAttribute('data-qr') === 'ausente') {
+              falhas += 1;
+              if (falhas >= ${qrMaxRetries}) return parar();
+            } else {
+              falhas = 0;
+            }
+            agendar(segundos());
           })
-          .catch(function () { agendar(); });
+          .catch(function () {
+            falhas += 1;
+            if (falhas >= ${qrMaxRetries}) return parar();
+            agendar(${qrRetrySeconds});
+          });
       }
 
       painel.addEventListener('click', function (evento) {
@@ -98,6 +131,7 @@ function qrScript(endpoint: string): string {
         if (!botao) return;
         botao.disabled = true;
         botao.textContent = 'Gerando...';
+        falhas = 0;
         ativo = true;
         carregar();
       });
