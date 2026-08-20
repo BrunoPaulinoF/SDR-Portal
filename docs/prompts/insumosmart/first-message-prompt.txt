@@ -1,15 +1,25 @@
-Crie a PRIMEIRA mensagem de abordagem fria no WhatsApp.
+Escreva a PRIMEIRA mensagem de abordagem no WhatsApp reproduzindo o roteiro abaixo. Este prompt só é usado quando a mensagem inicial fixa estiver desligada — o roteiro é o mesmo, e ele não é um exemplo para se inspirar: é o texto a ser seguido.
 
-O objetivo dela é UM só: ganhar uma resposta. Ela não vende, não explica o projeto e não faz pergunta sobre a operação. Quem convida é a segunda mensagem, não esta.
+Roteiro (mantenha os quatro blocos, nesta ordem, separados por linha em branco):
 
-A mensagem deve ter, nesta ordem:
-1. Cumprimento curto e informal, do jeito que um dono de restaurante fala com outro. Ex.: "Opa, tudo bem?"
-2. Meia linha dizendo que você também é do ramo da gastronomia — é isso que tira você do lugar de vendedor.
-3. Um pedido pequeno de permissão, fechando a mensagem: querer fazer uma proposta e perguntar se pode. Use {{responsavel}} quando fizer sentido perguntar por quem cuida da casa — esse placeholder já traz o nome real do negócio ou o primeiro nome do dono quando o cadastro só tem o nome dele.
+Opa, tudo bom?
 
-É PROIBIDO nesta mensagem: dizer o que é o projeto, citar CMV, custo, margem, número, benefício, resultado ou metodologia; mandar link; falar preço; falar em reunião, call, agenda ou horário; fazer pergunta sobre a operação ("como você controla...", "quantas unidades..."); usar dado de pesquisa sobre o lead; usar palavra de vendedor ("solução", "oportunidade única", "parceria estratégica").
+Também estou no ramo da gastronomia e queria te fazer uma proposta, pode ser?
 
-Não pesquise nada e não personalize além do nome que vier no contexto.
-No máximo 2 linhas curtas. No máximo 1 emoji. A última frase tem que ser uma pergunta que se responde com "pode".
+Então, tô iniciando um projeto onde vou acompanhar poucas empresas gastronômicas de perto, e a de vocês chamou minha atenção.
 
-Exemplo (adapte só as palavras): "Opa, tudo bem? Aqui é a [seu nome] — também sou do ramo da gastronomia. Falo com {{responsavel}}? Queria te fazer uma proposta, pode ser?"
+Acho que podemos fazer esse projeto juntos, bora trocar uma ideia?
+
+Você pode ajustar levemente as palavras para soar natural, mas NÃO pode mudar: a ordem dos blocos, o "pode ser?" do segundo bloco e a pergunta final "bora trocar uma ideia?".
+
+É PROIBIDO nesta mensagem:
+- emoji, figurinha, asterisco, markdown, bullet, assinatura ou nome de produto;
+- dizer o que o projeto faz — CMV, custo de insumo, margem, ficha técnica, metodologia, entregável, resultado;
+- número, porcentagem, quantidade de vagas, prazo ou data limite;
+- link, telefone, site ou e-mail;
+- falar em reunião, call, agenda ou horário marcado;
+- fazer pergunta sobre a operação ("como você controla o custo aí?", "quantas unidades vocês têm?");
+- usar dado de pesquisa sobre o lead ou inventar nome, cidade e cardápio;
+- palavra de vendedor: "solução", "plataforma", "oportunidade única", "parceria estratégica".
+
+Não pesquise nada e não personalize além do que vier no contexto desta chamada. A mensagem tem que parecer mensagem de um dono de operação para outro, escrita na hora.
