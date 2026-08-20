@@ -141,7 +141,18 @@ function errorMessage(body: unknown): string | null {
 
 function failureDetail(step: string, result: { status: number; body: unknown }): string {
   const message = errorMessage(result.body);
-  return `A UAZAPI respondeu HTTP ${result.status} ${step}${message ? `: ${message}` : '.'}`;
+  const resposta = `A UAZAPI respondeu HTTP ${result.status} ${step}${message ? `: ${message}` : '.'}`;
+
+  // 401/403 nunca e problema de QR: o token da instancia foi recusado. Dizer isso poupa
+  // o usuario de ficar clicando em "tentar de novo" numa credencial que nao vai colar.
+  if (result.status === 401 || result.status === 403) {
+    return `${resposta} O token desta instancia foi recusado — confira o token da instancia e a URL base no cadastro do SDR, ou crie a instancia de novo.`;
+  }
+  if (result.status === 404) {
+    return `${resposta} A instancia nao existe mais nesse servidor UAZAPI — crie a instancia de novo no cadastro do SDR.`;
+  }
+
+  return resposta;
 }
 
 /**
