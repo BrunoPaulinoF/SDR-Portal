@@ -71,6 +71,44 @@ Fora dos prompts: a variante de primeira mensagem **"Ancorada empresa" foi pausa
 respostas em 10 envios contra 43% da "Saudacao 1"; p = 0,004). O rodizio ficou com "Ancorada
 dor" (6 de 9) e "Saudacao 1".
 
+## Revisao de 20/08: a Mariana se oferecia como demonstracao
+
+Relato da operacao: em algumas conversas a Mariana convidava o lead a testar o pedido no
+WhatsApp **dela** ("manda um audio pedindo uma pizza que eu monto pra voce"). Isso quebra a
+persona — ela e do comercial, nao e a IA de atendimento — e a promessa nao tem como se cumprir:
+no fim daquela conversa quem escreve e um SDR de texto, entao o lead manda o audio e nao
+acontece nada.
+
+O `fix(followup)` anterior tratou so o job de follow-up. A causa continuava em pe nos outros
+caminhos, por quatro motivos que se somam:
+
+1. **A regra estava na camada errada.** "Voce nao e o produto que vende" e universal — vale para
+   qualquer SDR, em qualquer playbook —, mas so existia dentro do prompt editavel da Mariana, na
+   ETAPA 3, a uns 11 mil caracteres do comeco. Quem editasse o prompt no portal apagava a regra
+   sem perceber, e a Insumo Smart nunca a teve. Agora ela e uma regra fixa do `SDR_BASE_PROMPT`,
+   logo depois da regra de "voce so escreve nesta conversa", e aparece no preview de instrucoes
+   fixas das duas telas.
+2. **A oferta dava a deixa e vinha antes.** `buildSdrSystemPrompt` monta oferta -> prompt
+   editavel, entao o modelo lia "o objetivo e a pessoa ver a IA funcionando" (sem dizer ONDE)
+   varios milhares de caracteres antes de ler a proibicao. A oferta agora diz "ver a IA
+   funcionando NO CONTATO DA PIZZARIA DE DEMONSTRACAO" e fecha com "a Mariana nunca e a
+   demonstracao".
+3. **O historico ensinava o erro.** O cartao de demonstracao e gravado como mensagem de texto
+   ("Contato enviado: KyberFood - Pizzaria Demonstracao (5519...)"), e o fallback dele e um link
+   `wa.me`. Os dois voltavam para o modelo como turno DELE — ou seja, exemplo na propria boca de
+   duas coisas que a REGRA DURA 2 proibe, e registro de uma mensagem que o lead nunca viu assim
+   (ele recebeu um cartao). `aiHistoryText` agora troca esses registros por
+   "[o sistema enviou o cartao de contato de demonstracao nesta conversa]" nos dois geradores
+   (resposta e follow-up), sem mudar o que o operador ve na caixa de conversas.
+4. **A regra ficou repetida no ponto de uso.** Na ETAPA 3 sobrou uma linha curta apontando para a
+   REGRA DURA 7, em vez do paragrafo longo que competia com a lista de recursos logo acima.
+
+Fora da persona, uma linha errada no codigo da qualificacao: o system prompt abria com "Voce
+qualifica se um lead deve receber abordagem fria de **consultoria/mentoria de planejamento
+estrategico**" — sobra de outro produto, fixa em `initial-outreach.ts`, contradizendo o
+`lead-qualification-prompt.txt` logo abaixo. Passou a ser neutra ("a abordagem fria deste SDR ...
+nao presuma nenhum outro produto").
+
 ## Playbook
 
 A Mariana usa o playbook **`consultivo`**, que é o padrão. O funil dela (permissão →

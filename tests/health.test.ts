@@ -1345,7 +1345,7 @@ describe('initial outreach scheduler', () => {
     expect(calls).toEqual(['check:5511555555555:instance-token']);
     expect(aiCalls).toHaveLength(1);
     expect(aiCalls[0]).toContain('web:low');
-    expect(aiCalls[0]).toContain('lead deve receber abordagem fria');
+    expect(aiCalls[0]).toContain('lead deve receber a abordagem fria deste SDR');
     expect(aiCalls[0]).toContain('Descartar perfis individuais sem operacao empresarial clara.');
     expect(aiCalls[0]).not.toContain('Crie uma primeira mensagem para este lead.');
     expect(aiRuns[0]?.purpose).toBe('lead_fit_assessment');

@@ -6,6 +6,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 SDR Portal is an internal Fastify app that operates AI-driven SDR (sales development) agents over WhatsApp via the UAZAPI gateway. It manages companies, SDR agents, leads, conversations, and runs scheduled outreach + AI replies. The UI is server-rendered HTML in Portuguese. Product planning lives in `PLANO_SDR_PORTAL.md`; the README has full route documentation and deploy notes.
 
+## Dados de produção (leia antes de tentar o banco)
+
+O ambiente da sessão recebe o `.env` de produção, mas **a `DATABASE_URL` não conecta de fora**:
+o host dela é o nome de serviço interno do Docker (`sdr-portal_sdrportal`), então dá `ENOTFOUND`
+— não é firewall nem credencial, e nenhum retry ou flag de `psql` resolve. O que responde é o
+`APP_URL`. Para analisar conversas, o caminho é o usuário rodar `scripts/exportar-conversas.sh`
+na VPS e anexar o pacote. Detalhes, alternativas, mapa das tabelas e armadilhas de leitura
+(áudio vem em `transcription`, outbound pode estar duplicado): **`docs/ACESSO-AOS-DADOS.md`**.
+Queries prontas: `docs/sql/conversas.sql`.
+
 ## Commands
 
 ```bash
