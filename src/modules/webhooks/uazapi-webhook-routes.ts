@@ -11,7 +11,7 @@ import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
 import type { createAiResponseService } from '../ai/ai-response-service.js';
 import type { createAudioTranscriptionService } from '../audio/audio-transcription-service.js';
 import type { ResetConversationService } from './reset-conversation-service.js';
-import { isAudioMessageType, normalizeUazapiWebhook } from './uazapi-normalizer.js';
+import { isAudioMessageType, isGroupWebhook, normalizeUazapiWebhook } from './uazapi-normalizer.js';
 import type { WebhookEventRepository } from './webhook-event-repository.js';
 
 const paramsSchema = z.object({ sdrAgentId: z.string().uuid() });
@@ -121,6 +121,15 @@ export function registerUazapiWebhookRoutes(
     try {
       const agent = await sdrAgentRepository.findById(params.data.sdrAgentId);
       if (!agent) throw new Error('SDR not found');
+
+      // Grupo nao e lead: ignorar antes de resolver lead, sem marcar o evento como falha.
+      if (isGroupWebhook(request.body)) {
+        await webhookEventRepository.updateProcessing(event.id, {
+          processingStatus: 'ignored',
+          processingError: 'Mensagem de grupo: grupo nao e lead.',
+        });
+        return reply.send({ ok: true, ignored: 'group' });
+      }
 
       const normalized = normalizeUazapiWebhook(request.body);
       if (!normalized) throw new Error('Unsupported or invalid webhook payload');

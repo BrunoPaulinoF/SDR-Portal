@@ -14,7 +14,7 @@ import { createMemoryLeadRepository } from '../src/modules/leads/lead-repository
 import { createMemorySdrAgentRepository } from '../src/modules/sdr-agents/sdr-agent-repository.js';
 import { encryptSecret } from '../src/modules/security/secrets.js';
 import type { UazapiClient, UazapiResult } from '../src/modules/uazapi/uazapi-client.js';
-import { normalizeUazapiWebhook } from '../src/modules/webhooks/uazapi-normalizer.js';
+import { isGroupWebhook, normalizeUazapiWebhook } from '../src/modules/webhooks/uazapi-normalizer.js';
 import { createMemoryWebhookEventRepository } from '../src/modules/webhooks/webhook-event-repository.js';
 import { hashPassword } from '../src/modules/auth/password.js';
 import writeXlsxFile from 'write-excel-file/node';
@@ -1673,6 +1673,39 @@ describe('UAZAPI normalizer', () => {
 
     expect(normalized?.whatsappNumber).toBe('553499969911');
   });
+
+  it('ignora mensagem de grupo em vez de atribui-la a um lead', () => {
+    // Payload real: o grupo interno "Kybernan - Projeto Insumo Smart" caiu no chat de um
+    // lead porque o remetente do grupo so vem como LID, e o LID casava com o do lead.
+    const grupo = {
+      EventType: 'messages',
+      chat: { id: 'r0756b929e02fb2', wa_chatid: '120363406226188320@g.us', wa_isGroup: true, name: 'Kybernan - Projeto Insumo Smart' },
+      message: {
+        chatid: '120363406226188320@g.us',
+        sender: '255954398511171@lid',
+        sender_lid: '255954398511171@lid',
+        senderName: '~marcelino',
+        fromMe: false,
+        isGroup: true,
+        messageType: 'Conversation',
+        text: 'Ficou esquisito mesmo',
+        id: '5519997719670:AC080DC4A624DD0DBCA0C51C61B8419F',
+      },
+    };
+
+    expect(isGroupWebhook(grupo)).toBe(true);
+    expect(normalizeUazapiWebhook(grupo)).toBeNull();
+  });
+
+  it('nao confunde conversa individual com grupo', () => {
+    const individual = {
+      event: 'messages',
+      data: { id: 'MSG-1', chatid: '5519971253411@s.whatsapp.net', sender_pn: '5519971253411@s.whatsapp.net', isGroup: false, fromMe: false, type: 'conversation', text: 'Oi' },
+    };
+
+    expect(isGroupWebhook(individual)).toBe(false);
+    expect(normalizeUazapiWebhook(individual)?.whatsappNumber).toBe('5519971253411');
+  });
 });
 
 describe('follow-up scheduler', () => {
@@ -1921,6 +1954,63 @@ describe('follow-up scheduler', () => {
 });
 
 describe('UAZAPI webhook routes', () => {
+  it('nao cria lead nem mensagem a partir de um grupo', async () => {
+    const user = await createTestUser();
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const conversationRepository = createMemoryConversationRepository();
+    const webhookEventRepository = createMemoryWebhookEventRepository();
+    const company = await companyRepository.create({
+      name: 'Insumo Smart',
+      legalName: null,
+      cnpj: null,
+      segment: 'Gastronomia',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({ companyId: company.id, name: 'sdr-insumo-smart', displayName: 'Franciely' });
+
+    app = buildApp({
+      authRepository: createMemoryAuthRepository([user]),
+      companyRepository,
+      conversationRepository,
+      leadRepository,
+      sdrAgentRepository,
+      webhookEventRepository,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/webhooks/uazapi/${agent.id}`,
+      payload: {
+        EventType: 'messages',
+        chat: { wa_chatid: '120363406226188320@g.us', wa_isGroup: true, name: 'Kybernan - Projeto Insumo Smart' },
+        message: {
+          id: 'MSG-GRUPO',
+          chatid: '120363406226188320@g.us',
+          sender: '255954398511171@lid',
+          sender_lid: '255954398511171@lid',
+          fromMe: false,
+          isGroup: true,
+          type: 'conversation',
+          text: 'Ficou esquisito mesmo',
+        },
+      },
+    });
+
+    const events = await webhookEventRepository.list();
+
+    expect(response.statusCode).toBe(200);
+    // o evento e guardado para auditoria, mas nao vira lead nem conversa
+    expect(events).toHaveLength(1);
+    expect(events[0]?.processingStatus).toBe('ignored');
+    expect(await leadRepository.list()).toHaveLength(0);
+    expect(await conversationRepository.list()).toHaveLength(0);
+  });
+
   it('stores raw webhook, message and updates existing lead conversation', async () => {
     const user = await createTestUser();
     const companyRepository = createMemoryCompanyRepository();
