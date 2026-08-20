@@ -1,3 +1,5 @@
+import { stripEmoji } from './message-text.js';
+
 export interface ResponsePart {
   delayMs: number;
   text: string;
@@ -45,13 +47,40 @@ function splitParagraph(paragraph: string, maxChars: number): string[] {
   return parts;
 }
 
+/** Tem alguma letra ou numero: emoji e pontuacao sozinhos nao contam. */
+function hasWords(text: string): boolean {
+  return /\p{L}|\p{N}/u.test(text);
+}
+
+/**
+ * A IA costuma fechar a mensagem com um emoji em paragrafo proprio, e o split por
+ * paragrafo transformava esse emoji numa mensagem separada no WhatsApp. Cola as partes
+ * sem texto na parte vizinha em vez de manda-las sozinhas.
+ */
+function mergeWordlessParts(parts: string[]): string[] {
+  const merged: string[] = [];
+
+  for (const part of parts) {
+    const previous = merged.at(-1);
+    if (previous !== undefined && !hasWords(part)) merged[merged.length - 1] = `${previous} ${part}`;
+    else merged.push(part);
+  }
+
+  const [first, second, ...rest] = merged;
+  // Emoji solto na frente cola na proxima parte, pelo mesmo motivo.
+  if (first !== undefined && second !== undefined && !hasWords(first)) return [`${first} ${second}`, ...rest];
+  return merged;
+}
+
 export function buildResponseParts(message: string, config: ResponseBufferConfig): ResponsePart[] {
   const maxChars = Math.max(1, config.maxPartChars);
-  const rawParts = message
-    .split(/\n{2,}/)
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .flatMap((part) => splitParagraph(part, maxChars));
+  const rawParts = mergeWordlessParts(
+    stripEmoji(message)
+      .split(/\n{2,}/)
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .flatMap((part) => splitParagraph(part, maxChars)),
+  );
 
   return rawParts.map((text) => ({
     text,

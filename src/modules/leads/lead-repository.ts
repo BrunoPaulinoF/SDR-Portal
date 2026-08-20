@@ -66,6 +66,9 @@ export interface LeadRepository {
   update(id: string, input: LeadInput): Promise<Lead | null>;
 }
 
+/** Etapas em que a conversa ja acabou: nada de follow-up depois delas. */
+const ENDED_CONVERSATION_STAGES = ['handoff_done', 'not_interested'];
+
 function normalize(input: LeadInput): Omit<Lead, 'id' | 'createdAt' | 'updatedAt'> {
   return {
     companyId: input.companyId,
@@ -214,6 +217,11 @@ export function createMemoryLeadRepository(seedLeads: Lead[] = []): LeadReposito
               lead.followupDueAt <= now &&
               lead.followupSentAt === null &&
               lead.followupDisabledAt === null &&
+              // Conversa encerrada nao recebe follow-up nem quando a IA marcou so a etapa
+              // (ou prometeu o handoff no texto) sem desativar o follow-up na hora.
+              lead.handoffRequestedAt === null &&
+              lead.notInterestedAt === null &&
+              !ENDED_CONVERSATION_STAGES.includes(lead.conversationStage) &&
               (quietSince === null || !hasActivityAfter(lead, quietSince)) &&
               !all.some(
                 (other) =>

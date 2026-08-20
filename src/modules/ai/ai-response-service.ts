@@ -1,4 +1,4 @@
-import type { Conversation, Lead, SdrAgent } from '../../db/schema.js';
+import type { Conversation, Lead, Message, SdrAgent } from '../../db/schema.js';
 import type { ConversationRepository } from '../conversations/conversation-repository.js';
 import {
   contactDisplayName,
@@ -227,6 +227,27 @@ async function sendDemoContact(
 }
 
 const MAX_GENERATE_ATTEMPTS = 3;
+const HISTORY_TURNS = 30;
+
+/**
+ * Uma resposta da IA sai para o WhatsApp quebrada em varias partes, e cada parte vira
+ * uma linha em `messages`. Cortar o historico por linha descartava o comeco da conversa
+ * depois de poucas trocas reais, e a IA voltava a perguntar o que o lead ja tinha
+ * respondido. Junta as partes seguidas do mesmo lado num turno so e corta por turno.
+ */
+function toChatTurns(history: Message[], maxTurns: number): AiChatMessage[] {
+  const turns: AiChatMessage[] = [];
+
+  for (const message of history) {
+    const role: AiChatMessage['role'] = message.direction === 'inbound' ? 'user' : 'assistant';
+    const content = message.text ?? message.transcription ?? '[mensagem sem texto]';
+    const last = turns.at(-1);
+    if (last && last.role === role) last.content = `${last.content}\n${content}`;
+    else turns.push({ role, content });
+  }
+
+  return turns.slice(-maxTurns);
+}
 
 /**
  * O provider (deepseek-v4-pro) as vezes devolve JSON vazio/cortado (gasta o
@@ -278,8 +299,14 @@ async function applyLeadActions(
   const requestedStage = normalizeStage(actionString(setStageAction ?? '', 'stage') ?? parsed.stage_sugerido);
   const shouldMarkNotInterested =
     hasAction('mark_not_interested') || parsed.status_sugerido === 'not_interested' || requestedStage === 'not_interested';
-  const shouldDisableFollowup = hasAction('disable_followup') || shouldMarkNotInterested;
-  const shouldNotifyHandoff = hasNotifyHandoff(parsed) && !input.lead.handoffRequestedAt;
+  // A IA as vezes promete o handoff so no texto ("ja pedi pro Fernando te chamar") e
+  // esquece a acao notify_handoff. Sem tratar a etapa/status sugeridos como o mesmo
+  // sinal, o lead seguia "in_conversation" com follow-up armado e recebia uma mensagem
+  // do nada horas depois de a conversa ja ter sido encerrada.
+  const handoffSignalled =
+    hasNotifyHandoff(parsed) || requestedStage === 'handoff_done' || parsed.status_sugerido === 'transferred';
+  const shouldDisableFollowup = hasAction('disable_followup') || shouldMarkNotInterested || handoffSignalled;
+  const shouldNotifyHandoff = handoffSignalled && !input.lead.handoffRequestedAt;
 
   if (requestedStage && requestedStage !== input.lead.conversationStage) {
     await deps.leadRepository.updateStage(input.lead.id, requestedStage, now);
@@ -313,10 +340,7 @@ export function createAiResponseService(deps: AiResponseDependencies) {
       const history = await deps.conversationRepository.listMessages(input.conversation.id);
       const messages: AiChatMessage[] = [
         { role: 'system', content: systemPrompt(input.agent, input.lead) },
-        ...history.slice(-20).map((message): AiChatMessage => ({
-          role: message.direction === 'inbound' ? 'user' : 'assistant',
-          content: message.text ?? message.transcription ?? '[mensagem sem texto]',
-        })),
+        ...toChatTurns(history, HISTORY_TURNS),
       ];
       const startedAt = Date.now();
 
