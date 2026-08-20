@@ -113,10 +113,24 @@ Na tela do SDR (`/sdr-agents/<id>/edit`):
 | Máximo de tokens de saída | 1500 |
 | Contato de demonstração | **em branco** — este SDR não usa cartão de demonstração |
 
-Na tela **Msg inicial** (`/sdr-agents/<id>/first-messages`): cadastrar a mensagem fixa de
-`first-message-variants.md`, sem teste A/B — o roteiro é um só, e variar o texto aqui só
-serviria para reintroduzir a pergunta errada. `first-message-prompt.txt` fica salvo como rede
-de segurança para quando a mensagem fixa estiver desligada.
+Na tela **Msg inicial** (`/sdr-agents/<id>/first-messages`): cadastrar **uma** variante com
+o texto de `first-message-variants.md` e deixar o modo em **mensagem fixa** (é o mesmo botão
+do teste A/B — uma variante ativa significa que todo lead recebe esse texto). Com o modo em
+"gerada por IA" este roteiro não é usado. `first-message-prompt.txt` fica salvo como rede de
+segurança para esse caso.
+
+### Se a IA mandar uma mensagem que não é o roteiro
+
+A abertura errada — "Bom dia! Aqui é a Francielly, da Insumo Smart... posso te fazer uma
+pergunta rápida sobre a operação de vocês?" — é a abertura do playbook **consultivo**, escrita
+pela IA. Ela sai quando uma destas três coisas está fora do lugar no portal, e nenhum arquivo
+deste diretório muda isso: os prompts vivem no banco.
+
+| Onde | Tem que estar | Se estiver errado |
+| --- | --- | --- |
+| `/sdr-agents/<id>/edit` → Playbook de conversa | **Convite** | Em Consultivo a IA explica, pergunta a rotina e vende — o funil oposto |
+| `/sdr-agents/<id>/first-messages` → Modo | **Mensagem fixa** | Em "gerada por IA" a abertura é reescrita a cada lead |
+| `/sdr-agents/<id>/first-messages` → Variante ativa | O texto de `first-message-variants.md` | Sem variante ativa o portal cai na IA mesmo em modo fixo |
 
 ## O que medir
 

@@ -1,9 +1,14 @@
 # Mensagem inicial (texto fixo)
 
 Esta é a mensagem de abordagem da Insumo Smart, **exatamente como o Fernando escreve**.
-Ela é o texto da tela **Msg inicial** (`/sdr-agents/<id>/first-messages`): em modo fixo o
-texto sai como está escrito aqui, sem passar pela IA — sem custo de token, sem variação
-entre leads e sem risco de a IA reescrever a pergunta.
+Ela é o texto da tela **Msg inicial** (`/sdr-agents/<id>/first-messages`), com o modo em
+**mensagem fixa**: o texto sai como está escrito aqui, sem passar pela IA — sem custo de
+token, sem variação entre leads e sem risco de a IA reescrever a pergunta.
+
+> **Atenção ao modo.** No portal, mensagem fixa é o mesmo botão do teste A/B: uma variante
+> ativa = todo lead recebe este texto; duas ou mais = rodízio entre elas. Com o modo em
+> "gerada por IA", este arquivo não é usado — a IA escreve a abertura do zero, e é aí que
+> ela volta a mandar a abertura consultiva ("posso te fazer uma pergunta sobre a operação?").
 
 ```
 Opa, tudo bom?
@@ -45,9 +50,14 @@ existe para corrigir.
 - Sem dizer o que o projeto faz (CMV, custo, margem, ficha técnica). A curiosidade é o ativo.
 - Sem nome de produto, sem apresentação da empresa e sem assinatura.
 
-## Sobre o teste A/B
+## Como deixar no portal
 
-O teste A/B fica **desligado**. O roteiro é este e vale para todo lead — variação de texto
-aqui só serviria para reintroduzir a pergunta errada. Se um dia houver teste, as variantes
-têm que manter os quatro blocos acima e terminar em "bora trocar uma ideia?"; o que se testa
-é a redação, nunca o convite.
+Em `/sdr-agents/<id>/first-messages`:
+
+1. Cadastrar **uma** variante com o texto acima, marcada como ativa.
+2. Clicar em **"Usar mensagem fixa (texto exato, sem IA)"**. O painel tem que passar a
+   dizer "Mensagem fixa" — se estiver escrito "Gerada por IA", a mensagem sai errada.
+3. Não cadastrar uma segunda variante: com duas ativas o portal entra em rodízio, e o
+   roteiro deixa de ser um só. Se um dia houver teste, as variantes têm que manter os
+   quatro blocos acima e terminar em "bora trocar uma ideia?" — o que se testa é a
+   redação, nunca o convite.

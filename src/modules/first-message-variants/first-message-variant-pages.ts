@@ -1,4 +1,5 @@
 import type { SdrAgent } from '../../db/schema.js';
+import { resolveSdrPlaybook } from '../ai/sdr-playbooks.js';
 import { escapeHtml, renderLayout } from '../web/html.js';
 import type { FirstMessageVariantMetrics } from './first-message-variant-repository.js';
 
@@ -40,6 +41,12 @@ export function renderFirstMessageVariantsPage(
   error?: string,
 ): string {
   const abOn = agent.firstMessageMode === 'ab_test';
+  // O playbook convite depende de um roteiro exato: com a IA escrevendo a abertura,
+  // cada lead recebe um texto diferente do combinado — foi assim que um SDR de convite
+  // acabou mandando a abertura consultiva ("posso te fazer uma pergunta sobre a operacao?").
+  const roteiroWarning = !abOn && resolveSdrPlaybook(agent.playbook) === 'convite'
+    ? '<p class="alert-error">Este SDR usa o playbook Convite, que depende de um roteiro exato. Enquanto a primeira mensagem for gerada por IA, o texto sai diferente do roteiro a cada lead. Cadastre a mensagem do roteiro abaixo e mude para mensagem fixa.</p>'
+    : '';
   const totalSent = metrics.reduce((sum, m) => sum + m.sent, 0);
   const totalReplied = metrics.reduce((sum, m) => sum + m.replied, 0);
 
@@ -50,23 +57,25 @@ export function renderFirstMessageVariantsPage(
       <div>
         <h2>Modo da primeira mensagem</h2>
         <p class="muted">${abOn
-          ? 'Teste A/B <strong>ligado</strong>: as variantes fixas abaixo sao enviadas por rodizio, sem IA e sem custo de token.'
-          : 'IA <strong>ligada</strong>: a primeira mensagem e gerada pela IA com o first_message_prompt. As variantes abaixo ficam paradas.'}</p>
+          ? '<strong>Mensagem fixa</strong>: o texto das variantes ativas abaixo sai exatamente como esta escrito, por rodizio, sem IA e sem custo de token.'
+          : '<strong>Gerada por IA</strong>: a primeira mensagem e escrita pela IA a cada lead, com o prompt de primeira mensagem. O texto muda de lead para lead, e as variantes abaixo ficam paradas.'}</p>
       </div>
       <div class="table-actions">
         <form method="post" action="/sdr-agents/${agent.id}/first-message-mode" data-inline>
           <input type="hidden" name="mode" value="${abOn ? 'ai' : 'ab_test'}">
-          <button class="button ${abOn ? 'button-secondary' : ''}" type="submit">${abOn ? 'Desligar teste A/B (voltar pra IA)' : 'Ligar teste A/B'}</button>
+          <button class="button ${abOn ? 'button-secondary' : ''}" type="submit">${abOn ? 'Deixar a IA gerar a primeira mensagem' : 'Usar mensagem fixa (texto exato, sem IA)'}</button>
         </form>
       </div>
     </header>
+    ${roteiroWarning}
+    <p class="muted">Com duas ou mais variantes ativas, o modo fixo vira teste A/B: o rodizio compara a taxa de resposta de cada texto. Com uma so, todo lead recebe a mesma mensagem.</p>
     <p class="muted">Resumo geral: <strong>${totalSent}</strong> enviadas · <strong>${totalReplied}</strong> respostas · taxa <strong>${replyRate(totalSent, totalReplied)}</strong>.</p>
   </section>`;
 
   const cards = metrics.map((m) => renderVariantCard(agent.id, m)).join('');
   const emptyCards = metrics.length
     ? ''
-    : '<section class="empty-state"><h2>Nenhuma variante ainda</h2><p class="muted">Crie a primeira variante abaixo para comecar o teste A/B.</p></section>';
+    : '<section class="empty-state"><h2>Nenhuma variante ainda</h2><p class="muted">Crie a mensagem abaixo para o SDR mandar um texto fixo em vez de deixar a IA escrever.</p></section>';
 
   const newPanel = `<section class="panel">
     <h2>Nova variante</h2>
@@ -89,7 +98,7 @@ export function renderFirstMessageVariantsPage(
   <header class="topbar">
     <div>
       <h1>Mensagem inicial · ${escapeHtml(agent.displayName)}</h1>
-      <p class="muted">Teste A/B de primeira mensagem (fixa, sem token) e taxa de resposta por variante.</p>
+      <p class="muted">Mensagem fixa (texto exato, sem token) ou gerada por IA, com a taxa de resposta de cada texto.</p>
     </div>
     <div class="actions">
       <a class="button button-secondary" href="/sdr-agents">Voltar para SDRs</a>

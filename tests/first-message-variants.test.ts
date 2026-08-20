@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { createMemoryAiRunRepository } from '../src/modules/ai/ai-run-repository.js';
 import type { AiClient } from '../src/modules/ai/ai-client.js';
 import { createMemoryFirstMessageVariantRepository } from '../src/modules/first-message-variants/first-message-variant-repository.js';
+import { renderFirstMessageVariantsPage } from '../src/modules/first-message-variants/first-message-variant-pages.js';
 import { createMemoryLeadRepository } from '../src/modules/leads/lead-repository.js';
 import { createMemorySdrAgentRepository } from '../src/modules/sdr-agents/sdr-agent-repository.js';
 import { resolveFirstMessage } from '../src/modules/scheduler/initial-outreach.js';
@@ -285,5 +286,25 @@ describe('first message A/B variants', () => {
     );
 
     expect(variantId).toBeNull();
+  });
+});
+
+describe('tela da mensagem inicial', () => {
+  it('avisa quando um SDR de convite ainda deixa a IA escrever a abertura', async () => {
+    const agent = await makeAgent({ playbook: 'convite', firstMessageMode: 'ai' });
+
+    const html = renderFirstMessageVariantsPage(agent, []);
+
+    expect(html).toContain('playbook Convite');
+    expect(html).toContain('Usar mensagem fixa');
+  });
+
+  it('nao avisa quando a mensagem fixa ja esta ligada', async () => {
+    const agent = await makeAgent({ playbook: 'convite', firstMessageMode: 'ab_test' });
+
+    const html = renderFirstMessageVariantsPage(agent, []);
+
+    expect(html).not.toContain('playbook Convite');
+    expect(html).toContain('Mensagem fixa');
   });
 });
