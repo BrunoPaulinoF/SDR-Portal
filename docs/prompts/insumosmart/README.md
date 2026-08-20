@@ -104,6 +104,52 @@ quantidade de vagas, prazo, contagem regressiva.
 Além disso, `Pessoa do time para handoff` passou a entrar no contexto fixo do prompt: a IA
 usa o nome configurado em `handoffName` em vez de um nome escrito à mão no meio do prompt.
 
+## Cordialidade e indicação
+
+O Fernando mandou prints de conversas reais com dois problemas que não vinham do roteiro, e sim
+do que o prompt deixava de dizer:
+
+1. **A SDR saiu mal-educada.** O prompt empurra mensagem curta, informal e sem frase de
+   atendimento ("fico à disposição", "como posso te ajudar?"). Sem contrapartida escrita, a IA
+   leu isso como licença para ser ríspida: resposta seca, sem agradecer, despedida cortada.
+2. **Quem se ofereceu para indicar ouviu "não precisa".** Leads que responderam que não estão
+   mais no ramo ofereceram o contato de outras casas, e a IA recusou. Era lead novo, de graça,
+   jogado no lixo — e ainda com grosseria contra quem estava tentando ajudar.
+
+**Cordialidade virou regra fixa (`SDR_BASE_PROMPT`)**, não regra de playbook: vale para qualquer
+SDR e não briga com nenhum funil. Curto e informal é o tom, seco e grosseiro nunca; agradecer
+quando o lead responde; encerrar agradecendo o tempo dele e desejando o melhor, inclusive quando
+a resposta é não. Uma regra irmã proíbe o descarte — "não precisa", "não serve" e ignorar o que
+o lead ofereceu. O bloco do playbook `convite` recebeu o complemento correspondente: fugir da
+frase de atendimento não é ser seco, e encerrar sem argumentar não é bater a porta.
+
+**Indicação também é regra fixa**, com uma ação própria para não se confundir com o handoff:
+
+| Situação | O que a SDR faz |
+| --- | --- |
+| O lead oferece o contato de alguém | Agradece, aceita e registra com `notify_referral` |
+| O lead diz que não é, ou não é mais, do ramo | Pede UMA indicação, com "por favor", antes de encerrar |
+| O contato é de alguém da própria casa (sócio, gerente, dono) | Continua sendo `notify_handoff`: a conversa está indo para quem decide ali |
+| O lead pediu para não receber mais mensagens, reclamou ou desconfiou | Não pede nada: pede desculpas pelo incômodo e encerra |
+
+`notify_referral` manda para o mesmo WhatsApp do handoff uma mensagem com quem indicou e os
+dados do indicado, mas **não** transfere a conversa: o lead que indicou continua com o status
+que ele merece (`not_interested`, em geral), o `handoff_summary` dele não é sobrescrito e o
+funil não ganha uma transferência que nunca existiu. Se a IA esquecer o resumo, o sistema manda
+a última mensagem do lead crua — melhor um texto sem formatação do que um contato perdido.
+
+Ordem no encerramento, que o prompt cobra: `disable_followup` sai já na mensagem em que a SDR
+pede a indicação (quem não é mais do ramo não pode continuar recebendo follow-up), e
+`mark_not_interested` só depois da resposta — encerrar antes mata a pergunta que acabou de ser
+feita. As indicações aparecem na própria conversa e nos `ai_runs` (a ação fica no
+`parsed_json`); no WhatsApp do Fernando elas chegam com o cabeçalho "Indicacao recebida pela
+<SDR>", diferente do handoff.
+
+O `prompt.txt` também absorveu duas regras que estavam só no portal e nunca tinham sido
+versionadas: a SDR nunca diz "vou passar você para o Fernando" (ele não responde por este
+número — o que sai daqui é o contato indo para o WhatsApp dele) e nunca solta o nome sozinho,
+já que o lead não sabe quem é Fernando: ele é "o Fernando, dono da Insumo Smart".
+
 ## Como configurar no portal
 
 Na tela do SDR (`/sdr-agents/<id>/edit`):
@@ -169,13 +215,16 @@ deste diretório muda isso: os prompts vivem no banco.
 
 ## O que medir
 
-O funil desta SDR tem quatro números, e o terceiro é o que importa:
+O funil desta SDR tem cinco números, e o terceiro é o que importa:
 
 1. **enviadas → responderam** — mede o bloco 1, o "opa, tudo bom?".
 2. **responderam → chegaram ao convite** — mede se a conversa sobrevive aos passos do meio.
 3. **chegaram ao convite → disseram sim** — mede o convite em si. É a métrica da estratégia.
 4. **sim → handoff acionado** — mede a IA, não o roteiro. Se o lead disse sim e o handoff não
    saiu, o problema é o prompt reconhecendo o aceite; olhe os `ai_runs` da conversa.
+5. **fora do perfil → indicação recebida** — o número de graça. Lead que não é do ramo e sai da
+   conversa sem nenhum pedido de indicação é oportunidade perdida; procure `notify_referral` no
+   `parsed_json` dos `ai_runs`.
 
 Estágio de cada lead fica em `conversation_stage` (`permission`, `discovery`, `solution`,
 `handoff_offer`, `handoff_done`, `not_interested`) e o dashboard já agrupa por ele. No
@@ -183,9 +232,10 @@ playbook `convite` os nomes têm outro significado: `permission` é a leitura da
 abertura, `discovery` é o convite devolvido quando a resposta não foi um sim, e `solution` é
 a resposta curta ao "o que é isso?".
 
-Vale revisar as primeiras ~50 conversas à mão. Os dois erros esperados são a IA explicando
-demais na etapa `solution` (e o lead sumindo com a curiosidade satisfeita) e handoff acionado
-sem sim de verdade (o "o que é isso?" lido como aceite).
+Vale revisar as primeiras ~50 conversas à mão. Os três erros esperados são a IA explicando
+demais na etapa `solution` (e o lead sumindo com a curiosidade satisfeita), handoff acionado
+sem sim de verdade (o "o que é isso?" lido como aceite) e conversa encerrada com quem está fora
+do perfil sem o pedido de indicação.
 
 ## Antes de ligar — confirmar com o Fernando
 

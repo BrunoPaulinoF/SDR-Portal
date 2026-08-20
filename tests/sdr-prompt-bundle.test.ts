@@ -37,6 +37,17 @@ describe('bundle de prompts do repositorio', () => {
     expect(bundle.fields.prompt).toContain('Acho que podemos fazer esse projeto juntos, bora trocar uma ideia?');
   });
 
+  it('traz o pedido de indicacao para quem nao e (mais) do ramo', async () => {
+    const bundle = await readPromptBundle(INSUMOSMART_DIR);
+    const prompt = bundle.fields.prompt ?? '';
+
+    // O erro relatado nos prints: lead ex-gastronomia oferecendo contatos e ouvindo "nao precisa".
+    expect(prompt).toContain('Contato oferecido não se recusa nunca');
+    expect(prompt).toContain('será que pode me passar algum contato que se interessaria, por favor?');
+    expect(prompt).toContain('notify_referral');
+    expect(prompt).toContain('Informal não é seco');
+  });
+
   it('planeja playbook, modo da primeira mensagem e prompts para um SDR ainda consultivo', async () => {
     const agent = await makeAgent({ playbook: 'consultivo', firstMessageMode: 'ai', handoffName: 'Fernando', handoffPhone: '11988887777' });
     const bundle = await readPromptBundle(INSUMOSMART_DIR);

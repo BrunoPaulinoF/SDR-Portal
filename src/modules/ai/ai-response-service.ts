@@ -98,10 +98,60 @@ function handoffSummary(parsed: ParsedAiResponse, lead: Lead, history: AiChatMes
   return `Lead ${lead.companyName} (${lead.whatsappNumber}) precisa de atendimento humano. Ultima mensagem: ${lastUserMessage}`;
 }
 
+/**
+ * O cadastro da Receita traz "62.701.245 FULANA DE TAL" em companyName, e o humano que recebe
+ * o aviso no WhatsApp nao precisa do documento colado no nome.
+ */
+function cleanLeadName(lead: Lead): string {
+  return tradeBusinessName(lead) || ownerPersonName(lead) || lead.companyName;
+}
+
+/**
+ * Contato que o lead oferece (o amigo dono de outra casa, o antigo socio) e lead novo de graca:
+ * a IA registra com notify_referral e o time recebe os dados aqui. Diferente do handoff, a
+ * conversa atual NAO vira transferida — quem indicou continua sendo quem e para o funil.
+ */
+function referralSummary(parsed: ParsedAiResponse, history: AiChatMessage[]): string | null {
+  for (const action of parsed.actions) {
+    if (actionType(action) === 'notify_referral') {
+      const summary = actionString(action, 'summary');
+      if (summary) return summary;
+    }
+  }
+
+  // Sem resumo da IA os dados ainda estao na ultima mensagem do lead: melhor mandar cru do que perder.
+  const lastUserMessage = [...history].reverse().find((message) => message.role === 'user')?.content?.trim();
+  return lastUserMessage ? `(sem resumo da IA) ultima mensagem do lead: ${lastUserMessage}` : null;
+}
+
+async function notifyReferral(
+  deps: AiResponseDependencies,
+  agent: SdrAgent,
+  lead: Lead,
+  credentials: { baseUrl: string; token: string },
+  summary: string,
+): Promise<void> {
+  if (!agent.handoffPhone) return;
+
+  const text = [
+    `Indicacao recebida pela ${agent.displayName}.`,
+    `Quem indicou: ${cleanLeadName(lead)} (${lead.whatsappNumber})`,
+    `Contato indicado: ${summary}`,
+  ].join('\n');
+
+  const result = await deps.uazapiClient.sendText({
+    ...credentials,
+    number: normalizePhone(agent.handoffPhone),
+    text,
+    readchat: true,
+    trackSource: 'sdr-portal-referral',
+    trackId: `referral-${lead.id}`,
+  });
+  if (!result.ok) throw new Error(`UAZAPI returned HTTP ${result.status}`);
+}
+
 function interpolateHandoffTemplate(template: string, agent: SdrAgent, lead: Lead, summary: string): string {
-  // Nome limpo primeiro: o cadastro da Receita traz "62.701.245 FULANA DE TAL" em companyName,
-  // e o humano que recebe o handoff nao precisa do documento colado no nome.
-  const cleanName = tradeBusinessName(lead) || ownerPersonName(lead) || lead.companyName;
+  const cleanName = cleanLeadName(lead);
   const replacements: Record<string, string> = {
     companyName: cleanName,
     company_name: cleanName,
@@ -298,6 +348,12 @@ async function applyLeadActions(
     const summary = handoffSummary(parsed, input.lead, history);
     await notifyHandoff(deps, input.agent, input.lead, credentials, summary);
     await deps.leadRepository.markTransferred(input.lead.id, now, summary);
+  }
+
+  // Por ultimo: aviso externo que nao pode impedir as marcacoes do lead se a UAZAPI falhar.
+  if (hasAction('notify_referral')) {
+    const referral = referralSummary(parsed, history);
+    if (referral) await notifyReferral(deps, input.agent, input.lead, credentials, referral);
   }
 }
 
