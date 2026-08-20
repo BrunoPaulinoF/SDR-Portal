@@ -1,8 +1,8 @@
 # Mensagem inicial (texto fixo)
 
-A abordagem da Insumo Smart são **quatro mensagens**, mandadas uma por vez, esperando o lead
-responder entre elas. Só a primeira sai no disparo; as outras três a SDR manda ao longo da
-conversa, uma a cada resposta.
+A abordagem da Insumo Smart é uma conversa de quatro passos, um por vez, esperando o lead
+responder entre eles. Só o primeiro sai no disparo, como texto fixo; os outros três a SDR
+conduz com as palavras dela, seguindo a conversa-base do Fernando.
 
 Este arquivo é só o **bloco 1** — o texto da tela **Msg inicial**
 (`/sdr-agents/<id>/first-messages`), com o modo em **mensagem fixa**: sai exatamente como está
@@ -12,15 +12,17 @@ escrito, sem passar pela IA, sem custo de token e sem risco de reescrita.
 Opa, tudo bom?
 ```
 
-Os blocos 2, 3 e 4 estão em `prompt.txt`, na seção **O ROTEIRO EM BLOCOS**, com a regra de
-copiá-los palavra por palavra, um por mensagem:
+Os passos 2, 3 e 4 estão em `prompt.txt`, na seção **A CONVERSA-BASE**, como referência de tom
+e de ordem — a SDR responde o que o lead disse e emenda o passo seguinte:
 
-| Bloco | Texto | Quando |
+| Passo | Ideia | Quando |
 | --- | --- | --- |
-| 1 | Opa, tudo bom? | disparo (este arquivo) |
-| 2 | Também estou no ramo da gastronomia e queria te fazer uma proposta, pode ser? | depois da 1ª resposta |
-| 3 | Então, tô iniciando um projeto onde vou acompanhar poucas empresas gastronômicas de perto, e a de vocês chamou minha atenção. | depois da 2ª resposta |
-| 4 | Acho que podemos fazer esse projeto juntos, bora trocar uma ideia? | depois da 3ª resposta |
+| 1 | Opa, tudo bom? | disparo (este arquivo, texto fixo) |
+| 2 | Também sou do ramo e queria te fazer uma proposta, pode ser? | depois da 1ª resposta |
+| 3 | Tô começando um projeto com poucas casas e a de vocês chamou atenção | depois da 2ª resposta |
+| 4 | Bora trocar uma ideia? | depois da 3ª resposta |
+
+Só o passo 4 tem redação travada ("bora trocar uma ideia?"): é a pergunta que decide o funil.
 
 > **Atenção ao modo.** No portal, mensagem fixa é o mesmo botão do teste A/B: uma variante
 > ativa = todo lead recebe este texto. Com o modo em "gerada por IA", este arquivo não é
@@ -30,9 +32,9 @@ copiá-los palavra por palavra, um por mensagem:
 ## Por que quebrado em quatro
 
 O texto é o mesmo do Fernando; o que muda é o ritmo. As quatro frases numa mensagem só leem
-como anúncio — o lead vê um bloco de texto de alguém que ele não conhece e não responde. Uma
-por vez, cada uma é barata de responder, e cada resposta é um compromisso pequeno que puxa o
-próximo:
+como anúncio — o lead vê um bloco de texto de alguém que ele não conhece e não responde. Um
+passo por vez, cada um é barato de responder, e cada resposta é um compromisso pequeno que
+puxa o próximo:
 
 1. **"Opa, tudo bom?"** — cumprimento de quem manda mensagem, não de quem faz abordagem. É a
    pergunta mais fácil do mundo de responder, e responder já abre a conversa.
@@ -65,5 +67,5 @@ Em `/sdr-agents/<id>/first-messages`:
 3. Não cadastrar uma segunda variante: com duas ativas o portal entra em rodízio, e o roteiro
    deixa de ser um só.
 
-`npm run sdr:prompts -- --agent="<id ou nome>" --apply` faz isso tudo de uma vez, incluindo os
-blocos 2 a 4 dentro do `prompt.txt`.
+`npm run sdr:prompts -- --agent="<id ou nome>" --apply` faz isso tudo de uma vez, incluindo a
+conversa-base dentro do `prompt.txt`.
