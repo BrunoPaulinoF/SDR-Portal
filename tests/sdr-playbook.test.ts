@@ -151,6 +151,7 @@ describe('playbook do SDR', () => {
     const prompt = buildSdrSystemPrompt({ playbook: 'convite', sdrName: 'Franciely' });
 
     expect(prompt).toContain('NUNCA use emoji');
+    expect(prompt).toContain('um bloco por mensagem');
     // A IA reescrevendo o convite com outras palavras foi o erro relatado pelo cliente.
     expect(prompt).toContain('A pergunta do convite e a que estiver escrita no prompt configurado deste SDR');
   });

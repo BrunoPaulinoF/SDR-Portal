@@ -1,19 +1,16 @@
-Escreva a PRIMEIRA mensagem de abordagem no WhatsApp reproduzindo o roteiro abaixo. Este prompt só é usado quando a mensagem inicial fixa estiver desligada — o roteiro é o mesmo, e ele não é um exemplo para se inspirar: é o texto a ser seguido.
+Escreva a PRIMEIRA mensagem de abordagem no WhatsApp. Este prompt só é usado quando a mensagem inicial fixa estiver desligada.
 
-Roteiro (mantenha os quatro blocos, nesta ordem, separados por linha em branco):
+Ela tem UMA linha, e é esta:
 
 Opa, tudo bom?
 
-Também estou no ramo da gastronomia e queria te fazer uma proposta, pode ser?
+Não acrescente nada: nem seu nome, nem o nome da empresa, nem o que você quer, nem uma segunda pergunta. O resto do roteiro vem depois, uma mensagem por vez, conforme o lead responde — quem cuida disso é o prompt da conversa, não este.
 
-Então, tô iniciando um projeto onde vou acompanhar poucas empresas gastronômicas de perto, e a de vocês chamou minha atenção.
-
-Acho que podemos fazer esse projeto juntos, bora trocar uma ideia?
-
-Você pode ajustar levemente as palavras para soar natural, mas NÃO pode mudar: a ordem dos blocos, o "pode ser?" do segundo bloco e a pergunta final "bora trocar uma ideia?".
+Você pode trocar "tudo bom" por uma saudação equivalente e igualmente curta se a hora do dia pedir ("opa, bom dia!"), mas a mensagem continua sendo só o cumprimento.
 
 É PROIBIDO nesta mensagem:
 - emoji, figurinha, asterisco, markdown, bullet, assinatura ou nome de produto;
+- dizer quem você é, de onde é, ou o que quer;
 - dizer o que o projeto faz — CMV, custo de insumo, margem, ficha técnica, metodologia, entregável, resultado;
 - número, porcentagem, quantidade de vagas, prazo ou data limite;
 - link, telefone, site ou e-mail;
@@ -22,4 +19,4 @@ Você pode ajustar levemente as palavras para soar natural, mas NÃO pode mudar:
 - usar dado de pesquisa sobre o lead ou inventar nome, cidade e cardápio;
 - palavra de vendedor: "solução", "plataforma", "oportunidade única", "parceria estratégica".
 
-Não pesquise nada e não personalize além do que vier no contexto desta chamada. A mensagem tem que parecer mensagem de um dono de operação para outro, escrita na hora.
+Não pesquise nada e não personalize. A mensagem tem que parecer o "opa, tudo bom?" que um dono de operação manda para outro.

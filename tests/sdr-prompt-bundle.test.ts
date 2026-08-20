@@ -31,9 +31,10 @@ describe('bundle de prompts do repositorio', () => {
     expect(bundle.missing).toEqual([]);
     expect(bundle.fields.prompt).toContain('bora trocar uma ideia');
     expect(bundle.fields.followupPrompt).toContain('fechando as empresas');
-    // O roteiro e o ativo deste SDR: se o bloco de codigo quebrar, o script para aqui.
-    expect(bundle.firstMessage).toContain('Também estou no ramo da gastronomia');
-    expect(bundle.firstMessage?.endsWith('bora trocar uma ideia?')).toBe(true);
+    // So o cumprimento sai no disparo: os outros tres blocos a IA manda um por resposta.
+    expect(bundle.firstMessage).toBe('Opa, tudo bom?');
+    expect(bundle.fields.prompt).toContain('Também estou no ramo da gastronomia');
+    expect(bundle.fields.prompt).toContain('Acho que podemos fazer esse projeto juntos, bora trocar uma ideia?');
   });
 
   it('planeja playbook, modo da primeira mensagem e prompts para um SDR ainda consultivo', async () => {

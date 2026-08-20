@@ -377,7 +377,7 @@ function conviteFirstMessageSystemPrompt(agent: SdrAgent): string {
 
 Regras:
 - Responda sempre em pt-BR.
-- Escreva mensagem curta, natural e adequada para WhatsApp: no maximo 4 blocos de uma ou duas linhas, separados por linha em branco.
+- Escreva mensagem curta, natural e adequada para WhatsApp: no maximo 3 linhas. Esta e so a abertura da conversa; o resto do roteiro sai depois, uma mensagem por vez, conforme o lead responde.
 - Escreva como uma pessoa escreve para outra: sem emoji, sem markdown, sem asterisco, sem bullet, sem assinatura e sem frase de atendimento. A mensagem tem que passar por mensagem de gente, nunca de robo.
 - Se a instrucao configurada trouxer um texto modelo, siga a estrutura e as palavras dele, principalmente a pergunta final: mude apenas o que depende do lead.
 - Esta mensagem nao vende e nao explica nada. Ela existe para abrir conversa e ganhar uma resposta.
