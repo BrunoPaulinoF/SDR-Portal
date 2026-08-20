@@ -25,6 +25,8 @@ COPY --from=build --chown=nodejs:nodejs /app/package*.json ./
 COPY --from=build --chown=nodejs:nodejs /app/node_modules ./node_modules
 COPY --from=build --chown=nodejs:nodejs /app/dist ./dist
 COPY --from=build --chown=nodejs:nodejs /app/drizzle ./drizzle
+# Os prompts revisados: sao a entrada do script sdr:prompts, que roda dentro do container.
+COPY --from=build --chown=nodejs:nodejs /app/docs/prompts ./docs/prompts
 COPY --chown=nodejs:nodejs entrypoint.sh ./entrypoint.sh
 
 RUN chmod +x entrypoint.sh

@@ -119,6 +119,30 @@ do teste A/B — uma variante ativa significa que todo lead recebe esse texto). 
 "gerada por IA" este roteiro não é usado. `first-message-prompt.txt` fica salvo como rede de
 segurança para esse caso.
 
+### Aplicando estes arquivos no banco sem colar campo a campo
+
+`npm run sdr:prompts` grava os arquivos deste diretório no SDR. Ele roda dentro do container
+do app (é quem enxerga o banco) e, sem `--apply`, só mostra o que mudaria:
+
+```bash
+docker compose exec app npm run sdr:prompts -- --agent="Francielly"           # mostra o plano
+docker compose exec app npm run sdr:prompts -- --agent="Francielly" --apply   # grava
+```
+
+O que ele faz: escreve `prompt.txt`, `offer-description.txt`, `first-message-prompt.txt`,
+`followup-prompt.txt`, `lead-qualification-prompt.txt` e `handoff-template.txt` nos campos
+correspondentes, coloca o playbook em **convite**, cadastra o roteiro de
+`first-message-variants.md` como variante **Roteiro** e muda o modo para **mensagem fixa**.
+As variantes antigas são desativadas, não apagadas — as métricas delas continuam lá.
+
+O que ele **não** faz: mexer em chave de API, instância da UAZAPI, janela de envio, limites,
+handoff (nome e telefone) ou qualquer coisa fora dos prompts. Se o handoff estiver vazio, ele
+avisa em vez de inventar.
+
+Opções: `--agent=<id ou pedaço do nome>`, `--dir=<outro diretório de prompts>`,
+`--playbook=consultivo|convite`, `--apply`. Rodar duas vezes é seguro: na segunda ele diz
+"nada a mudar".
+
 ### Se a IA mandar uma mensagem que não é o roteiro
 
 A abertura errada — "Bom dia! Aqui é a Francielly, da Insumo Smart... posso te fazer uma

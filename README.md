@@ -74,6 +74,7 @@ curl http://localhost:3000/health
 - `npm run db:generate`: gera migrations do Drizzle.
 - `npm run db:migrate`: aplica migrations compiladas.
 - `npm run admin:create`: cria o usuario admin inicial usando `ADMIN_NAME`, `ADMIN_EMAIL` e `ADMIN_PASSWORD`.
+- `npm run sdr:prompts -- --agent="<id ou nome>"`: mostra o que os prompts versionados em `docs/prompts/<sdr>/` mudariam no SDR; com `--apply` grava (prompts, playbook e mensagem inicial fixa). Opcoes: `--dir`, `--playbook`.
 
 ## Portal
 
