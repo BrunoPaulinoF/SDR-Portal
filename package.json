@@ -11,6 +11,7 @@
     "dev": "tsx watch src/server.ts",
     "lint": "eslint .",
     "prebuild": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "sdr:prompts": "node dist/src/db/apply-sdr-prompts.js",
     "start": "node dist/src/server.js",
     "test": "vitest run"
   },

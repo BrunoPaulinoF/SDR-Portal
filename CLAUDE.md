@@ -20,9 +20,10 @@ npx vitest           # watch mode
 npm run db:generate  # drizzle-kit generate (create migration from schema.ts)
 npm run db:migrate   # runs COMPILED dist/src/db/migrate.js — build first
 npm run admin:create # ADMIN_NAME/ADMIN_EMAIL/ADMIN_PASSWORD -> compiled create-admin.js
+npm run sdr:prompts -- --agent="<id|nome>" [--apply]  # grava docs/prompts/<sdr>/ no SDR (dry-run sem --apply)
 ```
 
-Note: `db:migrate` and `admin:create` run **compiled** JS, so `npm run build` must precede them. Migrations are applied automatically by `entrypoint.sh` in Docker.
+Note: `db:migrate`, `admin:create` and `sdr:prompts` run **compiled** JS, so `npm run build` must precede them. Migrations are applied automatically by `entrypoint.sh` in Docker.
 
 ## Architecture
 
