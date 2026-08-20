@@ -90,7 +90,32 @@ function isAudioPayload(messageType: string | null, content: RecordValue): boole
   );
 }
 
+/**
+ * Mensagem de grupo. A UAZAPI entrega grupo pelo mesmo webhook das conversas 1:1, e no
+ * grupo o remetente vem so como LID — que casa com o LID de um lead que ja conversou pelo
+ * privado. Foi assim que o grupo interno "Kybernan - Projeto Insumo Smart" entrou no chat
+ * de um lead e a SDR respondeu ao time dentro da conversa dele. Grupo nunca e lead.
+ *
+ * Nao da para confiar so no `isGroup`: ele vem em lugares diferentes conforme o evento, e
+ * `false` num campo nao desmente `@g.us` no outro. Por isso qualquer sinal basta.
+ */
+export function isGroupWebhook(body: unknown): boolean {
+  const root = asRecord(body);
+  const data = asRecord(root.data ?? root.message ?? root);
+  const key = asRecord(data.key ?? getPath(data, ['message', 'key']));
+  const chat = asRecord(root.chat ?? data.chat);
+  const event = asRecord(root.event);
+
+  const flags = [data.isGroup, data.isgroup, chat.wa_isGroup, chat.isGroup, root.isGroup, event.IsGroup];
+  if (flags.some((value) => value === true || (typeof value === 'string' && value.toLowerCase() === 'true'))) return true;
+
+  const jids = [key.remoteJid, data.chatid, data.chatId, data.from, data.remoteJid, root.from, chat.wa_chatid, event.Chat, event.chatid];
+  return jids.some((value) => typeof value === 'string' && value.includes('@g.us'));
+}
+
 export function normalizeUazapiWebhook(body: unknown): NormalizedWebhookMessage | null {
+  if (isGroupWebhook(body)) return null;
+
   const root = asRecord(body);
   const data = asRecord(root.data ?? root.message ?? root);
   const key = asRecord(data.key ?? getPath(data, ['message', 'key']));
