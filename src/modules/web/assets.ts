@@ -868,6 +868,10 @@ form[data-inline] {
 .share-box { display: flex; flex-direction: column; gap: 0.5rem; }
 .share-input { width: 100%; padding: 0.6rem 0.75rem; font-family: ui-monospace, monospace; font-size: 0.85rem; border: 1px solid var(--border, #e2e8f0); border-radius: 8px; }
 .public-connect { max-width: 620px; margin: 0 auto; padding: 2rem 1rem; }
+.diagnostic-list { display: grid; grid-template-columns: minmax(140px, auto) 1fr; gap: 0.35rem 1rem; margin: 0.75rem 0; font-size: 0.9rem; }
+.diagnostic-list dt { font-weight: 600; color: var(--muted, #64748b); }
+.diagnostic-list dd { margin: 0; word-break: break-word; }
+.diagnostic-raw { background: #0f172a; color: #e2e8f0; padding: 0.75rem 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.8rem; margin: 0; }
 
 .connection-summary { padding: 1rem 1.1rem; background: #f8fafc; border: 1px solid var(--border, #e2e8f0); border-radius: 10px; display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-start; }
 .connection-summary p { margin: 0; }
