@@ -243,6 +243,48 @@ export async function requestConnectionQr(
 }
 
 /**
+ * Confere, com o admintoken do servidor, se a instancia do SDR ainda existe la e se o
+ * token guardado e mesmo o dela. E o que separa "colaram o token errado" de "a instancia
+ * foi apagada" — as duas dao o mesmo 401 na leitura normal. Nunca devolve token algum,
+ * so a conclusao.
+ */
+export async function auditInstanceCredential(
+  uazapiClient: UazapiClient,
+  admin: { baseUrl: string; adminToken: string },
+  agentInstance: { instanceId: string | null; token: string },
+): Promise<string> {
+  const result = await uazapiClient.listInstances(admin);
+  if (!result.ok) return `Nao deu para conferir com o token admin: a UAZAPI respondeu HTTP ${result.status}.`;
+
+  const root = asRecord(result.body);
+  const raw = Array.isArray(result.body) ? result.body : (root.instances ?? root.data);
+  if (!Array.isArray(raw)) return 'Nao deu para conferir com o token admin: resposta inesperada da UAZAPI.';
+
+  const instances = raw.map(asRecord);
+  const wanted = agentInstance.instanceId?.trim().toLowerCase() ?? '';
+  const porToken = instances.find((item) => readString(item, 'token', 'apikey') === agentInstance.token);
+  if (porToken) {
+    const nome = readString(porToken, 'name', 'id') ?? 'sem nome';
+    return `O token salvo pertence a instancia "${nome}" desse servidor — confira se e essa mesmo a instancia do SDR.`;
+  }
+
+  const porNome = wanted
+    ? instances.find((item) => {
+        const id = readString(item, 'id')?.toLowerCase();
+        const name = readString(item, 'name')?.toLowerCase();
+        return id === wanted || name === wanted;
+      })
+    : undefined;
+
+  if (porNome) {
+    const status = readString(porNome, 'status') ?? 'desconhecido';
+    return `A instancia existe nesse servidor (status ${status}), mas o token salvo no SDR nao e o dela — o token precisa ser atualizado.`;
+  }
+
+  return `Nenhuma instancia com esse nome/id existe nesse servidor (${instances.length} instancia(s) encontradas) — ela foi apagada ou foi criada em outro servidor.`;
+}
+
+/**
  * Remove a instancia no servidor UAZAPI. Devolve `true` tambem quando a instancia ja nao
  * existe (404): o objetivo — nao deixar instancia orfa — ja esta cumprido.
  */
