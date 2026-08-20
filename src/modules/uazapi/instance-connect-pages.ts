@@ -140,6 +140,20 @@ function qrScript(endpoint: string): string {
 }
 
 /**
+ * Instancia nova para o SDR. So aparece quando a atual falhou — com a instancia
+ * respondendo nao ha o que recriar, e a rota recusa de qualquer forma.
+ */
+function renderRecreateForm(agent: SdrAgent, state: InstanceConnectionState, provisioningEnabled: boolean): string {
+  if (!provisioningEnabled || !state.detail) return '';
+
+  return `<form method="post" action="/sdr-agents/${agent.id}/conectar/instancia" class="spacing-top"
+      onsubmit="return confirm('Criar uma instancia nova na UAZAPI para este SDR? A credencial atual sera substituida e o WhatsApp precisara parear de novo.');">
+    <button class="button" type="submit">Criar instancia nova</button>
+    <p class="muted">Cria uma instancia no servidor UAZAPI, salva as credenciais neste SDR e reaponta o webhook. Depois e so gerar o QR code.</p>
+  </form>`;
+}
+
+/**
  * Bloco so da tela logada: mostra o que esta salvo no SDR e o que a UAZAPI respondeu de
  * fato. Serve para separar "QR nao veio" de "credencial recusada" sem abrir o log.
  * O corpo cru ja vem sem token (redigido em `redactBody`), mas o bloco nunca aparece na
@@ -170,6 +184,7 @@ function renderDiagnostics(
     ${audit ? `<p class="muted"><strong>Conferencia com o token admin:</strong> ${escapeHtml(audit)}</p>` : ''}
     <p class="muted">Resposta da UAZAPI (sem os tokens):</p>
     <pre class="diagnostic-raw">${escapeHtml(state.rawBody ?? '(sem resposta)')}</pre>
+    ${renderRecreateForm(agent, state, provisioningEnabled)}
   </details>`;
 }
 
