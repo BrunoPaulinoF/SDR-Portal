@@ -957,6 +957,28 @@ describe('instrucao de pesquisa web so quando a ferramenta existe', () => {
   });
 });
 
+describe('mensagem sem nexo: correcao do que o lead nao disse', () => {
+  it('o prompt base proibe corrigir uma fala que nao existe e trata o "como posso ajudar?"', async () => {
+    const { SDR_BASE_PROMPT } = await import('../src/modules/ai/sdr-base-prompt.js');
+
+    // Caso real: o lead abriu com "Como posso ajudar?" e a SDR respondeu "Na verdade, eu que
+    // queria te fazer uma proposta" — como se ele tivesse oferecido uma proposta.
+    expect(SDR_BASE_PROMPT).toContain('Como posso ajudar?');
+    expect(SDR_BASE_PROMPT).toContain('na verdade');
+    expect(SDR_BASE_PROMPT).toContain('Passei novamente');
+  });
+
+  it('as regras valem para os dois playbooks, porque estao na base', async () => {
+    const { buildSdrSystemPrompt } = await import('../src/modules/ai/sdr-base-prompt.js');
+
+    for (const playbook of ['consultivo', 'convite'] as const) {
+      const prompt = buildSdrSystemPrompt({ sdrName: 'Francielly', playbook });
+      expect(prompt).toContain('Em que posso te ajudar?');
+      expect(prompt).toContain('contato anterior que nao existe');
+    }
+  });
+});
+
 describe('saudacao pela hora local e nome sem sufixo societario', () => {
   it('descreve o momento no fuso do SDR com o periodo do dia', async () => {
     const { describeNowInTimeZone } = await import('../src/modules/timezone.js');
