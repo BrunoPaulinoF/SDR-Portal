@@ -145,7 +145,12 @@ function qrScript(endpoint: string): string {
  * O corpo cru ja vem sem token (redigido em `redactBody`), mas o bloco nunca aparece na
  * pagina publica — quem tem o link nao precisa saber a URL do gateway.
  */
-function renderDiagnostics(agent: SdrAgent, state: InstanceConnectionState, provisioningEnabled: boolean): string {
+function renderDiagnostics(
+  agent: SdrAgent,
+  state: InstanceConnectionState,
+  provisioningEnabled: boolean,
+  audit: string | null,
+): string {
   const linhas = [
     ['URL base UAZAPI', agent.uazapiBaseUrl ?? 'nao configurada'],
     ['Instancia', agent.uazapiInstanceId ?? 'sem identificador'],
@@ -162,6 +167,7 @@ function renderDiagnostics(agent: SdrAgent, state: InstanceConnectionState, prov
       ${linhas.map(([rotulo, valor]) => `<dt>${escapeHtml(rotulo ?? '')}</dt><dd>${escapeHtml(valor ?? '')}</dd>`).join('')}
     </dl>
     ${state.detail ? `<p class="muted">${escapeHtml(state.detail)}</p>` : ''}
+    ${audit ? `<p class="muted"><strong>Conferencia com o token admin:</strong> ${escapeHtml(audit)}</p>` : ''}
     <p class="muted">Resposta da UAZAPI (sem os tokens):</p>
     <pre class="diagnostic-raw">${escapeHtml(state.rawBody ?? '(sem resposta)')}</pre>
   </details>`;
@@ -172,6 +178,7 @@ export function renderSdrConnectPage(
   state: InstanceConnectionState,
   shareUrl: string | null,
   provisioningEnabled = false,
+  audit: string | null = null,
 ): string {
   const share = shareUrl
     ? `<div class="share-box">
@@ -218,7 +225,7 @@ export function renderSdrConnectPage(
         ${state.connected ? '' : renderInstructions()}
       </section>
       <section class="panel">${share}</section>
-      <section class="panel">${renderDiagnostics(agent, state, provisioningEnabled)}</section>
+      <section class="panel">${renderDiagnostics(agent, state, provisioningEnabled, audit)}</section>
     </main>${state.connected ? '' : qrScript(`/sdr-agents/${agent.id}/conectar/qr`)}`,
   });
 }

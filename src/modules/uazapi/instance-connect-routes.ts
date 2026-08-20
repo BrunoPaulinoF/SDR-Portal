@@ -21,7 +21,7 @@ import {
   shareLinkExpiresAt,
   type InstanceShareLinkRepository,
 } from './instance-share-link-repository.js';
-import { isInstanceProvisioningEnabled, readConnectionStatus, requestConnectionQr } from './instance-provisioning.js';
+import { auditInstanceCredential, isInstanceProvisioningEnabled, readConnectionStatus, requestConnectionQr } from './instance-provisioning.js';
 import type { UazapiClient } from './uazapi-client.js';
 
 const agentParamsSchema = z.object({ id: z.string().uuid() });
@@ -37,6 +37,16 @@ function credentialsOf(agent: SdrAgent): { baseUrl: string; token: string } | nu
 
 function minutesUntil(expiresAt: Date, now: Date): number {
   return Math.max(1, Math.ceil((expiresAt.getTime() - now.getTime()) / 60000));
+}
+
+/** Compara so o host: barra final ou http/https nao mudam de servidor. */
+function sameHost(a: string | undefined, b: string | null): boolean {
+  if (!a || !b) return false;
+  try {
+    return new URL(a).host === new URL(b).host;
+  } catch {
+    return false;
+  }
 }
 
 function shareUrlFor(token: string): string {
@@ -88,9 +98,21 @@ export function registerInstanceConnectRoutes(
 
     const state = await readConnectionStatus(uazapiClient, loaded.credentials);
     if (state.detail) request.log.warn({ sdrAgentId: loaded.agent.id, status: state.status, detail: state.detail }, 'instancia uazapi indisponivel');
+
+    // So confere com o admintoken quando ha o que investigar e quando o SDR aponta para
+    // o mesmo servidor do ambiente — admintoken de um servidor nao vale em outro.
+    const audit =
+      state.detail && env.UAZAPI_ADMIN_TOKEN && sameHost(env.UAZAPI_BASE_URL, loaded.agent.uazapiBaseUrl)
+        ? await auditInstanceCredential(
+            uazapiClient,
+            { baseUrl: loaded.agent.uazapiBaseUrl ?? '', adminToken: env.UAZAPI_ADMIN_TOKEN },
+            { instanceId: loaded.agent.uazapiInstanceId, token: loaded.credentials.token },
+          ).catch(() => null)
+        : null;
+
     return reply
       .type('text/html')
-      .send(renderSdrConnectPage(loaded.agent, state, shareToken ? shareUrlFor(shareToken) : null, isInstanceProvisioningEnabled()));
+      .send(renderSdrConnectPage(loaded.agent, state, shareToken ? shareUrlFor(shareToken) : null, isInstanceProvisioningEnabled(), audit));
   });
 
   // Fragmento HTML: so aqui o QR e realmente pedido a UAZAPI, quando alguem clica no botao.

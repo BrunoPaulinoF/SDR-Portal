@@ -52,6 +52,12 @@ export interface CheckChatsInput extends UazapiCredentials {
   numbers: string[];
 }
 
+/** Endpoints administrativos do servidor UAZAPI usam o admintoken, nao o token da instancia. */
+export interface AdminInput {
+  baseUrl: string;
+  adminToken: string;
+}
+
 /** Criacao de instancia usa o admintoken do servidor, nao o token de uma instancia. */
 export interface CreateInstanceInput {
   baseUrl: string;
@@ -74,6 +80,7 @@ export interface UazapiClient {
   deleteInstance(input: UazapiCredentials): Promise<UazapiResult>;
   downloadMessage(input: DownloadMessageInput): Promise<UazapiResult>;
   getInstanceStatus(input: UazapiCredentials): Promise<UazapiResult>;
+  listInstances(input: AdminInput): Promise<UazapiResult>;
   sendContact(input: SendContactInput): Promise<UazapiResult>;
   sendPresence(input: SendPresenceInput): Promise<UazapiResult>;
   sendText(input: SendTextInput): Promise<UazapiResult>;
@@ -172,6 +179,16 @@ export function createHttpUazapiClient(): UazapiClient {
 
     getInstanceStatus(input) {
       return request('/instance/status', input, { method: 'GET' });
+    },
+
+    async listInstances(input) {
+      const response = await fetch(`${normalizeBaseUrl(input.baseUrl)}/instance/all`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(env.UAZAPI_REQUEST_TIMEOUT_MS),
+        headers: { admintoken: input.adminToken, 'content-type': 'application/json' },
+      });
+
+      return { status: response.status, ok: response.ok, body: await parseBody(response) };
     },
 
     sendContact(input) {

@@ -35,6 +35,7 @@ function stubUazapiClient(overrides: Partial<UazapiClient> = {}): UazapiClient {
     createInstance: notCalled,
     downloadMessage: notCalled,
     getInstanceStatus: notCalled,
+    listInstances: notCalled,
     sendContact: notCalled,
     sendPresence: notCalled,
     sendText: notCalled,
@@ -332,6 +333,38 @@ describe('link publico de conexao', () => {
     expect(response.body).toContain('token desta instancia foi recusado');
     expect(response.body).not.toContain('segredo-que-nao-pode-vazar');
     await app.close();
+  });
+
+  it('a conferencia com o token admin separa token errado de instancia apagada', async () => {
+    const { auditInstanceCredential } = await import('../src/modules/uazapi/instance-provisioning.js');
+    const admin = { baseUrl: 'https://uazapi.test', adminToken: 'admin-token' };
+
+    const existe = await auditInstanceCredential(
+      stubUazapiClient({ listInstances: async () => ok([{ id: 'abc', name: 'InsumoSmart', status: 'disconnected', token: 'token-certo' }]) }),
+      admin,
+      { instanceId: 'InsumoSmart', token: 'token-salvo-errado' },
+    );
+    expect(existe).toContain('nao e o dela');
+
+    const apagada = await auditInstanceCredential(
+      stubUazapiClient({ listInstances: async () => ok({ instances: [{ id: 'xyz', name: 'Outra', token: 'outro' }] }) }),
+      admin,
+      { instanceId: 'InsumoSmart', token: 'token-salvo-errado' },
+    );
+    expect(apagada).toContain('Nenhuma instancia com esse nome/id');
+
+    const outraInstancia = await auditInstanceCredential(
+      stubUazapiClient({ listInstances: async () => ok([{ id: 'abc', name: 'Outro SDR', token: 'token-salvo' }]) }),
+      admin,
+      { instanceId: 'InsumoSmart', token: 'token-salvo' },
+    );
+    expect(outraInstancia).toContain('Outro SDR');
+
+    // Nunca devolve o token de ninguem, so a conclusao.
+    for (const texto of [existe, apagada, outraInstancia]) {
+      expect(texto).not.toContain('token-certo');
+      expect(texto).not.toContain('token-salvo');
+    }
   });
 
   it('a pagina publica nao mostra o diagnostico nem a URL do gateway', async () => {
