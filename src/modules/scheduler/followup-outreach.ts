@@ -4,6 +4,7 @@ import { resolveReasoningEffort } from '../ai/reasoning-effort.js';
 import type { AiRunRepository } from '../ai/ai-run-repository.js';
 import { parseAiResponse } from '../ai/ai-response.js';
 import { resolveAiApiKey } from '../ai/resolve-api-key.js';
+import { aiHistoryText } from '../conversations/conversation-history.js';
 import type { ConversationRepository } from '../conversations/conversation-repository.js';
 import type { JobLogRepository } from '../jobs/job-log-repository.js';
 import {
@@ -154,7 +155,7 @@ function historyBlock(history: Message[]): string {
   return history
     .map((message) => {
       const who = message.direction === 'inbound' ? 'LEAD' : 'VOCE';
-      return `${who}: ${message.text ?? message.transcription ?? '[mensagem sem texto]'}`;
+      return `${who}: ${aiHistoryText(message)}`;
     })
     .join('\n');
 }

@@ -1,4 +1,5 @@
 import type { Conversation, Lead, SdrAgent } from '../../db/schema.js';
+import { aiHistoryText } from '../conversations/conversation-history.js';
 import type { ConversationRepository } from '../conversations/conversation-repository.js';
 import {
   contactDisplayName,
@@ -315,7 +316,7 @@ export function createAiResponseService(deps: AiResponseDependencies) {
         { role: 'system', content: systemPrompt(input.agent, input.lead) },
         ...history.slice(-20).map((message): AiChatMessage => ({
           role: message.direction === 'inbound' ? 'user' : 'assistant',
-          content: message.text ?? message.transcription ?? '[mensagem sem texto]',
+          content: aiHistoryText(message),
         })),
       ];
       const startedAt = Date.now();

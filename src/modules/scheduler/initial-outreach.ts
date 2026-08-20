@@ -256,7 +256,7 @@ function leadQualificationMessages(agent: SdrAgent, lead: Lead, research: LeadRe
   return [
     {
       role: 'system',
-      content: `Voce qualifica se um lead deve receber abordagem fria de consultoria/mentoria de planejamento estrategico.
+      content: `Voce qualifica se um lead deve receber a abordagem fria deste SDR. O perfil desejado esta descrito no prompt configurado no fim desta mensagem: nao presuma nenhum outro produto ou servico.
 
 Responda apenas em JSON estrito, sem markdown.
 
