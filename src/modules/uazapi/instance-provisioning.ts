@@ -103,10 +103,30 @@ async function toQrSvg(qrcode: string): Promise<string | null> {
 }
 
 /**
- * Le o estado de conexao da instancia. Chama `/instance/connect` quando ainda nao ha QR,
+ * Le o estado da instancia **sem** pedir pareamento: serve para pintar a pagina sem
+ * queimar um QR que ninguem esta olhando. O QR so nasce quando alguem clica no botao
+ * (ver `requestConnectionQr`), porque a UAZAPI expira o codigo em poucos segundos.
+ */
+export async function readConnectionStatus(
+  uazapiClient: UazapiClient,
+  credentials: { baseUrl: string; token: string },
+): Promise<InstanceConnectionState> {
+  const record = instanceRecord((await uazapiClient.getInstanceStatus(credentials)).body);
+  const status = readString(record, 'status');
+
+  return {
+    qrCodeSvg: null,
+    pairCode: null,
+    connected: status === 'connected',
+    status,
+  };
+}
+
+/**
+ * Pede o pareamento de fato. Chama `/instance/connect` quando ainda nao ha QR,
  * porque a UAZAPI so gera o pareamento depois que a conexao e solicitada.
  */
-export async function readConnectionState(
+export async function requestConnectionQr(
   uazapiClient: UazapiClient,
   credentials: { baseUrl: string; token: string },
 ): Promise<InstanceConnectionState> {

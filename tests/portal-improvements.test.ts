@@ -217,8 +217,100 @@ describe('link publico de conexao', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.body).toContain('Conectar o WhatsApp');
-    expect(response.body).toContain('<svg');
+    expect(response.body).toContain('Gerar QR code');
     expect(response.body).not.toContain('nav-link');
+    await app.close();
+  });
+
+  it('a pagina publica nao pede QR ate alguem clicar no botao', async () => {
+    const shareLinks = createMemoryInstanceShareLinkRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const agent = await sdrAgentRepository.create({
+      companyId: 'c1',
+      name: 'Mariana',
+      displayName: 'Mariana',
+      uazapiBaseUrl: 'https://uazapi.test',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+    });
+    const token = generateShareToken();
+    await shareLinks.create({
+      sdrAgentId: agent.id,
+      createdByUserId: null,
+      expiresAt: shareLinkExpiresAt(new Date()),
+      tokenHash: hashShareToken(token),
+    });
+
+    let conexoes = 0;
+    const app = buildApp({
+      instanceShareLinkRepository: shareLinks,
+      sdrAgentRepository,
+      uazapiClient: stubUazapiClient({
+        getInstanceStatus: async () => ok({ instance: { status: 'disconnected' } }),
+        connectInstance: async () => {
+          conexoes += 1;
+          return ok({ instance: { status: 'connecting', qrcode: '2@abcdef' } });
+        },
+      }),
+    });
+
+    const pagina = await app.inject({ method: 'GET', url: `/conectar/${token}` });
+    expect(pagina.statusCode).toBe(200);
+    expect(pagina.body).not.toContain('<svg');
+    expect(conexoes).toBe(0);
+
+    const fragmento = await app.inject({ method: 'GET', url: `/conectar/${token}/qr` });
+    expect(fragmento.statusCode).toBe(200);
+    expect(fragmento.body).toContain('<svg');
+    expect(conexoes).toBe(1);
+    await app.close();
+  });
+
+  it('o link continua valido depois de recarregar a pagina do SDR', async () => {
+    const shareLinks = createMemoryInstanceShareLinkRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const agent = await sdrAgentRepository.create({
+      companyId: 'c1',
+      name: 'Mariana',
+      displayName: 'Mariana',
+      uazapiBaseUrl: 'https://uazapi.test',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+    });
+
+    const { app, cookie } = await loggedInApp({
+      instanceShareLinkRepository: shareLinks,
+      sdrAgentRepository,
+      uazapiClient: stubUazapiClient({
+        getInstanceStatus: async () => ok({ instance: { status: 'disconnected' } }),
+      }),
+    });
+
+    // POST-redirect-GET: o formulario responde com redirect, entao F5 na pagina seguinte
+    // nao reenvia o POST — que era o que revogava o link recem-criado.
+    const criacao = await app.inject({
+      method: 'POST',
+      url: `/sdr-agents/${agent.id}/conectar/compartilhar`,
+      headers: { cookie },
+    });
+    expect(criacao.statusCode).toBe(303);
+
+    const destino = criacao.headers.location as string;
+    const token = new URL(destino, 'http://localhost').searchParams.get('link') ?? '';
+    expect(token).not.toBe('');
+
+    const recarregada = await app.inject({ method: 'GET', url: destino, headers: { cookie } });
+    expect(recarregada.statusCode).toBe(200);
+    expect(recarregada.body).toContain(`/conectar/${token}`);
+
+    const link = await shareLinks.findByTokenHash(hashShareToken(token));
+    expect(link).not.toBeNull();
+    expect(link?.revokedAt).toBeNull();
+
+    // Continua de pe ate perto dos 15 minutos combinados.
+    const quase = new Date(Date.now() + (shareLinkTtlMinutes - 1) * 60_000);
+    expect(link && isShareLinkUsable(link, quase)).toBe(true);
+
+    const publica = await app.inject({ method: 'GET', url: `/conectar/${token}` });
+    expect(publica.statusCode).toBe(200);
     await app.close();
   });
 });
