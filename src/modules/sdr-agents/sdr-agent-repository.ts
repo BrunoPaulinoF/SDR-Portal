@@ -5,6 +5,12 @@ import { DEFAULT_SDR_PLAYBOOK } from '../ai/sdr-playbooks.js';
 
 export type SdrAgentInput = Omit<NewSdrAgent, 'id' | 'createdAt' | 'updatedAt'>;
 
+export interface UazapiInstanceInput {
+  baseUrl: string;
+  instanceId: string | null;
+  tokenEncrypted: string;
+}
+
 export interface SdrAgentRepository {
   create(input: SdrAgentInput): Promise<SdrAgent>;
   delete(id: string): Promise<void>;
@@ -12,6 +18,8 @@ export interface SdrAgentRepository {
   list(): Promise<SdrAgent[]>;
   setActive(id: string, isActive: boolean): Promise<SdrAgent | null>;
   setFirstMessageMode(id: string, mode: string): Promise<SdrAgent | null>;
+  /** Troca so as credenciais UAZAPI, sem passar pelo formulario inteiro do SDR. */
+  setUazapiInstance(id: string, input: UazapiInstanceInput): Promise<SdrAgent | null>;
   update(id: string, input: SdrAgentInput): Promise<SdrAgent | null>;
 }
 
@@ -125,6 +133,24 @@ export function createMemorySdrAgentRepository(seedAgents: SdrAgent[] = []): Sdr
       }
 
       const updated: SdrAgent = { ...current, firstMessageMode: mode, updatedAt: new Date() };
+      rows.set(id, updated);
+      return updated;
+    },
+
+    async setUazapiInstance(id, input) {
+      const current = rows.get(id);
+
+      if (!current) {
+        return null;
+      }
+
+      const updated: SdrAgent = {
+        ...current,
+        uazapiBaseUrl: input.baseUrl,
+        uazapiInstanceId: input.instanceId,
+        uazapiInstanceTokenEncrypted: input.tokenEncrypted,
+        updatedAt: new Date(),
+      };
       rows.set(id, updated);
       return updated;
     },

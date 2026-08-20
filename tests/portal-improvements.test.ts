@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { buildApp } from '../src/app.js';
+import { env } from '../src/config/env.js';
 import type { AiClient, AiGenerateInput } from '../src/modules/ai/ai-client.js';
 import { providerDefaultEffort, reasoningEffortOptions, resolveReasoningEffort } from '../src/modules/ai/reasoning-effort.js';
 import { createMemoryAiRunRepository } from '../src/modules/ai/ai-run-repository.js';
@@ -20,7 +21,7 @@ import {
   shareLinkTtlMinutes,
 } from '../src/modules/uazapi/instance-share-link-repository.js';
 import { hashPassword } from '../src/modules/auth/password.js';
-import { encryptSecret } from '../src/modules/security/secrets.js';
+import { decryptSecret, encryptSecret } from '../src/modules/security/secrets.js';
 import { requestConnectionQr } from '../src/modules/uazapi/instance-provisioning.js';
 import type { UazapiClient, UazapiResult } from '../src/modules/uazapi/uazapi-client.js';
 
@@ -41,6 +42,26 @@ function stubUazapiClient(overrides: Partial<UazapiClient> = {}): UazapiClient {
     sendText: notCalled,
     ...overrides,
   };
+}
+
+
+/**
+ * `tests/setup.ts` limpa as variaveis UAZAPI de proposito. Estes casos precisam do
+ * provisionamento ligado, entao ajustam o singleton e devolvem o valor original depois.
+ */
+async function comProvisionamento<T>(executar: () => Promise<T>): Promise<T> {
+  const alvo = env as { UAZAPI_BASE_URL?: string; UAZAPI_ADMIN_TOKEN?: string };
+  const baseUrl = alvo.UAZAPI_BASE_URL;
+  const adminToken = alvo.UAZAPI_ADMIN_TOKEN;
+  alvo.UAZAPI_BASE_URL = 'https://uazapi.test';
+  alvo.UAZAPI_ADMIN_TOKEN = 'admin-token';
+
+  try {
+    return await executar();
+  } finally {
+    alvo.UAZAPI_BASE_URL = baseUrl;
+    alvo.UAZAPI_ADMIN_TOKEN = adminToken;
+  }
 }
 
 async function loggedInApp(options: Parameters<typeof buildApp>[0] = {}) {
@@ -365,6 +386,76 @@ describe('link publico de conexao', () => {
       expect(texto).not.toContain('token-certo');
       expect(texto).not.toContain('token-salvo');
     }
+  });
+
+  it('cria instancia nova quando a atual esta quebrada e guarda as credenciais no SDR', async () => {
+    await comProvisionamento(async () => {
+      const sdrAgentRepository = createMemorySdrAgentRepository();
+      const agent = await sdrAgentRepository.create({
+        companyId: 'c1',
+        name: 'InsumoSmart',
+        displayName: 'InsumoSmart',
+        uazapiBaseUrl: 'https://uazapi.test',
+        uazapiInstanceId: 'InsumoSmart',
+        uazapiInstanceTokenEncrypted: encryptSecret('token-morto'),
+      });
+
+      const webhooks: string[] = [];
+      const { app, cookie } = await loggedInApp({
+        sdrAgentRepository,
+        uazapiClient: stubUazapiClient({
+          getInstanceStatus: async () => ({ ok: false, status: 401, body: { message: 'Invalid token.' } }),
+          createInstance: async () => ok({ instance: { id: 'inst-nova', name: 'InsumoSmart', token: 'token-novo' } }),
+          configureWebhook: async (input) => {
+            webhooks.push(input.token);
+            return ok({});
+          },
+        }),
+      });
+
+      const response = await app.inject({ method: 'POST', url: `/sdr-agents/${agent.id}/conectar/instancia`, headers: { cookie } });
+
+      expect(response.statusCode).toBe(303);
+      expect(response.headers.location).toBe(`/sdr-agents/${agent.id}/conectar`);
+
+      const atualizado = await sdrAgentRepository.findById(agent.id);
+      expect(atualizado?.uazapiInstanceId).toBe('inst-nova');
+      expect(decryptSecret(atualizado?.uazapiInstanceTokenEncrypted ?? '')).toBe('token-novo');
+      expect(webhooks).toEqual(['token-novo']);
+      await app.close();
+    });
+  });
+
+  it('recusa criar instancia quando a atual esta respondendo', async () => {
+    await comProvisionamento(async () => {
+      const sdrAgentRepository = createMemorySdrAgentRepository();
+      const agent = await sdrAgentRepository.create({
+        companyId: 'c1',
+        name: 'Mariana',
+        displayName: 'Mariana',
+        uazapiBaseUrl: 'https://uazapi.test',
+        uazapiInstanceTokenEncrypted: encryptSecret('token-bom'),
+      });
+
+      let criacoes = 0;
+      const { app, cookie } = await loggedInApp({
+        sdrAgentRepository,
+        uazapiClient: stubUazapiClient({
+          getInstanceStatus: async () => ok({ instance: { status: 'connected' } }),
+          createInstance: async () => {
+            criacoes += 1;
+            return ok({ instance: { id: 'nova', token: 'nova' } });
+          },
+        }),
+      });
+
+      const response = await app.inject({ method: 'POST', url: `/sdr-agents/${agent.id}/conectar/instancia`, headers: { cookie } });
+
+      expect(response.statusCode).toBe(409);
+      expect(criacoes).toBe(0);
+      expect(decryptSecret((await sdrAgentRepository.findById(agent.id))?.uazapiInstanceTokenEncrypted ?? '')).toBe('token-bom');
+      await app.close();
+    });
   });
 
   it('a pagina publica nao mostra o diagnostico nem a URL do gateway', async () => {

@@ -21,7 +21,15 @@ import {
   shareLinkExpiresAt,
   type InstanceShareLinkRepository,
 } from './instance-share-link-repository.js';
-import { auditInstanceCredential, isInstanceProvisioningEnabled, readConnectionStatus, requestConnectionQr } from './instance-provisioning.js';
+import {
+  auditInstanceCredential,
+  configureInstanceWebhook,
+  isInstanceProvisioningEnabled,
+  provisionInstance,
+  readConnectionStatus,
+  requestConnectionQr,
+} from './instance-provisioning.js';
+import { encryptSecret } from '../security/secrets.js';
 import type { UazapiClient } from './uazapi-client.js';
 
 const agentParamsSchema = z.object({ id: z.string().uuid() });
@@ -88,6 +96,39 @@ export function registerInstanceConnectRoutes(
     const user = await requireUser(request, reply, authRepository);
     if (!user) return undefined;
 
+    const params = agentParamsSchema.safeParse(request.params);
+    const found = params.success ? await sdrAgentRepository.findById(params.data.id) : null;
+    if (!found) return reply.status(404).type('text/html').send(renderSdrAgentNotFoundPage());
+
+    // Sem instancia nenhuma a tela ainda abre, contanto que dê para criar uma por aqui:
+    // e justamente o SDR que precisa do botao.
+    if (!credentialsOf(found)) {
+      if (!isInstanceProvisioningEnabled()) {
+        return reply
+          .status(400)
+          .type('text/html')
+          .send(renderShareLinkInvalidPage('Este SDR ainda nao tem instancia UAZAPI configurada.'));
+      }
+
+      return reply.type('text/html').send(
+        renderSdrConnectPage(
+          found,
+          {
+            qrCodeSvg: null,
+            pairCode: null,
+            connected: false,
+            status: null,
+            detail: 'Este SDR ainda nao tem instancia UAZAPI configurada.',
+            httpStatus: null,
+            rawBody: null,
+          },
+          null,
+          true,
+          null,
+        ),
+      );
+    }
+
     const loaded = await loadAgentForUser(request, reply);
     if (!loaded) return undefined;
 
@@ -112,7 +153,9 @@ export function registerInstanceConnectRoutes(
 
     return reply
       .type('text/html')
-      .send(renderSdrConnectPage(loaded.agent, state, shareToken ? shareUrlFor(shareToken) : null, isInstanceProvisioningEnabled(), audit));
+      .send(
+        renderSdrConnectPage(loaded.agent, state, shareToken ? shareUrlFor(shareToken) : null, isInstanceProvisioningEnabled(), audit),
+      );
   });
 
   // Fragmento HTML: so aqui o QR e realmente pedido a UAZAPI, quando alguem clica no botao.
@@ -147,6 +190,59 @@ export function registerInstanceConnectRoutes(
     });
 
     return reply.redirect(`/sdr-agents/${loaded.agent.id}/conectar?link=${token}`, 303);
+  });
+
+  /**
+   * Cria uma instancia nova na UAZAPI e grava as credenciais no SDR. So aceita quando a
+   * instancia atual esta mesmo quebrada: trocar a credencial de um SDR que responde
+   * derrubaria um WhatsApp que estava funcionando.
+   */
+  app.post('/sdr-agents/:id/conectar/instancia', async (request, reply) => {
+    const user = await requireUser(request, reply, authRepository);
+    if (!user) return undefined;
+
+    const params = agentParamsSchema.safeParse(request.params);
+    const agent = params.success ? await sdrAgentRepository.findById(params.data.id) : null;
+    if (!agent) return reply.status(404).type('text/html').send(renderSdrAgentNotFoundPage());
+
+    if (!isInstanceProvisioningEnabled()) {
+      return reply
+        .status(400)
+        .type('text/html')
+        .send(renderShareLinkInvalidPage('Defina UAZAPI_BASE_URL e UAZAPI_ADMIN_TOKEN no ambiente para criar instancias pelo portal.'));
+    }
+
+    const current = credentialsOf(agent);
+    if (current) {
+      const state = await readConnectionStatus(uazapiClient, current);
+      if (!state.detail) {
+        return reply
+          .status(409)
+          .type('text/html')
+          .send(renderShareLinkInvalidPage('A instancia atual esta respondendo — criar outra so e permitido quando a atual falha.'));
+      }
+    }
+
+    try {
+      const instance = await provisionInstance(uazapiClient, agent.name);
+      await sdrAgentRepository.setUazapiInstance(agent.id, {
+        baseUrl: instance.baseUrl,
+        instanceId: instance.instanceId,
+        tokenEncrypted: encryptSecret(instance.token),
+      });
+
+      // Webhook falhando nao invalida a instancia nova: da para reconfigurar pela tela.
+      const configured = await configureInstanceWebhook(uazapiClient, { baseUrl: instance.baseUrl, token: instance.token }, agent.id).catch(
+        () => false,
+      );
+      if (!configured) request.log.warn({ sdrAgentId: agent.id }, 'Instancia criada mas webhook nao configurado');
+    } catch (error) {
+      request.log.error({ error, sdrAgentId: agent.id }, 'Falha ao criar instancia UAZAPI');
+      const message = error instanceof Error ? error.message : 'Erro desconhecido ao criar a instancia.';
+      return reply.status(502).type('text/html').send(renderShareLinkInvalidPage(`Instancia nao criada: ${message}`));
+    }
+
+    return reply.redirect(`/sdr-agents/${agent.id}/conectar`, 303);
   });
 
   /** Valida o token publico e devolve o link + SDR, ou null (ja tendo respondido 404). */
