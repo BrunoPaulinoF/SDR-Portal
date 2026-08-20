@@ -11,7 +11,9 @@ import { createMemoryAuthRepository, type AuthUser } from '../src/modules/auth/a
 import { hashPassword } from '../src/modules/auth/password.js';
 import { createMemoryCompanyRepository } from '../src/modules/companies/company-repository.js';
 import { createMemoryConversationRepository } from '../src/modules/conversations/conversation-repository.js';
+import { createMemoryFirstMessageVariantRepository } from '../src/modules/first-message-variants/first-message-variant-repository.js';
 import { createMemoryLeadRepository } from '../src/modules/leads/lead-repository.js';
+import { resolveFirstMessage } from '../src/modules/scheduler/initial-outreach.js';
 import { encryptSecret } from '../src/modules/security/secrets.js';
 import { createMemorySdrAgentRepository } from '../src/modules/sdr-agents/sdr-agent-repository.js';
 import type { SendTextInput, UazapiClient, UazapiResult } from '../src/modules/uazapi/uazapi-client.js';
@@ -143,6 +145,33 @@ describe('playbook do SDR', () => {
     expect(prompt).toContain('Como reconhecer o sim');
     // A regra do funil consultivo proibia exatamente a abordagem por curiosidade.
     expect(prompt).not.toContain(REGRA_ANTI_CURIOSIDADE);
+  });
+
+  it('proibe emoji e trava a pergunta do convite no funil do convite', () => {
+    const prompt = buildSdrSystemPrompt({ playbook: 'convite', sdrName: 'Franciely' });
+
+    expect(prompt).toContain('NUNCA use emoji');
+    // A IA reescrevendo o convite com outras palavras foi o erro relatado pelo cliente.
+    expect(prompt).toContain('A pergunta do convite e a que estiver escrita no prompt configurado deste SDR');
+  });
+
+  it('proibe emoji e manda seguir o roteiro na primeira mensagem do convite', async () => {
+    const s = await buildScenario({ firstMessageMode: 'ai', firstMessagePrompt: 'Roteiro configurado do Fernando' });
+
+    await resolveFirstMessage(
+      {
+        aiClient: s.aiClient,
+        aiRunRepository: createMemoryAiRunRepository(),
+        firstMessageVariantRepository: createMemoryFirstMessageVariantRepository(),
+      },
+      s.agent,
+      s.lead,
+      null,
+    );
+
+    const systemPrompt = s.aiClient.prompts[0]?.[0]?.content ?? '';
+    expect(systemPrompt).toContain('sem emoji');
+    expect(systemPrompt).toContain('siga a estrutura e as palavras dele');
   });
 
   it('leva o nome do humano do handoff para o contexto estavel', () => {

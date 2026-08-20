@@ -1,63 +1,53 @@
-# Variantes de primeira mensagem (teste A/B)
+# Mensagem inicial (texto fixo)
 
-Estas são as mensagens fixas da tela **Msg inicial** (`/sdr-agents/<id>/first-messages`),
-com o modo **teste A/B ligado**. Em A/B a primeira mensagem não passa pela IA: o texto sai
-exatamente como está escrito aqui, sem custo de token e sem variação entre leads — que é o
-que torna a comparação entre variantes honesta.
-
-Placeholders: `{{sdrName}}` (nome do SDR), `{{responsavel}}` (complemento de "Falo com ___?":
-usa o nome do negócio ou o primeiro nome do titular), `{{restaurante}}` (nome fantasia),
-`{{nome}}` (contato). Aceita padrão com `|`, como em `{{restaurante|de vocês}}`, e o texto é
-limpo automaticamente quando o lead não tem o dado.
-
-As três variantes testam hipóteses diferentes sobre **onde** colocar o convite. Rode as três
-com o mesmo volume até cada uma ter pelo menos ~80 envios antes de decidir.
-
----
-
-## Variante A — Proposta
-
-> Hipótese: o micro-pedido de permissão ("pode ser?") é mais fácil de responder do que
-> qualquer outra coisa, e um "pode" já cria compromisso para a mensagem seguinte.
-> É a mensagem original do Fernando, adaptada para o WhatsApp frio.
+Esta é a mensagem de abordagem da Insumo Smart, **exatamente como o Fernando escreve**.
+Ela é o texto da tela **Msg inicial** (`/sdr-agents/<id>/first-messages`): em modo fixo o
+texto sai como está escrito aqui, sem passar pela IA — sem custo de token, sem variação
+entre leads e sem risco de a IA reescrever a pergunta.
 
 ```
-Opa, tudo bem? Aqui é a {{sdrName}} — também sou do ramo da gastronomia.
+Opa, tudo bom?
 
-Falo com {{responsavel}}? Queria te fazer uma proposta, pode ser?
+Também estou no ramo da gastronomia e queria te fazer uma proposta, pode ser?
+
+Então, tô iniciando um projeto onde vou acompanhar poucas empresas gastronômicas de perto, e a de vocês chamou minha atenção.
+
+Acho que podemos fazer esse projeto juntos, bora trocar uma ideia?
 ```
 
-## Variante B — Chamou atenção
+Única diferença para o texto enviado pelo Fernando: "Opa, bom?" virou **"Opa, tudo bom?"**.
+Se ele preferir o original, é trocar essa linha — nada mais depende dela.
 
-> Hipótese: dizer logo que a casa foi escolhida a dedo (e que o projeto é com poucas)
-> compra mais atenção do que pedir licença, e ainda confirma quem decide.
+## Por que este texto e não outro
 
-```
-Opa, tudo bem? Aqui é a {{sdrName}}, da Insumo Smart — sou do ramo da gastronomia também.
+Cada bloco faz uma coisa, e é por isso que a ordem não pode ser mexida:
 
-O Fernando tá começando um projeto pra acompanhar de perto poucas operações, e a {{restaurante|de vocês}} chamou nossa atenção. Falo com {{responsavel}}?
-```
+1. **"Opa, tudo bom?"** — cumprimento de quem manda mensagem, não de quem faz abordagem.
+2. **"Também estou no ramo da gastronomia... pode ser?"** — tira quem fala do lugar de
+   vendedor e pede uma coisa minúscula. Quem responde "pode" já entrou na conversa.
+3. **"tô iniciando um projeto... a de vocês chamou minha atenção"** — projeto, não produto:
+   não há nada para avaliar, comparar ou orçar, só uma curiosidade em aberto. E é a casa que
+   foi escolhida, não o vendedor que apareceu.
+4. **"bora trocar uma ideia?"** — o convite. É conversa entre dois do ramo, e é isso que se
+   quer de resposta.
 
-## Variante C — Convite direto
+A pergunta do convite é **"bora trocar uma ideia?"**. Não é "Gostaria de saber mais sobre o
+nosso projeto?", não é "posso te explicar como funciona?" e não é pergunta sobre a operação
+("como você controla o custo aí?"). Trocar essa frase por outra é o erro que essa versão
+existe para corrigir.
 
-> Hipótese: o funil inteiro cabe em uma mensagem. Se o convite é de baixo compromisso
-> ("saber mais"), talvez não valha gastar dois turnos para chegar nele.
-> Risco conhecido: o "sim" pode vir de quem não decide — por isso a SDR confirma
-> com quem fala antes de acionar o handoff.
+## Regras do texto
 
-```
-Opa, tudo bem? Aqui é a {{sdrName}} — também sou do ramo da gastronomia.
+- **Sem emoji.** Nenhum, em nenhuma mensagem deste SDR.
+- Sem link, telefone, site ou e-mail.
+- Sem número, porcentagem, promessa de resultado, quantidade de vagas ou prazo.
+- Sem "reunião", "call", "agenda", "15 minutinhos". Convite não é compromisso com hora marcada.
+- Sem dizer o que o projeto faz (CMV, custo, margem, ficha técnica). A curiosidade é o ativo.
+- Sem nome de produto, sem apresentação da empresa e sem assinatura.
 
-O Fernando tá começando um projeto acompanhando de perto poucas operações daqui, e a {{restaurante|de vocês}} chamou a atenção da gente. Gostaria de saber mais sobre o projeto?
-```
+## Sobre o teste A/B
 
----
-
-## O que NÃO colocar em nenhuma variante
-
-- O que o projeto faz (CMV, custo, margem, ficha técnica). A curiosidade é o ativo.
-- Número, porcentagem, promessa de resultado, quantidade de vagas ou prazo.
-- Link, telefone, site, e-mail.
-- "Reunião", "call", "agenda", "15 minutinhos". Convite ≠ compromisso com hora marcada.
-- Pergunta sobre a operação ("como você controla o custo aí?"). Discovery é do Fernando.
-- Dois emojis, ou mais de 3 linhas.
+O teste A/B fica **desligado**. O roteiro é este e vale para todo lead — variação de texto
+aqui só serviria para reintroduzir a pergunta errada. Se um dia houver teste, as variantes
+têm que manter os quatro blocos acima e terminar em "bora trocar uma ideia?"; o que se testa
+é a redação, nunca o convite.

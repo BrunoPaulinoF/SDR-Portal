@@ -10,8 +10,8 @@ Quando alterar um prompt no portal, atualize o arquivo aqui no mesmo commit.
 | --- | --- | --- |
 | `prompt.txt` | Prompt editável do SDR | sim — região estável, depois do prompt base + funil |
 | `offer-description.txt` | Descrição da oferta | sim — região estável |
-| `first-message-prompt.txt` | Prompt da primeira mensagem | só quando o modo A/B está desligado |
-| `first-message-variants.md` | Tela **Msg inicial** (variantes A/B) | não passa pela IA: texto fixo |
+| `first-message-prompt.txt` | Prompt da primeira mensagem | só quando a mensagem fixa está desligada |
+| `first-message-variants.md` | Tela **Msg inicial** (mensagem fixa) | não passa pela IA: texto fixo |
 | `followup-prompt.txt` | Prompt de follow-up | sim, no job de follow-up |
 | `lead-qualification-prompt.txt` | Prompt de qualificação | sim, no `lead_fit_assessment` |
 | `handoff-template.txt` | Template de handoff | não é prompt: é a mensagem enviada ao Fernando |
@@ -34,16 +34,29 @@ são eles que o prompt precisa preservar:
    precisa se qualificar é o lead, não o vendedor.
 5. **Saída fácil.** "Ou deixo essa oportunidade para outra empresa" custa nada para recusar —
    e é justamente por isso que as pessoas respondem.
+6. **Conversa, não atendimento.** Sem emoji, sem assinatura, sem "fico à disposição". O lead
+   precisa achar que do outro lado tem uma pessoa do ramo.
 
-O ajuste pedido — trocar "bora trocar uma ideia?" por **"Gostaria de saber mais sobre nosso
-projeto?"** — é pequeno no texto e grande no funil. "Trocar uma ideia" é um compromisso de
-agenda disfarçado, e o lead responde "sobre o quê?" para se defender. "Saber mais" é
-informação, não compromisso: o sim é barato, e o sim é tudo que a SDR precisa. A partir dele
-ela aciona o handoff, o Fernando é avisado no WhatsApp dele e o lead ouve
-*"Já pedi pro Fernando entrar em contato com você"*.
+A pergunta do convite é **"bora trocar uma ideia?"**, exatamente como está no roteiro do
+Fernando. Uma versão anterior destes prompts trocou essa frase por "Gostaria de saber mais
+sobre nosso projeto?", apostando que "saber mais" seria um sim mais barato que "trocar uma
+ideia". Na prática o Fernando viu a IA fazendo a pergunta errada, e a decisão é dele: o texto
+é o do roteiro. Do sim em diante nada muda — a SDR aciona o handoff, o Fernando é avisado no
+WhatsApp dele e o lead ouve *"Já pedi pro Fernando entrar em contato com você"*.
+
+Duas mensagens dão conta do funil inteiro, e as duas são texto fixo:
+
+1. **Abertura** (`first-message-variants.md`) — cumprimento, "também estou no ramo",
+   o projeto com poucas empresas, e o convite. O convite já vai aqui, na primeira mensagem.
+2. **Follow-up** (`followup-prompt.txt`) — "passei novamente porque estou fechando as
+   empresas", com a saída fácil de deixar a vaga para outra casa.
+
+Como o convite já sai na primeira mensagem, a resposta do lead é resposta ao convite: a SDR
+lê o sim e chama o Fernando, sem reformular a pergunta. Reformular era exatamente o erro
+apontado.
 
 Daí o desenho: **a SDR tem uma decisão só na conversa inteira** — a pessoa aceita ou não
-conhecer o projeto. Ela não apresenta, não faz discovery, não qualifica em profundidade e não
+trocar uma ideia sobre o projeto. Ela não apresenta, não faz discovery, não qualifica em profundidade e não
 fala preço. Quem faz isso é o Fernando, ao vivo, com o contexto todo.
 
 Isso também derruba o risco. Os três erros que mais custam caro num SDR de IA — inventar
@@ -100,26 +113,26 @@ Na tela do SDR (`/sdr-agents/<id>/edit`):
 | Máximo de tokens de saída | 1500 |
 | Contato de demonstração | **em branco** — este SDR não usa cartão de demonstração |
 
-Na tela **Msg inicial** (`/sdr-agents/<id>/first-messages`): ligar o **teste A/B** e cadastrar
-as três variantes de `first-message-variants.md`. `first-message-prompt.txt` fica salvo como
-rede de segurança para quando o A/B for desligado.
+Na tela **Msg inicial** (`/sdr-agents/<id>/first-messages`): cadastrar a mensagem fixa de
+`first-message-variants.md`, sem teste A/B — o roteiro é um só, e variar o texto aqui só
+serviria para reintroduzir a pergunta errada. `first-message-prompt.txt` fica salvo como rede
+de segurança para quando a mensagem fixa estiver desligada.
 
 ## O que medir
 
 O funil desta SDR tem quatro números, e o terceiro é o que importa:
 
-1. **enviadas → responderam** — mede a primeira mensagem. É o número que o teste A/B compara,
-   já pronto na tela Msg inicial.
-2. **responderam → chegaram ao convite** — mede a abertura. Se cair aqui, a mensagem 1 está
-   assustando ou parecendo golpe.
-3. **chegaram ao convite → disseram sim** — mede o convite em si. É a métrica da estratégia.
+1. **enviadas → responderam** — mede a mensagem de abertura, que já carrega o convite.
+2. **responderam → disseram sim** — mede o convite em si. É a métrica da estratégia.
+3. **follow-up enviado → responderam** — mede a segunda mensagem, a das vagas.
 4. **sim → handoff acionado** — mede a IA, não o roteiro. Se o lead disse sim e o handoff não
    saiu, o problema é o prompt reconhecendo o aceite; olhe os `ai_runs` da conversa.
 
 Estágio de cada lead fica em `conversation_stage` (`permission`, `discovery`, `solution`,
 `handoff_offer`, `handoff_done`, `not_interested`) e o dashboard já agrupa por ele. No
-playbook `convite` os nomes têm outro significado: `discovery` é a mensagem do convite e
-`solution` é a resposta curta ao "o que é isso?".
+playbook `convite` os nomes têm outro significado: `permission` é a leitura da resposta à
+abertura, `discovery` é o convite devolvido quando a resposta não foi um sim, e `solution` é
+a resposta curta ao "o que é isso?".
 
 Vale revisar as primeiras ~50 conversas à mão. Os dois erros esperados são a IA explicando
 demais na etapa `solution` (e o lead sumindo com a curiosidade satisfeita) e handoff acionado
@@ -143,3 +156,6 @@ Dois pontos precisam de confirmação antes de subir:
   sendo fechadas. Os prompts proíbem inventar número e prazo, mas o enquadramento em si
   precisa ser verdade — dito a centenas de leads por semana, deixa de ser argumento e vira
   um problema.
+- **"Opa, bom?"** virou **"Opa, tudo bom?"** na mensagem de abertura, por parecer frase
+  cortada. É a única palavra alterada do roteiro; se o Fernando preferir o original, é uma
+  linha em `first-message-variants.md`.
