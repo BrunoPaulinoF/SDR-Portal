@@ -41,8 +41,10 @@ A pergunta do convite é **"bora trocar uma ideia?"**, exatamente como está no 
 Fernando. Uma versão anterior destes prompts trocou essa frase por "Gostaria de saber mais
 sobre nosso projeto?", apostando que "saber mais" seria um sim mais barato que "trocar uma
 ideia". Na prática o Fernando viu a IA fazendo a pergunta errada, e a decisão é dele: o texto
-é o do roteiro. Do sim em diante nada muda — a SDR aciona o handoff, o Fernando é avisado no
-WhatsApp dele e o lead ouve *"Já pedi pro Fernando entrar em contato com você"*.
+é o do roteiro. Do sim em diante a SDR não anuncia a transferência: ela pede — *"quem tem os
+detalhes sobre a proposta é o Fernando, dono da Insumo Smart. Topa eu passar seu contato pra ele
+te explicar melhor?"* — e é o segundo sim que dispara o handoff e o aviso no WhatsApp do
+Fernando (veja **A passagem é uma pergunta**, abaixo).
 
 A abordagem são **quatro mensagens, uma por vez**, esperando o lead responder entre elas —
 não um bloco de texto só. As quatro juntas leem como anúncio; separadas, cada resposta é um
@@ -73,6 +75,42 @@ fala preço. Quem faz isso é o Fernando, ao vivo, com o contexto todo.
 Isso também derruba o risco. Os três erros que mais custam caro num SDR de IA — inventar
 preço, inventar detalhe do produto e queimar o lead com um pitch vago — só existem quando a
 IA tem muito o que dizer. Aqui ela tem quase nada, de propósito.
+
+## A passagem é uma pergunta
+
+O Fernando mandou o print de uma conversa que terminava assim: o lead diz *"Não entendi sua
+proposta"* e a SDR responde *"Quem detalha tudo é o Fernando, dono da Insumo Smart. Já pedi pra
+ele entrar em contato com você, em breve ele te chama."* O handoff estava certo — o problema era
+ele ter sido anunciado como fato consumado. Quem estava confuso levou um despacho: nada ali
+convidava a continuar falando, e o lead ainda ficou sabendo que o número dele já tinha sido
+passado adiante sem ser perguntado.
+
+Por isso a passagem passou a ter **duas etapas**:
+
+| Etapa | O que a SDR faz | `conversation_stage` |
+| --- | --- | --- |
+| 1 | Diz quem tem os detalhes e **pergunta**: "topa eu passar seu contato pra ele te explicar melhor?" — sem acionar nada | `handoff_offer` |
+| 2 | O lead autoriza → `notify_handoff` na mesma resposta + "já encaminhei seu contato, em breve ele te chama" | `handoff_done` |
+
+Isso muda o significado das etapas no funil do convite: `handoff_offer` era "o lead aceitou e o
+Fernando já foi avisado", e agora é "a pergunta da passagem está no ar". Nada precisou mudar no
+código que aplica as ações: `markTransferred` só roda quando `notify_handoff` aparece nas
+`actions`, então segurar a ação por um turno já segura a transferência inteira.
+
+Duas exceções e um cuidado, todos escritos no prompt:
+
+- **Não se pergunta duas vezes.** Se o próprio lead pediu ("pode me chamar", "manda o contato
+  dele"), a autorização já existe: o handoff sai direto. Repetir a pergunta que ele acabou de
+  fazer é o robô de novo, por outro caminho.
+- **Contato de dentro da casa** (sócio, gerente, dono) continua sendo handoff direto, e contato
+  de outra empresa continua sendo `notify_referral`.
+- **A pergunta pode ficar sem resposta**, e esse é o custo real da mudança: existe agora um sim
+  a mais entre o aceite e o handoff. O `followup-prompt.txt` ganhou o caso correspondente —
+  quando a última mensagem foi a pergunta da passagem, o follow-up não recomeça o roteiro, só
+  refaz a pergunta.
+
+O número 4 de **O que medir** é o que responde se isso saiu caro: `handoff_offer` que nunca vira
+`handoff_done` é lead que topou e ficou no meio do caminho.
 
 ## Por que isso exigiu mexer no código
 
@@ -220,8 +258,11 @@ O funil desta SDR tem cinco números, e o terceiro é o que importa:
 1. **enviadas → responderam** — mede o bloco 1, o "opa, tudo bom?".
 2. **responderam → chegaram ao convite** — mede se a conversa sobrevive aos passos do meio.
 3. **chegaram ao convite → disseram sim** — mede o convite em si. É a métrica da estratégia.
-4. **sim → handoff acionado** — mede a IA, não o roteiro. Se o lead disse sim e o handoff não
-   saiu, o problema é o prompt reconhecendo o aceite; olhe os `ai_runs` da conversa.
+4. **sim → handoff acionado** — mede a IA e a pergunta da passagem, não o roteiro. São duas
+   perdas diferentes: lead que disse sim e nem ouviu a pergunta (`handoff_offer` nunca chegou —
+   o prompt não reconheceu o aceite, olhe os `ai_runs`) e lead que ouviu a pergunta e não
+   respondeu (`handoff_offer` parado, sem `handoff_done`). Se a segunda perda crescer, é a
+   pergunta a mais cobrando o preço dela.
 5. **fora do perfil → indicação recebida** — o número de graça. Lead que não é do ramo e sai da
    conversa sem nenhum pedido de indicação é oportunidade perdida; procure `notify_referral` no
    `parsed_json` dos `ai_runs`.
@@ -229,13 +270,14 @@ O funil desta SDR tem cinco números, e o terceiro é o que importa:
 Estágio de cada lead fica em `conversation_stage` (`permission`, `discovery`, `solution`,
 `handoff_offer`, `handoff_done`, `not_interested`) e o dashboard já agrupa por ele. No
 playbook `convite` os nomes têm outro significado: `permission` é a leitura da resposta à
-abertura, `discovery` é o convite devolvido quando a resposta não foi um sim, e `solution` é
-a resposta curta ao "o que é isso?".
+abertura, `discovery` é o convite devolvido quando a resposta não foi um sim, `solution` é
+a resposta curta ao "o que é isso?", `handoff_offer` é a pergunta da passagem no ar e
+`handoff_done` é o contato já encaminhado ao Fernando.
 
-Vale revisar as primeiras ~50 conversas à mão. Os três erros esperados são a IA explicando
+Vale revisar as primeiras ~50 conversas à mão. Os quatro erros esperados são a IA explicando
 demais na etapa `solution` (e o lead sumindo com a curiosidade satisfeita), handoff acionado
-sem sim de verdade (o "o que é isso?" lido como aceite) e conversa encerrada com quem está fora
-do perfil sem o pedido de indicação.
+sem sim de verdade (o "o que é isso?" lido como aceite), handoff anunciado sem a pergunta da
+passagem, e conversa encerrada com quem está fora do perfil sem o pedido de indicação.
 
 ## Antes de ligar — confirmar com o Fernando
 

@@ -48,6 +48,18 @@ describe('bundle de prompts do repositorio', () => {
     expect(prompt).toContain('Informal não é seco');
   });
 
+  it('pede autorizacao antes de passar o lead para o Fernando', async () => {
+    const bundle = await readPromptBundle(INSUMOSMART_DIR);
+    const prompt = bundle.fields.prompt ?? '';
+
+    // O print do cliente: "ja pedi pra ele entrar em contato com voce" sem nunca ter perguntado.
+    expect(prompt).toContain('Topa eu passar seu contato pra ele te explicar melhor?');
+    expect(prompt).toContain('Nesta mensagem você NÃO aciona nada');
+    expect(prompt).toContain('QUANDO NÃO PERGUNTAR');
+    // O lead que some depois da pergunta nao pode receber o roteiro de novo no follow-up.
+    expect(bundle.fields.followupPrompt).toContain('pergunta da passagem');
+  });
+
   it('planeja playbook, modo da primeira mensagem e prompts para um SDR ainda consultivo', async () => {
     const agent = await makeAgent({ playbook: 'consultivo', firstMessageMode: 'ai', handoffName: 'Fernando', handoffPhone: '11988887777' });
     const bundle = await readPromptBundle(INSUMOSMART_DIR);
