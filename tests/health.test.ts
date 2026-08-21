@@ -2398,8 +2398,9 @@ describe('UAZAPI webhook routes', () => {
     expect(messages[0]?.direction).toBe('outbound');
     expect(updatedLead?.status).toBe('human_paused');
     expect(updatedLead?.aiPauseReason).toBe('manual_whatsapp_message');
-    expect(updatedLead?.humanPausedUntil).toBeInstanceOf(Date);
-    expect(updatedLead?.humanPausedUntil?.getTime()).toBeGreaterThan(Date.now());
+    expect(updatedLead?.aiPausedAt).toBeInstanceOf(Date);
+    // a pausa nao tem prazo: quem devolve a IA e o botao do portal
+    expect(updatedLead?.humanPausedUntil).toBeNull();
   });
 
   it('does not trigger AI while human pause is active', async () => {
@@ -2446,12 +2447,7 @@ describe('UAZAPI webhook routes', () => {
       status: 'initial_sent',
       source: 'manual',
     });
-    await leadRepository.markHumanPaused(
-      lead.id,
-      new Date('2026-05-20T10:00:00.000Z'),
-      new Date(Date.now() + 60 * 60 * 1000),
-      'manual_whatsapp_message',
-    );
+    await leadRepository.pauseAi(lead.id, new Date('2026-05-20T10:00:00.000Z'), 'manual_whatsapp_message');
 
     app = buildApp({
       aiClient: createMockAiClient(aiCalls, JSON.stringify({ mensagem_usuario: 'Nao deve enviar', nao_responder: false, actions: [] })),
@@ -2487,7 +2483,7 @@ describe('UAZAPI webhook routes', () => {
     expect(uazapiCalls).toEqual([]);
   });
 
-  it('triggers AI again after human pause expires', async () => {
+  it('triggers AI again after the pause is released in the portal', async () => {
     const aiCalls: string[] = [];
     const uazapiCalls: string[] = [];
     const companyRepository = createMemoryCompanyRepository();
@@ -2531,12 +2527,8 @@ describe('UAZAPI webhook routes', () => {
       status: 'initial_sent',
       source: 'manual',
     });
-    await leadRepository.markHumanPaused(
-      lead.id,
-      new Date('2026-05-20T10:00:00.000Z'),
-      new Date(Date.now() - 60 * 1000),
-      'manual_whatsapp_message',
-    );
+    await leadRepository.pauseAi(lead.id, new Date('2026-05-20T10:00:00.000Z'), 'manual_whatsapp_message');
+    await leadRepository.resumeAi(lead.id, new Date('2026-05-20T11:00:00.000Z'));
 
     app = buildApp({
       aiClient: createMockAiClient(aiCalls, JSON.stringify({ mensagem_usuario: 'Voltei a responder.', nao_responder: false, actions: [] })),
@@ -3353,6 +3345,176 @@ describe('UAZAPI webhook routes', () => {
     expect(uazapiCalls).toContain('download:AUDIO-1:transcribe:instance-token');
     expect(aiCalls[0]).toContain('Texto transcrito do audio');
     expect(messages.some((message) => message.messageType === 'audio' && message.transcription === 'Texto transcrito do audio')).toBe(true);
+  });
+
+  it('pauses the AI until the portal releases it when the lead sends an image', async () => {
+    const aiCalls: string[] = [];
+    const uazapiCalls: string[] = [];
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const conversationRepository = createMemoryConversationRepository();
+    const webhookEventRepository = createMemoryWebhookEventRepository();
+    const aiRunRepository = createMemoryAiRunRepository();
+    const company = await companyRepository.create({
+      name: 'Insumo Smart',
+      legalName: null,
+      cnpj: null,
+      segment: 'Gastronomia',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'sdr-insumo-smart',
+      displayName: 'Franciely',
+      isActive: true,
+      aiProvider: 'openai',
+      openaiApiKeyEncrypted: encryptSecret('openai-key'),
+      uazapiBaseUrl: 'https://api.uazapi.com',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+    });
+    const lead = await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511444444444',
+      companyName: 'Restaurante da Foto',
+      cnpj: null,
+      tradeName: null,
+      segment: 'Gastronomia',
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'in_conversation',
+      source: 'manual',
+    });
+
+    app = buildApp({
+      aiClient: createMockAiClient(aiCalls, JSON.stringify({ mensagem_usuario: 'Nao deveria responder.', nao_responder: false, actions: [] })),
+      aiRunRepository,
+      companyRepository,
+      conversationRepository,
+      leadRepository,
+      sdrAgentRepository,
+      uazapiClient: createMockUazapiClient(uazapiCalls),
+      webhookEventRepository,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/webhooks/uazapi/${agent.id}`,
+      payload: {
+        event: 'messages',
+        data: {
+          id: 'IMAGE-1',
+          chatid: '5511444444444@s.whatsapp.net',
+          content: { URL: 'https://meta.example/foto.jpg', mimetype: 'image/jpeg' },
+          fromMe: false,
+          messageType: 'ImageMessage',
+          sender_pn: '5511444444444@s.whatsapp.net',
+          text: 'olha o meu cardapio',
+          type: 'media',
+        },
+      },
+    });
+
+    const conversations = await conversationRepository.list();
+    const messages = conversations[0] ? await conversationRepository.listMessages(conversations[0].id) : [];
+    const updatedLead = await leadRepository.findById(lead.id);
+
+    expect(response.statusCode).toBe(200);
+    expect(messages[0]?.messageType).toBe('image');
+    // nem a legenda da foto faz a IA responder: quem olha a imagem e um humano
+    expect(aiCalls).toHaveLength(0);
+    expect(uazapiCalls).toHaveLength(0);
+    expect(updatedLead?.status).toBe('human_paused');
+    expect(updatedLead?.aiPauseReason).toBe('lead_image_message');
+    expect(updatedLead?.humanPausedUntil).toBeNull();
+  });
+
+  it('keeps answering when the lead sends a sticker: sticker is not an image to look at', async () => {
+    const aiCalls: string[] = [];
+    const uazapiCalls: string[] = [];
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const conversationRepository = createMemoryConversationRepository();
+    const webhookEventRepository = createMemoryWebhookEventRepository();
+    const aiRunRepository = createMemoryAiRunRepository();
+    const company = await companyRepository.create({
+      name: 'Insumo Smart',
+      legalName: null,
+      cnpj: null,
+      segment: 'Gastronomia',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'sdr-insumo-smart',
+      displayName: 'Franciely',
+      isActive: true,
+      aiProvider: 'openai',
+      openaiApiKeyEncrypted: encryptSecret('openai-key'),
+      uazapiBaseUrl: 'https://api.uazapi.com',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+    });
+    const lead = await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511333333333',
+      companyName: 'Restaurante da Figurinha',
+      cnpj: null,
+      tradeName: null,
+      segment: 'Gastronomia',
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'in_conversation',
+      source: 'manual',
+    });
+
+    app = buildApp({
+      aiClient: createMockAiClient(aiCalls, JSON.stringify({ mensagem_usuario: 'Boa!', nao_responder: false, actions: [] })),
+      aiRunRepository,
+      companyRepository,
+      conversationRepository,
+      leadRepository,
+      sdrAgentRepository,
+      uazapiClient: createMockUazapiClient(uazapiCalls),
+      webhookEventRepository,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/webhooks/uazapi/${agent.id}`,
+      payload: {
+        event: 'messages',
+        data: {
+          id: 'STICKER-2',
+          chatid: '5511333333333@s.whatsapp.net',
+          content: { URL: 'https://meta.example/figurinha.webp', mimetype: 'image/webp' },
+          fromMe: false,
+          messageType: 'StickerMessage',
+          sender_pn: '5511333333333@s.whatsapp.net',
+          text: 'combinado entao',
+          type: 'media',
+        },
+      },
+    });
+
+    const updatedLead = await leadRepository.findById(lead.id);
+
+    expect(response.statusCode).toBe(200);
+    expect(updatedLead?.status).toBe('in_conversation');
+    expect(updatedLead?.aiPausedAt).toBeNull();
+    expect(aiCalls).toHaveLength(1);
   });
 
   it('stores unsupported media without calling AI when there is no text or transcription', async () => {

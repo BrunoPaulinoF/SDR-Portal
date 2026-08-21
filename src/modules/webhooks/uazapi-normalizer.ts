@@ -24,6 +24,22 @@ export function isAudioMessageType(messageType: string): boolean {
   return normalized.includes('audio') || normalized.includes('ogg') || normalized.includes('opus') || normalized.includes('ptt') || normalized.includes('voice');
 }
 
+/**
+ * Foto/print mandado pelo lead. A IA nao enxerga a imagem, entao a conversa e pausada para
+ * um humano olhar — ver `AI_PAUSE_REASONS.leadImage`. Figurinha nao conta: e reacao, nao conteudo.
+ */
+export function isImageMessageType(messageType: string): boolean {
+  const normalized = messageType.toLowerCase();
+  if (normalized.includes('sticker')) return false;
+  return (
+    normalized.includes('image') ||
+    normalized.includes('photo') ||
+    normalized.includes('jpeg') ||
+    normalized.includes('jpg') ||
+    normalized.includes('png')
+  );
+}
+
 function asRecord(value: unknown): RecordValue {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as RecordValue) : {};
 }
@@ -91,6 +107,18 @@ function isAudioPayload(messageType: string | null, content: RecordValue): boole
 }
 
 /**
+ * Alem do proprio tipo, o mimetype (`image/jpeg`) denuncia foto em payload generico
+ * (`type: "media"`). A figurinha viaja como `image/webp`, entao o nome do tipo tem de ser
+ * lido junto: sem isso toda figurinha viraria foto e pausaria a conversa.
+ */
+function isImagePayload(declaredType: string | null, rawMessageType: string | null, content: RecordValue): boolean {
+  const hints = [declaredType, rawMessageType, firstString(content.mimetype, content.mimeType, content.type)]
+    .filter((hint): hint is string => Boolean(hint))
+    .join(' ');
+  return isImageMessageType(hints);
+}
+
+/**
  * Mensagem de grupo. A UAZAPI entrega grupo pelo mesmo webhook das conversas 1:1, e no
  * grupo o remetente vem so como LID — que casa com o LID de um lead que ja conversou pelo
  * privado. Foi assim que o grupo interno "Kybernan - Projeto Insumo Smart" entrou no chat
@@ -136,7 +164,12 @@ export function normalizeUazapiWebhook(body: unknown): NormalizedWebhookMessage 
   const rawMessageType =
     firstString(data.messageType, root.messageType, data.mediaType, data.type) ??
     (typeof message.conversation === 'string' ? 'conversation' : 'unknown');
-  const messageType = isAudioPayload(rawMessageType, content) ? 'audio' : (firstString(data.type, rawMessageType) ?? 'unknown');
+  const declaredType = firstString(data.type, rawMessageType) ?? 'unknown';
+  const messageType = isAudioPayload(rawMessageType, content)
+    ? 'audio'
+    : isImagePayload(declaredType, rawMessageType, content)
+      ? 'image'
+      : declaredType;
   const text = firstString(
     data.text,
     data.body,

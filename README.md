@@ -168,6 +168,8 @@ Webhook e conversas:
 
 - `POST /webhooks/uazapi/:sdrAgentId`: recebe webhooks da UAZAPI.
 - `GET /conversations`: caixa de conversas no estilo WhatsApp Web — lista de chats do SDR a esquerda e a conversa escolhida a direita. Aceita `?sdr=<id>` (SDR exibido), `?chat=<id>` (conversa aberta) e `?q=<texto>` (busca por nome, numero ou mensagem). Sem parametros abre o primeiro SDR que tem conversa, ja com o chat mais recente aberto.
+- `GET /conversations/updates`: mesmas conversas em JSON, para a pagina se atualizar sem recarregar. Aceita os mesmos `sdr`/`chat`/`q` mais `chatsSig`/`threadSig`, as assinaturas do HTML que a tela ja mostra: quando batem, a resposta volta sem `chatsHtml`/`threadHtml` e nada e redesenhado. A pagina consulta a cada 4 segundos (so com a aba visivel e a opcao "Atualizar sozinho" ligada) e tambem a cada clique num chat, o que troca a conversa sem recarregar e sem perder a rolagem da lista.
+- `POST /conversations/:id/ia`: `acao=pausar` ou `acao=liberar`. E o unico jeito de devolver a IA a uma conversa pausada.
 - `GET /conversations/:id`: link antigo de conversa; redireciona para `GET /conversations?sdr=...&chat=...`.
 - `GET /webhook-events`: exibe logs brutos dos webhooks recebidos.
 - `GET /ai-runs`: exibe chamadas de IA com provider, modelo, proposito, tokens, latencia e erros.
@@ -184,7 +186,9 @@ Processamento atual do webhook:
 - Quando recebe audio inbound, chama `/message/download` com `transcribe: true`, salva `messages.transcription` e usa o texto transcrito no historico da IA.
 - Se a UAZAPI retornar link do audio sem transcricao e houver chave OpenAI disponivel, tenta transcrever direto pela OpenAI como fallback.
 - Quando a mensagem é recebida do lead, marca o lead como `in_conversation` e desativa follow-up pendente.
-- Quando detecta mensagem manual enviada pelo celular (`fromMe=true` e `wasSentByApi=false`), marca o lead como `human_paused`, define `human_paused_until` usando `human_pause_hours` do SDR e renova a pausa a cada nova mensagem humana.
+- Quando detecta mensagem manual enviada pelo celular (`fromMe=true` e `wasSentByApi=false`), marca o lead como `human_paused` e grava `ai_paused_at`/`ai_pause_reason=manual_whatsapp_message`.
+- Quando o lead manda uma **imagem** (inclusive com legenda), pausa do mesmo jeito com `ai_pause_reason=lead_image_message` e nao chama a IA: ela nao ve a foto, entao quem responde e um humano. Figurinha nao pausa — chega como `image/webp`, mas e reacao, nao conteudo.
+- As duas pausas **nao expiram sozinhas**: `human_paused_until` fica nulo e a IA so volta pelo botao "Liberar IA" em `GET /conversations` (`POST /conversations/:id/ia`). A coluna `sdr_agents.human_pause_hours` ficou sem uso e saiu do formulario do SDR.
 
 Motor IA de resposta:
 
@@ -196,7 +200,7 @@ Motor IA de resposta:
 - Cada SDR escolhe um **playbook** (`consultivo` ou `convite`), que define o bloco de funil enviado logo depois das instrucoes fixas. `consultivo` (padrao) explica do que se trata, entende a rotina do lead e so entao chama humano; `convite` nao apresenta o produto, gera curiosidade e aciona o handoff no primeiro sim. As demais regras fixas sao iguais nos dois.
 - Registra chamadas em `ai_runs` com input, output, JSON parseado, tokens, tokens de cache hit e latencia e erro quando houver.
 - Ao receber mensagem inbound via webhook, se o SDR estiver ativo e tiver credenciais de IA/UAZAPI, gera resposta, envia via UAZAPI e salva a mensagem outbound no historico.
-- Se `human_paused_until` ainda estiver no futuro, a IA nao responde. Ao vencer o horario, a IA volta automaticamente no proximo inbound do lead.
+- Com a conversa pausada (`ai_paused_at` preenchido, ou `human_paused_until` no futuro em leads pausados antes dessa mudanca), a IA nao responde. Liberar no portal limpa a pausa e devolve o lead ao status que a conversa tinha.
 - Quando a IA retorna `notify_handoff` em `actions`, o sistema envia um resumo para o `handoff_phone` do SDR, marca o lead como `transferred`, salva `handoff_requested_at`/`handoff_summary` e desativa follow-up.
 - O template `handoff_message_template` aceita `{{handoffName}}`, `{{companyName}}`, `{{whatsappNumber}}`, `{{leadWhatsapp}}`, `{{sdrName}}`, `{{productName}}` e `{{summary}}`.
 

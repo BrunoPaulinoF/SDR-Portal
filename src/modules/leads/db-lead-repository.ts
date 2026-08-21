@@ -3,6 +3,7 @@ import { alias } from 'drizzle-orm/pg-core';
 
 import { db } from '../../db/client.js';
 import { leadImports, leads } from '../../db/schema.js';
+import { statusAfterAiResume } from './ai-pause.js';
 import type { LeadRepository } from './lead-repository.js';
 
 type LeadActivityColumns = Pick<typeof leads, 'lastInboundAt' | 'lastOutboundAt'>;
@@ -177,17 +178,35 @@ export function createDbLeadRepository(): LeadRepository {
       return db.select().from(leadImports).orderBy(desc(leadImports.createdAt));
     },
 
-    async markHumanPaused(id, pausedAt, pausedUntil, reason) {
+    async pauseAi(id, pausedAt, reason) {
+      const [current] = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
       const [lead] = await db
         .update(leads)
         .set({
           status: 'human_paused',
-          lastOutboundAt: pausedAt,
-          followupDisabledAt: pausedAt,
-          humanPausedUntil: pausedUntil,
+          followupDisabledAt: current?.followupDisabledAt ?? pausedAt,
+          // pausa sem prazo: quem devolve a conversa para a IA e o botao do portal
+          humanPausedUntil: null,
           aiPausedAt: pausedAt,
           aiPauseReason: reason,
           updatedAt: pausedAt,
+        })
+        .where(eq(leads.id, id))
+        .returning();
+      return lead ?? null;
+    },
+
+    async resumeAi(id, resumedAt) {
+      const [current] = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
+      if (!current) return null;
+      const [lead] = await db
+        .update(leads)
+        .set({
+          status: statusAfterAiResume(current),
+          humanPausedUntil: null,
+          aiPausedAt: null,
+          aiPauseReason: null,
+          updatedAt: resumedAt,
         })
         .where(eq(leads.id, id))
         .returning();

@@ -1,4 +1,5 @@
 import type { Conversation, Lead, Message } from '../../db/schema.js';
+import { aiPauseReasonLabel, isAiPaused } from '../leads/ai-pause.js';
 import { contactDisplayName, leadNameForPrompt, tradeBusinessName } from '../leads/lead-display-name.js';
 import { digitsOnly, formatWhatsappNumber } from '../phone/whatsapp-number.js';
 import { dayKeyInTimeZone, formatDayInTimeZone, formatTimeInTimeZone } from '../timezone.js';
@@ -57,6 +58,8 @@ export interface InboxChat {
   timeLabel: string;
   /** Ultima mensagem foi do lead: ninguem respondeu ainda. */
   awaitingReply: boolean;
+  /** IA parada nesta conversa ate alguem liberar no portal. */
+  aiPaused: boolean;
   /** Texto normalizado (sem acento, minusculo) que a busca — do servidor e do navegador — compara. */
   searchText: string;
 }
@@ -86,6 +89,12 @@ export interface InboxThread {
   contactLabel: string;
   statusLabel: string;
   stageLabel: string;
+  /** IA parada nesta conversa ate alguem liberar no portal. */
+  aiPaused: boolean;
+  /** Motivo da pausa em texto ("o lead enviou uma imagem"); vazio com a IA ativa. */
+  aiPauseLabel: string;
+  /** Quando a pausa comecou, ja no fuso do SDR; vazio com a IA ativa. */
+  aiPausedAtLabel: string;
   days: InboxDay[];
   totalMessages: number;
   /** Mensagens antigas que ficaram de fora do limite da pagina. */
@@ -238,6 +247,7 @@ export function buildInboxChats(input: InboxChatsInput): InboxChatsResult {
         preview: chatPreview(lastMessage),
         timeLabel: chatTimeLabel(activityAt, input.now, input.timeZone),
         awaitingReply: lastMessage?.direction === 'inbound',
+        aiPaused: lead ? isAiPaused(lead, input.now) : false,
         searchText: '',
       };
       chat.initials = chatInitials(chat.title);
@@ -288,6 +298,7 @@ export function buildInboxThread(input: InboxThreadInput): InboxThread {
   const lead = input.lead;
   const title = chatTitle(lead, input.conversation.whatsappNumber);
   const contactName = lead ? leadNameForPrompt(lead, lead.contactName) : '';
+  const aiPaused = lead ? isAiPaused(lead, input.now) : false;
 
   return {
     conversationId: input.conversation.id,
@@ -298,6 +309,13 @@ export function buildInboxThread(input: InboxThreadInput): InboxThread {
     contactLabel: contactName,
     statusLabel: statusLabel(lead?.status ?? input.conversation.status),
     stageLabel: lead ? stageLabel(lead.conversationStage) : '',
+    aiPaused,
+    aiPauseLabel: aiPaused ? aiPauseReasonLabel(lead?.aiPauseReason ?? null) : '',
+    // minusculo porque o texto entra depois de "desde": "desde hoje as 08:57"
+    aiPausedAtLabel:
+      aiPaused && lead?.aiPausedAt
+        ? `${dayLabel(lead.aiPausedAt, input.now, input.timeZone).toLowerCase()} as ${formatTimeInTimeZone(lead.aiPausedAt, input.timeZone)}`
+        : '',
     days,
     totalMessages: input.messages.length,
     hiddenMessages: Math.max(0, input.messages.length - visible.length),

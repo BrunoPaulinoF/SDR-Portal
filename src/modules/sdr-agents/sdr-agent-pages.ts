@@ -47,7 +47,6 @@ interface SdrAgentFormData {
   responseDelayPerCharMs: string;
   responseDelayMaxMs: string;
   messageSplitMaxChars: string;
-  humanPauseHours: string;
   handoffName: string;
   handoffPhone: string;
   handoffMessageTemplate: string;
@@ -150,7 +149,6 @@ const fieldHelp: Partial<Record<keyof SdrAgentFormData, string>> = {
   demoContactPhone: 'WhatsApp que vai dentro do cartao de contato, com DDI e DDD. Ex.: 5519997353221.',
   handoffName: 'Nome do responsavel ou time que recebe handoffs.',
   handoffPhone: 'WhatsApp que recebera avisos de transferencia para humano.',
-  humanPauseHours: 'Tempo que a IA fica pausada quando alguem responde manualmente pelo WhatsApp do SDR.',
   initialCooldownMaxMinutes: 'Tempo maximo aleatorio entre primeiras mensagens.',
   initialCooldownMinMinutes: 'Tempo minimo aleatorio entre primeiras mensagens para evitar disparos muito proximos.',
   messageSplitMaxChars: 'Tamanho maximo de cada parte quando a resposta for dividida em varias mensagens.',
@@ -218,7 +216,6 @@ const defaultForm: SdrAgentFormData = {
   responseDelayPerCharMs: '35',
   responseDelayMaxMs: '12000',
   messageSplitMaxChars: '450',
-  humanPauseHours: '24',
   handoffName: '',
   handoffPhone: '',
   handoffMessageTemplate: exampleHandoffTemplate,
@@ -273,7 +270,6 @@ function agentToForm(agent?: SdrAgent): SdrAgentFormData {
     responseDelayPerCharMs: String(agent.responseDelayPerCharMs),
     responseDelayMaxMs: String(agent.responseDelayMaxMs),
     messageSplitMaxChars: String(agent.messageSplitMaxChars),
-    humanPauseHours: String(agent.humanPauseHours),
     handoffName: agent.handoffName ?? '',
     handoffPhone: agent.handoffPhone ?? '',
     handoffMessageTemplate: agent.handoffMessageTemplate ?? '',
@@ -558,13 +554,12 @@ function renderSdrAgentForm(action: string, companies: Company[], agent?: SdrAge
 
       ${renderFormSection(
         'Resposta e handoff',
-        'Delay, divisao de mensagens, pausa humana, transferencia e contato de demonstracao.',
+        'Delay, divisao de mensagens, transferencia e contato de demonstracao. A pausa da IA e liberada em Conversas.',
         `
       ${renderField('responseDelayBaseMs', 'Delay base da resposta em ms', data.responseDelayBaseMs, true, 'number')}
       ${renderField('responseDelayPerCharMs', 'Delay por caractere em ms', data.responseDelayPerCharMs, true, 'number')}
       ${renderField('responseDelayMaxMs', 'Delay maximo por parte em ms', data.responseDelayMaxMs, true, 'number')}
       ${renderField('messageSplitMaxChars', 'Maximo de caracteres por parte', data.messageSplitMaxChars, true, 'number')}
-      ${renderField('humanPauseHours', 'Pausa humana em horas', data.humanPauseHours, true, 'number')}
       ${renderField('handoffName', 'Responsavel humano', data.handoffName)}
       ${renderField('handoffPhone', 'WhatsApp do responsavel humano', data.handoffPhone)}
       ${renderTextArea('handoffMessageTemplate', 'Modelo de mensagem para handoff', data.handoffMessageTemplate, 4)}
