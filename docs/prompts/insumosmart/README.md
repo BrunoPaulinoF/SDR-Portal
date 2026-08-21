@@ -41,9 +41,8 @@ A pergunta do convite é **"bora trocar uma ideia?"**, exatamente como está no 
 Fernando. Uma versão anterior destes prompts trocou essa frase por "Gostaria de saber mais
 sobre nosso projeto?", apostando que "saber mais" seria um sim mais barato que "trocar uma
 ideia". Na prática o Fernando viu a IA fazendo a pergunta errada, e a decisão é dele: o texto
-é o do roteiro. Do sim em diante a SDR não anuncia a transferência: ela pede — *"quem tem os
-detalhes sobre a proposta é o Fernando, dono da Insumo Smart. Topa eu passar seu contato pra ele
-te explicar melhor?"* — e é o segundo sim que dispara o handoff e o aviso no WhatsApp do
+é o do roteiro. Do sim em diante a SDR não anuncia a transferência: ela pede — *"Posso pedir
+para o Fernando te chamar?"* — e é o segundo sim que dispara o handoff e o aviso no WhatsApp do
 Fernando (veja **A passagem é uma pergunta**, abaixo).
 
 A abordagem são **quatro mensagens, uma por vez**, esperando o lead responder entre elas —
@@ -62,19 +61,54 @@ lead falou e emenda o passo seguinte com as palavras dela**, mantendo o tom e a 
 frase por frase foi tentado e deu errado — a SDR ignorava a pergunta do lead ("e você?") e
 terminava mensagem em ponto final, sem nada para responder. As duas regras que consertam isso
 (responder antes de avançar, e terminar sempre em pergunta) estão no `prompt.txt` e no bloco de
-funil do playbook `convite`. Só a pergunta do convite tem redação travada.
+funil do playbook `convite`. Só a pergunta do convite e a pergunta da passagem têm redação travada.
 
 O **follow-up** (`followup-prompt.txt`) é a quinta mensagem, quando o lead some: "passei
 novamente porque estou fechando as empresas", com a saída fácil de deixar a vaga para outra
 casa.
 
 Daí o desenho: **a SDR tem uma decisão só na conversa inteira** — a pessoa aceita ou não
-trocar uma ideia sobre o projeto. Ela não apresenta, não faz discovery, não qualifica em profundidade e não
-fala preço. Quem faz isso é o Fernando, ao vivo, com o contexto todo.
+conversar com o Fernando. Ela não faz discovery, não qualifica em profundidade, não negocia e
+não fala preço. Quem faz isso é o Fernando, ao vivo, com o contexto todo.
 
 Isso também derruba o risco. Os três erros que mais custam caro num SDR de IA — inventar
 preço, inventar detalhe do produto e queimar o lead com um pitch vago — só existem quando a
-IA tem muito o que dizer. Aqui ela tem quase nada, de propósito.
+IA tem muito o que dizer. Aqui ela tem uma frase, de propósito.
+
+## O que a SDR explica, e o que ela guarda
+
+A primeira versão destes prompts guardava tudo: a SDR não dizia o que a Insumo Smart faz, e a
+curiosidade em aberto era justamente essa. Na prática isso produziu respostas vagas — *"é um
+acompanhamento de perto da operação mesmo"* — e o lead que não entendeu não responde. Pior: para
+não explicar, a SDR se encostava no Fernando (*"quem detalha tudo é ele"*), o que lê como
+despreparo e transforma o encaminhamento em fuga da pergunta.
+
+A regra agora tem duas metades:
+
+- **A proposta central é dela**, e ela diz com segurança sempre que perguntarem: *acompanhar de
+  perto os números da operação e transformá-los em decisões práticas para a gestão financeira.*
+- **A aplicação é do Fernando** — como isso entraria naquela casa, o que muda no caso dela, o
+  desenho do acompanhamento. E o motivo é dito ao lead: cada operação tem uma realidade
+  diferente. Não é "eu não sei", é "isso depende de conhecer a sua casa".
+
+A curiosidade que segura a conversa mudou de lugar: não é mais *o que a Insumo Smart faz*, é
+*como isso funcionaria aqui*. É a única que a SDR preserva.
+
+Disso saem as regras que o `prompt.txt` passou a carregar, todas vindas de conversas reais:
+
+| Regra | Por quê |
+| --- | --- |
+| Responder a dúvida antes de falar do Fernando | Encaminhar sem responder é fuga, e o lead sente |
+| Nunca "só ele sabe explicar", "não tenho os detalhes", "ele te explica tudo" | Soa despreparo |
+| "Não entendi" → reformular com palavras mais concretas, nunca repetir a mesma resposta | Repetir a frase que já não funcionou perde o lead |
+| Não presumir problema, prejuízo, desperdício ou erro de preço | A SDR não conhece a casa; supor dor é o vício mais comum de SDR de IA |
+| Nada de promessa ("vamos aumentar seu lucro") | Não é verdade que ela possa afirmar |
+| No máximo três frases curtas, uma ideia por vez | Bloco longo no WhatsApp não se lê |
+| Natural e profissional, sem diminutivo infantilizado ("explicadinho", "rapidinho") | Informal é o registro; infantil não |
+
+O `offer-description.txt` também mudou: o bloco de dor virou **contexto interno explicitamente
+marcado como não-diagnóstico**, porque ele estava na região estável do prompt e servia de convite
+para a IA afirmar ao lead problemas que ninguém verificou.
 
 ## A passagem é uma pergunta
 
@@ -89,8 +123,8 @@ Por isso a passagem passou a ter **duas etapas**:
 
 | Etapa | O que a SDR faz | `conversation_stage` |
 | --- | --- | --- |
-| 1 | Diz quem tem os detalhes e **pergunta**: "topa eu passar seu contato pra ele te explicar melhor?" — sem acionar nada | `handoff_offer` |
-| 2 | O lead autoriza → `notify_handoff` na mesma resposta + "já encaminhei seu contato, em breve ele te chama" | `handoff_done` |
+| 1 | Responde a dúvida, diz que quem entende o cenário da casa é o Fernando e **pergunta**: "posso pedir para o Fernando te chamar?" — sem acionar nada | `handoff_offer` |
+| 2 | O lead autoriza → `notify_handoff` na mesma resposta, com as dúvidas dele no resumo | `handoff_done` |
 
 Isso muda o significado das etapas no funil do convite: `handoff_offer` era "o lead aceitou e o
 Fernando já foi avisado", e agora é "a pergunta da passagem está no ar". Nada precisou mudar no

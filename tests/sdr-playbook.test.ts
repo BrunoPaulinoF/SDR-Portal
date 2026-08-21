@@ -73,7 +73,7 @@ const perguntaDaPassagem = JSON.stringify({
 });
 
 const aceiteComHandoff = JSON.stringify({
-  mensagem_usuario: 'Boa! Ja pedi pro Fernando entrar em contato com voce aqui.',
+  mensagem_usuario: 'Combinado! Ja pedi pro Fernando, dono da Insumo Smart, te chamar.',
   nao_responder: false,
   status_sugerido: 'transferred',
   stage_sugerido: 'handoff_offer',
@@ -163,6 +163,11 @@ describe('playbook do SDR', () => {
     expect(prompt).toContain('Como passar o lead para a pessoa do time (sempre em duas etapas)');
     expect(prompt).toContain('Nunca anuncie a passagem como fato consumado sem ter perguntado antes');
     expect(prompt).toContain('a autorizacao ja existe');
+    // Explicar a proposta e trabalho da SDR; o que fica com o humano e a aplicacao dela.
+    expect(prompt).toContain('explicar a proposta e trabalho seu, nao da pessoa do time');
+    expect(prompt).toContain('Nunca diga ao lead que so a pessoa do time sabe explicar');
+    expect(prompt).toContain('Responda a duvida do lead antes de oferecer a passagem');
+    expect(prompt).toContain('Nao presuma problema, prejuizo, desperdicio');
     expect(buildSdrSystemPrompt({ sdrName: 'Mariana' })).not.toContain('Nunca anuncie a passagem como fato consumado');
   });
 
@@ -173,7 +178,7 @@ describe('playbook do SDR', () => {
     expect(prompt).toContain('Responda SEMPRE o que o lead acabou de dizer');
     expect(prompt).toContain('termina em pergunta ou gancho');
     // A IA reescrevendo o convite com outras palavras foi o erro relatado pelo cliente.
-    expect(prompt).toContain('A pergunta do convite e a que estiver escrita no prompt configurado deste SDR');
+    expect(prompt).toContain('A pergunta do convite e a pergunta da passagem sao as que estiverem escritas no prompt configurado deste SDR');
   });
 
   it('proibe emoji e manda seguir o roteiro na primeira mensagem do convite', async () => {
