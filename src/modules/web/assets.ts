@@ -863,6 +863,22 @@ form[data-inline] {
   border-right: 1px solid var(--border);
 }
 
+/* Pedaco que a atualizacao em tempo real troca: a busca fica fora para nao perder o foco. */
+.chat-panel-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.chat-thread-slot {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .chat-search {
   padding: 14px 14px 8px;
 }
@@ -984,6 +1000,17 @@ form[data-inline] {
   font-weight: 800;
 }
 
+.chat-item-paused {
+  flex: 0 0 auto;
+  padding: 1px 8px;
+  background: var(--danger-bg);
+  border: 1px solid var(--danger-border);
+  border-radius: 999px;
+  color: var(--danger-text);
+  font-size: 11px;
+  font-weight: 800;
+}
+
 .chat-list-empty {
   margin: 0;
   padding: 18px 16px;
@@ -992,7 +1019,9 @@ form[data-inline] {
 
 .chat-thread {
   display: flex;
+  flex: 1;
   flex-direction: column;
+  min-width: 0;
   min-height: 0;
   background: #efeae2;
 }
@@ -1039,6 +1068,25 @@ form[data-inline] {
 .chat-thread-tags .button {
   padding: 7px 12px;
   font-size: 13px;
+}
+
+.chat-ia-form {
+  margin: 0;
+}
+
+.chat-ia-form button {
+  padding: 7px 12px;
+  font-size: 13px;
+}
+
+.chat-pause-note {
+  margin: 0;
+  padding: 9px 18px;
+  background: var(--danger-bg);
+  border-bottom: 1px solid var(--danger-border);
+  color: var(--danger-text);
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .chat-scroll {

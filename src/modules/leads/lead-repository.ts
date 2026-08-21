@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import type { Lead, LeadImport, NewLead, NewLeadImport } from '../../db/schema.js';
+import { statusAfterAiResume } from './ai-pause.js';
 
 export type LeadInput = Pick<
   NewLead,
@@ -51,7 +52,10 @@ export interface LeadRepository {
   /** Leads de um conjunto conhecido de ids (ex.: os donos das conversas de um SDR). */
   listByIds(ids: string[]): Promise<Lead[]>;
   listImports(): Promise<LeadImport[]>;
-  markHumanPaused(id: string, pausedAt: Date, pausedUntil: Date, reason: string): Promise<Lead | null>;
+  /** Pausa a IA nesta conversa ate alguem liberar no portal: nao expira sozinha. */
+  pauseAi(id: string, pausedAt: Date, reason: string): Promise<Lead | null>;
+  /** Libera a IA e devolve o lead ao status que a conversa tinha antes da pausa. */
+  resumeAi(id: string, resumedAt: Date): Promise<Lead | null>;
   markInboundReceived(id: string, receivedAt: Date, followupDueAt?: Date | null): Promise<Lead | null>;
   markOutboundSent(id: string, sentAt: Date): Promise<Lead | null>;
   markFollowupSent(id: string, sentAt: Date): Promise<Lead | null>;
@@ -259,18 +263,32 @@ export function createMemoryLeadRepository(seedLeads: Lead[] = []): LeadReposito
       return [...imports.values()].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     },
 
-    async markHumanPaused(id, pausedAt, pausedUntil, reason) {
+    async pauseAi(id, pausedAt, reason) {
       const current = rows.get(id);
       if (!current) return null;
       const lead: Lead = {
         ...current,
         status: 'human_paused',
-        lastOutboundAt: pausedAt,
         followupDisabledAt: current.followupDisabledAt ?? pausedAt,
-        humanPausedUntil: pausedUntil,
+        humanPausedUntil: null,
         aiPausedAt: pausedAt,
         aiPauseReason: reason,
         updatedAt: pausedAt,
+      };
+      rows.set(id, lead);
+      return lead;
+    },
+
+    async resumeAi(id, resumedAt) {
+      const current = rows.get(id);
+      if (!current) return null;
+      const lead: Lead = {
+        ...current,
+        status: statusAfterAiResume(current),
+        humanPausedUntil: null,
+        aiPausedAt: null,
+        aiPauseReason: null,
+        updatedAt: resumedAt,
       };
       rows.set(id, lead);
       return lead;

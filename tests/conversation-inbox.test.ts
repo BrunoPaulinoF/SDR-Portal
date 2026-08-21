@@ -307,6 +307,10 @@ async function buildPortal() {
     text: 'Aqui e a acaiteria, bom dia',
   });
 
+  // o webhook real marca a chegada no lead; sem isso o lead fica sem historico de entrada
+  await leadRepository.markInboundReceived(leadMariana.id, new Date('2026-08-20T17:00:00Z'));
+  await leadRepository.markInboundReceived(leadCarlos.id, new Date('2026-08-20T17:10:00Z'));
+
   return { carlos, chatCarlos, chatMariana, conversationRepository, leadRepository, mariana, sdrAgentRepository };
 }
 
@@ -408,6 +412,209 @@ describe('rota /conversations', () => {
     });
 
     const response = await app.inject({ method: 'GET', url: '/conversations' });
+
+    expect(response.statusCode).toBe(302);
+    expect(response.headers.location).toBe('/login');
+    await app.close();
+  });
+});
+
+describe('pausa da IA na caixa de conversas', () => {
+  it('conversa pausada mostra o motivo e o botao de liberar', async () => {
+    const portal = await buildPortal();
+    await portal.leadRepository.pauseAi(portal.chatCarlos.leadId, new Date('2026-08-20T17:20:00Z'), 'lead_image_message');
+    const { app, cookie } = await loggedInApp({
+      conversationRepository: portal.conversationRepository,
+      leadRepository: portal.leadRepository,
+      sdrAgentRepository: portal.sdrAgentRepository,
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/conversations?sdr=${portal.carlos.id}&chat=${portal.chatCarlos.id}`,
+      headers: { cookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain('o lead enviou uma imagem');
+    expect(response.body).toContain('Liberar IA');
+    expect(response.body).toContain(`/conversations/${portal.chatCarlos.id}/ia`);
+    await app.close();
+  });
+
+  it('o botao libera a IA e devolve o lead para a conversa', async () => {
+    const portal = await buildPortal();
+    await portal.leadRepository.pauseAi(portal.chatCarlos.leadId, new Date('2026-08-20T17:20:00Z'), 'manual_whatsapp_message');
+    const { app, cookie } = await loggedInApp({
+      conversationRepository: portal.conversationRepository,
+      leadRepository: portal.leadRepository,
+      sdrAgentRepository: portal.sdrAgentRepository,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/conversations/${portal.chatCarlos.id}/ia`,
+      headers: { cookie },
+      payload: { acao: 'liberar' },
+    });
+    const lead = await portal.leadRepository.findById(portal.chatCarlos.leadId);
+
+    // sem JS o formulario volta para a mesma conversa dentro da caixa
+    expect(response.statusCode).toBe(302);
+    expect(response.headers.location).toBe(`/conversations?sdr=${portal.carlos.id}&chat=${portal.chatCarlos.id}`);
+    expect(lead?.aiPausedAt).toBeNull();
+    expect(lead?.aiPauseReason).toBeNull();
+    expect(lead?.status).toBe('in_conversation');
+    await app.close();
+  });
+
+  it('o mesmo botao pausa a IA quando ela esta ativa', async () => {
+    const portal = await buildPortal();
+    const { app, cookie } = await loggedInApp({
+      conversationRepository: portal.conversationRepository,
+      leadRepository: portal.leadRepository,
+      sdrAgentRepository: portal.sdrAgentRepository,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/conversations/${portal.chatCarlos.id}/ia`,
+      headers: { cookie, accept: 'application/json' },
+      payload: { acao: 'pausar' },
+    });
+    const lead = await portal.leadRepository.findById(portal.chatCarlos.leadId);
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ ok: true, acao: 'pausar' });
+    expect(lead?.status).toBe('human_paused');
+    expect(lead?.aiPauseReason).toBe('portal_manual');
+    // pausa sem prazo: nada expira sozinho
+    expect(lead?.humanPausedUntil).toBeNull();
+    await app.close();
+  });
+
+  it('sem login o botao nao pausa nada', async () => {
+    const portal = await buildPortal();
+    const app = buildApp({
+      conversationRepository: portal.conversationRepository,
+      leadRepository: portal.leadRepository,
+      sdrAgentRepository: portal.sdrAgentRepository,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/conversations/${portal.chatCarlos.id}/ia`,
+      payload: { acao: 'pausar' },
+    });
+    const lead = await portal.leadRepository.findById(portal.chatCarlos.leadId);
+
+    expect(response.statusCode).toBe(302);
+    expect(response.headers.location).toBe('/login');
+    expect(lead?.aiPausedAt).toBeNull();
+    await app.close();
+  });
+});
+
+describe('conversas em tempo real sem recarregar a pagina', () => {
+  it('abre outra conversa pelo /conversations/updates, sem HTML da pagina inteira', async () => {
+    const portal = await buildPortal();
+    const { app, cookie } = await loggedInApp({
+      conversationRepository: portal.conversationRepository,
+      leadRepository: portal.leadRepository,
+      sdrAgentRepository: portal.sdrAgentRepository,
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/conversations/updates?sdr=${portal.mariana.id}&chat=${portal.chatMariana.id}`,
+      headers: { cookie },
+    });
+    const dados = response.json();
+
+    expect(response.statusCode).toBe(200);
+    expect(dados.chat).toBe(portal.chatMariana.id);
+    expect(dados.threadHtml).toContain('Pode mandar os precos da padaria');
+    expect(dados.chatsHtml).toContain('Padaria da Esquina');
+    // fragmento, nao pagina: nada de <html> nem do menu lateral
+    expect(dados.threadHtml).not.toContain('<html');
+    expect(dados.chatsHtml).not.toContain('sidebar');
+    await app.close();
+  });
+
+  it('assinatura igual devolve resposta vazia, para a tela nao piscar a cada rodada', async () => {
+    const portal = await buildPortal();
+    const { app, cookie } = await loggedInApp({
+      conversationRepository: portal.conversationRepository,
+      leadRepository: portal.leadRepository,
+      sdrAgentRepository: portal.sdrAgentRepository,
+    });
+
+    const primeira = await app.inject({
+      method: 'GET',
+      url: `/conversations/updates?sdr=${portal.carlos.id}&chat=${portal.chatCarlos.id}`,
+      headers: { cookie },
+    });
+    const assinaturas = primeira.json();
+    const segunda = await app.inject({
+      method: 'GET',
+      url: `/conversations/updates?sdr=${portal.carlos.id}&chat=${portal.chatCarlos.id}&chatsSig=${assinaturas.chatsSig}&threadSig=${assinaturas.threadSig}`,
+      headers: { cookie },
+    });
+    const dados = segunda.json();
+
+    expect(segunda.statusCode).toBe(200);
+    expect(dados.chatsHtml).toBeUndefined();
+    expect(dados.threadHtml).toBeUndefined();
+    expect(dados.chatsSig).toBe(assinaturas.chatsSig);
+    await app.close();
+  });
+
+  it('mensagem nova muda a assinatura e volta com o HTML atualizado', async () => {
+    const portal = await buildPortal();
+    const { app, cookie } = await loggedInApp({
+      conversationRepository: portal.conversationRepository,
+      leadRepository: portal.leadRepository,
+      sdrAgentRepository: portal.sdrAgentRepository,
+    });
+
+    const primeira = await app.inject({
+      method: 'GET',
+      url: `/conversations/updates?sdr=${portal.carlos.id}&chat=${portal.chatCarlos.id}`,
+      headers: { cookie },
+    });
+    const assinaturas = primeira.json();
+    await portal.conversationRepository.createMessage({
+      conversationId: portal.chatCarlos.id,
+      leadId: portal.chatCarlos.leadId,
+      sdrAgentId: portal.carlos.id,
+      direction: 'inbound',
+      senderType: 'lead',
+      messageType: 'conversation',
+      text: 'Chegou agora, em tempo real',
+    });
+
+    const segunda = await app.inject({
+      method: 'GET',
+      url: `/conversations/updates?sdr=${portal.carlos.id}&chat=${portal.chatCarlos.id}&chatsSig=${assinaturas.chatsSig}&threadSig=${assinaturas.threadSig}`,
+      headers: { cookie },
+    });
+    const dados = segunda.json();
+
+    expect(dados.threadHtml).toContain('Chegou agora, em tempo real');
+    expect(dados.chatsHtml).toContain('Chegou agora, em tempo real');
+    expect(dados.threadSig).not.toBe(assinaturas.threadSig);
+    await app.close();
+  });
+
+  it('sem login a atualizacao manda para o /login em vez de vazar conversa', async () => {
+    const portal = await buildPortal();
+    const app = buildApp({
+      conversationRepository: portal.conversationRepository,
+      leadRepository: portal.leadRepository,
+      sdrAgentRepository: portal.sdrAgentRepository,
+    });
+
+    const response = await app.inject({ method: 'GET', url: '/conversations/updates' });
 
     expect(response.statusCode).toBe(302);
     expect(response.headers.location).toBe('/login');

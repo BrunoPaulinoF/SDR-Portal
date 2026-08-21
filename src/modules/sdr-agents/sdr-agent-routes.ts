@@ -67,7 +67,6 @@ const sdrAgentFormSchema = z.object({
   responseDelayPerCharMs: z.coerce.number().int().nonnegative(),
   responseDelayMaxMs: z.coerce.number().int().nonnegative(),
   messageSplitMaxChars: z.coerce.number().int().positive(),
-  humanPauseHours: z.coerce.number().int().positive(),
   handoffName: z.string().trim().optional().default(''),
   handoffPhone: z.string().trim().optional().default(''),
   handoffMessageTemplate: z.string().trim().optional().default(''),
@@ -134,7 +133,8 @@ function parseSdrAgentInput(body: unknown, current?: SdrAgentInput): SdrAgentInp
     responseDelayPerCharMs: data.responseDelayPerCharMs,
     responseDelayMaxMs: data.responseDelayMaxMs,
     messageSplitMaxChars: data.messageSplitMaxChars,
-    humanPauseHours: data.humanPauseHours,
+    // coluna legada: a pausa da IA deixou de expirar por tempo, so o portal libera
+    humanPauseHours: current?.humanPauseHours,
     handoffName: emptyToNull(data.handoffName),
     handoffPhone: emptyToNull(data.handoffPhone),
     handoffMessageTemplate: emptyToNull(data.handoffMessageTemplate),
