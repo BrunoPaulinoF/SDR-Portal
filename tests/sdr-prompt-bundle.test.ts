@@ -48,6 +48,34 @@ describe('bundle de prompts do repositorio', () => {
     expect(prompt).toContain('Informal não é seco');
   });
 
+  it('pede autorizacao antes de passar o lead para o Fernando', async () => {
+    const bundle = await readPromptBundle(INSUMOSMART_DIR);
+    const prompt = bundle.fields.prompt ?? '';
+
+    // O print do cliente: "ja pedi pra ele entrar em contato com voce" sem nunca ter perguntado.
+    expect(prompt).toContain('Posso pedir para o Fernando te chamar?');
+    expect(prompt).toContain('Nesta mensagem você NÃO aciona nada');
+    expect(prompt).toContain('QUANDO NÃO PERGUNTAR');
+    expect(prompt).toContain('NUNCA avise que o Fernando vai entrar em contato sem ter pedido autorização antes');
+    // O lead que some depois da pergunta nao pode receber o roteiro de novo no follow-up.
+    expect(bundle.fields.followupPrompt).toContain('pergunta da passagem');
+  });
+
+  it('explica a proposta central em vez de guardar o que a Insumo Smart faz', async () => {
+    const bundle = await readPromptBundle(INSUMOSMART_DIR);
+    const prompt = bundle.fields.prompt ?? '';
+
+    // A curiosidade preservada e a aplicacao na casa do lead, nao o que a empresa faz.
+    expect(prompt).toContain('acompanhar de perto os números da operação e transformá-los em decisões práticas para a gestão financeira');
+    expect(prompt).toContain('Como cada casa tem uma realidade');
+    // O que soava despreparo nos prints.
+    expect(prompt).toContain('Nunca diga "só o Fernando sabe explicar"');
+    expect(prompt).toContain('NÃO PRESUMA PROBLEMA');
+    expect(prompt).toContain('NUNCA repita a mesma resposta');
+    // A oferta nao pode entregar a "dor" como diagnostico pronto do lead.
+    expect(bundle.fields.offerDescription).toContain('NÃO é diagnóstico deste lead');
+  });
+
   it('planeja playbook, modo da primeira mensagem e prompts para um SDR ainda consultivo', async () => {
     const agent = await makeAgent({ playbook: 'consultivo', firstMessageMode: 'ai', handoffName: 'Fernando', handoffPhone: '11988887777' });
     const bundle = await readPromptBundle(INSUMOSMART_DIR);
