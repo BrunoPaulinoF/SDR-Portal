@@ -1,4 +1,4 @@
-import { asc, desc, eq, and, inArray, sql } from 'drizzle-orm';
+import { asc, desc, eq, and, gte, inArray, lte, sql } from 'drizzle-orm';
 
 import { db } from '../../db/client.js';
 import { conversations, messages } from '../../db/schema.js';
@@ -58,6 +58,15 @@ export function createDbConversationRepository(): ConversationRepository {
         .from(conversations)
         .where(eq(conversations.sdrAgentId, sdrAgentId))
         .orderBy(sql`${conversations.lastMessageAt} desc nulls last`, desc(conversations.createdAt));
+    },
+
+    async listByLastMessageBetween(since, before, limit) {
+      return db
+        .select()
+        .from(conversations)
+        .where(and(gte(conversations.lastMessageAt, since), lte(conversations.lastMessageAt, before)))
+        .orderBy(desc(conversations.lastMessageAt))
+        .limit(limit);
     },
 
     async listLastMessages(conversationIds) {

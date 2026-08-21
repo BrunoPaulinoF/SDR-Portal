@@ -3,12 +3,15 @@ import PgBoss from 'pg-boss';
 import { env } from '../../config/env.js';
 import type { createFollowupOutreachService } from './followup-outreach.js';
 import type { createInitialOutreachService } from './initial-outreach.js';
+import type { createPendingReplyService } from './pending-reply.js';
 
 type InitialOutreachService = ReturnType<typeof createInitialOutreachService>;
 type FollowupOutreachService = ReturnType<typeof createFollowupOutreachService>;
+type PendingReplyService = ReturnType<typeof createPendingReplyService>;
 
 const initialQueueName = 'initial-outreach-tick';
 const followupQueueName = 'followup-outreach-tick';
+const pendingReplyQueueName = 'pending-reply-tick';
 
 export async function startPgBossInitialOutreachScheduler(initialOutreachService: InitialOutreachService): Promise<PgBoss | null> {
   if (!env.SCHEDULER_ENABLED) {
@@ -54,6 +57,30 @@ export async function startPgBossFollowupScheduler(followupOutreachService: Foll
     await followupOutreachService.runOnce();
   });
   await boss.schedule(followupQueueName, env.FOLLOWUP_CRON, {}, { tz: env.DEFAULT_TIMEZONE });
+
+  return boss;
+}
+
+export async function startPgBossPendingReplyScheduler(pendingReplyService: PendingReplyService): Promise<PgBoss | null> {
+  if (!env.SCHEDULER_ENABLED) {
+    return null;
+  }
+
+  if (!env.DATABASE_URL) {
+    throw new Error('DATABASE_URL is required to start scheduler');
+  }
+
+  const boss = new PgBoss({ connectionString: env.DATABASE_URL });
+  boss.on('error', (error) => {
+    process.stderr.write(`pg-boss error: ${error.message}\n`);
+  });
+
+  await boss.start();
+  await boss.createQueue(pendingReplyQueueName);
+  await boss.work(pendingReplyQueueName, async () => {
+    await pendingReplyService.runOnce();
+  });
+  await boss.schedule(pendingReplyQueueName, env.PENDING_REPLY_CRON, {}, { tz: env.DEFAULT_TIMEZONE });
 
   return boss;
 }

@@ -135,6 +135,9 @@ Scheduler de mensagens iniciais:
 - `SCHEDULER_ENABLED=true`: ativa o worker pg-boss em producao.
 - `INITIAL_OUTREACH_CRON`: cron da rodada automatica, padrao `* * * * *`.
 - `FOLLOWUP_CRON`: cron da rodada automatica de follow-up, padrao `*/5 * * * *`.
+- `PENDING_REPLY_CRON`: cron da varredura de respostas pendentes, padrao `*/5 * * * *`.
+- `PENDING_REPLY_AFTER_MS`: silencio tolerado antes de considerar a resposta perdida, padrao `180000` (3 min).
+- `PENDING_REPLY_WINDOW_HOURS`: idade maxima da conversa que ainda recebe resposta atrasada, padrao `24`.
 - `WEB_RESEARCH_ENDPOINT`: endpoint opcional para pesquisa/enriquecimento web antes da primeira mensagem.
 - `WEB_RESEARCH_API_KEY`: token opcional enviado como `Bearer` para o endpoint de pesquisa.
 - `WEB_RESEARCH_TIMEOUT_MS`: timeout da pesquisa web, padrao `8000`.
@@ -153,6 +156,21 @@ Regras atuais do disparo inicial:
 - Marca o lead como `initial_sent` e salva `first_message_sent_at` e `last_outbound_at`.
 - Se follow-up estiver ativo no SDR, agenda `followup_due_at` usando `followup_after_hours`.
 - Registra resultado em `job_logs`.
+
+Resposta pendente (rede de seguranca do lead ignorado):
+
+- `POST /scheduler/pending-reply/run`: executa manualmente uma varredura de leads sem resposta.
+- O caminho normal e o webhook: a mensagem do lead chega, o buffer de rajada
+  (`INBOUND_RESPONSE_BUFFER_MS`) espera e a IA responde. Esse caminho vive na memoria do
+  processo, entao ele perde a resposta se o container reiniciar dentro da janela do buffer
+  (deploy), se a geracao estourar as tentativas ou se a UAZAPI recusar o envio.
+- Seleciona conversa cuja **ultima mensagem e do lead**, parada ha mais de
+  `PENDING_REPLY_AFTER_MS` e dentro de `PENDING_REPLY_WINDOW_HOURS`. Se a IA tivesse
+  respondido, a ultima mensagem seria dela — por isso nao ha risco de mensagem duplicada.
+- Ignora midia sem texto util, lead com IA pausada, SDR inativo e conversa que ja teve duas
+  geracoes de resposta para a mesma mensagem (o teto evita insistir com quem ficou em silencio
+  de proposito, como robo de loja).
+- Registra cada nova tentativa em `job_logs` com `job_name = pending-reply`.
 
 Follow-up unico:
 

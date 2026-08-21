@@ -280,9 +280,19 @@ async function sendDemoContact(
 const MAX_GENERATE_ATTEMPTS = 3;
 
 /**
+ * Resposta sem texto, sem acao e sem "nao_responder" nao e uma decisao de ficar quieto: e
+ * geracao perdida. Ate esta checagem existir, ela passava como resposta valida e o lead
+ * ficava falando sozinho.
+ */
+function isUsableReply(parsed: ParsedAiResponse): boolean {
+  return parsed.nao_responder || Boolean(parsed.mensagem_usuario.trim()) || parsed.actions.length > 0;
+}
+
+/**
  * O provider (deepseek-v4-pro) as vezes devolve JSON vazio/cortado (gasta o
  * orcamento de tokens em raciocinio antes do conteudo final). Sem retry, isso
- * deixava o lead sem resposta nenhuma. Tenta de novo antes de desistir.
+ * deixava o lead sem resposta nenhuma. Tenta de novo antes de desistir — inclusive
+ * quando o JSON veio bem formado mas sem nada dentro.
  */
 async function generateAndParseWithRetry(
   deps: AiResponseDependencies,
@@ -301,6 +311,7 @@ async function generateAndParseWithRetry(
     try {
       const aiResult = await deps.aiClient.generate(input);
       const parsed = parseAiResponse(aiResult.outputText);
+      if (!isUsableReply(parsed) && attempt < MAX_GENERATE_ATTEMPTS) continue;
       return { aiResult, parsed };
     } catch (error) {
       lastError = error;

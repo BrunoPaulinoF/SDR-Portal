@@ -30,6 +30,8 @@ export interface ConversationRepository {
   listAllMessages(): Promise<Message[]>;
   /** Conversas de um SDR, da mais recente para a mais antiga: e a lista de chats da caixa de conversas. */
   listBySdr(sdrAgentId: string): Promise<Conversation[]>;
+  /** Conversas cuja ultima mensagem caiu numa janela de tempo, da mais recente para a mais antiga. */
+  listByLastMessageBetween(since: Date, before: Date, limit: number): Promise<Conversation[]>;
   /** Ultima mensagem de cada conversa pedida, para a previa da lista de chats sem um SELECT por conversa. */
   listLastMessages(conversationIds: string[]): Promise<Message[]>;
   listMessages(conversationId: string): Promise<Message[]>;
@@ -113,6 +115,16 @@ export function createMemoryConversationRepository(seedConversations: Conversati
       return [...conversations.values()]
         .filter((item) => item.sdrAgentId === sdrAgentId)
         .sort((a, b) => (b.lastMessageAt?.getTime() ?? b.createdAt.getTime()) - (a.lastMessageAt?.getTime() ?? a.createdAt.getTime()));
+    },
+
+    async listByLastMessageBetween(since, before, limit) {
+      return [...conversations.values()]
+        .filter((conversation) => {
+          const at = conversation.lastMessageAt?.getTime();
+          return at !== undefined && at >= since.getTime() && at <= before.getTime();
+        })
+        .sort((a, b) => (b.lastMessageAt?.getTime() ?? 0) - (a.lastMessageAt?.getTime() ?? 0))
+        .slice(0, limit);
     },
 
     async listLastMessages(conversationIds) {

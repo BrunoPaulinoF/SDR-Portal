@@ -1,6 +1,7 @@
 import { buildApp } from './app.js';
 import { env } from './config/env.js';
 import { createHttpAiClient } from './modules/ai/ai-client.js';
+import { createAiResponseService } from './modules/ai/ai-response-service.js';
 import { createDbAiRunRepository } from './modules/ai/db-ai-run-repository.js';
 import { createDbConversationRepository } from './modules/conversations/db-conversation-repository.js';
 import { createDbFirstMessageVariantRepository } from './modules/first-message-variants/db-first-message-variant-repository.js';
@@ -10,7 +11,12 @@ import { createHttpLeadResearchProvider, createLeadResearchService } from './mod
 import { createDbLeadRepository } from './modules/leads/db-lead-repository.js';
 import { createFollowupOutreachService } from './modules/scheduler/followup-outreach.js';
 import { createInitialOutreachService } from './modules/scheduler/initial-outreach.js';
-import { startPgBossFollowupScheduler, startPgBossInitialOutreachScheduler } from './modules/scheduler/pg-boss-scheduler.js';
+import { createPendingReplyService } from './modules/scheduler/pending-reply.js';
+import {
+  startPgBossFollowupScheduler,
+  startPgBossInitialOutreachScheduler,
+  startPgBossPendingReplyScheduler,
+} from './modules/scheduler/pg-boss-scheduler.js';
 import { createDbSdrAgentRepository } from './modules/sdr-agents/db-sdr-agent-repository.js';
 import { createHttpUazapiClient } from './modules/uazapi/uazapi-client.js';
 import type PgBoss from 'pg-boss';
@@ -52,8 +58,27 @@ async function start(): Promise<void> {
         uazapiClient: createHttpUazapiClient(),
       }),
     );
+    const pendingReplyBoss = await startPgBossPendingReplyScheduler(
+      createPendingReplyService({
+        afterMs: env.PENDING_REPLY_AFTER_MS,
+        aiResponseService: createAiResponseService({
+          aiClient: createHttpAiClient(),
+          aiRunRepository: createDbAiRunRepository(),
+          conversationRepository: createDbConversationRepository(),
+          leadRepository: createDbLeadRepository(),
+          uazapiClient: createHttpUazapiClient(),
+        }),
+        aiRunRepository: createDbAiRunRepository(),
+        conversationRepository: createDbConversationRepository(),
+        jobLogRepository: createDbJobLogRepository(),
+        leadRepository: createDbLeadRepository(),
+        sdrAgentRepository: createDbSdrAgentRepository(),
+        windowHours: env.PENDING_REPLY_WINDOW_HOURS,
+      }),
+    );
     if (initialBoss) bosses.push(initialBoss);
     if (followupBoss) bosses.push(followupBoss);
+    if (pendingReplyBoss) bosses.push(pendingReplyBoss);
   } catch (error) {
     app.log.error(error, 'Failed to start server');
     process.exit(1);
