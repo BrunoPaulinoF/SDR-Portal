@@ -22,6 +22,8 @@ export type AiRunInput = Pick<
 >;
 
 export interface AiRunRepository {
+  /** Quantas geracoes de resposta ja rodaram nesta conversa depois de um instante. */
+  countRepliesSince(conversationId: string, since: Date): Promise<number>;
   create(input: AiRunInput): Promise<AiRun>;
   findByLeadId(leadId: string): Promise<AiRun[]>;
   list(): Promise<AiRun[]>;
@@ -32,6 +34,15 @@ export function createMemoryAiRunRepository(seedRuns: AiRun[] = []): AiRunReposi
   for (const run of seedRuns) rows.set(run.id, run);
 
   return {
+    async countRepliesSince(conversationId, since) {
+      return [...rows.values()].filter(
+        (run) =>
+          run.conversationId === conversationId &&
+          run.purpose === 'reply_generation' &&
+          run.createdAt.getTime() >= since.getTime(),
+      ).length;
+    },
+
     async create(input) {
       const run: AiRun = {
         id: randomUUID(),

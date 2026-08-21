@@ -30,6 +30,11 @@ const envSchema = z
     INITIAL_OUTREACH_CRON: z.string().default('* * * * *'),
     FOLLOWUP_CRON: z.string().default('*/5 * * * *'),
     INBOUND_RESPONSE_BUFFER_MS: z.coerce.number().int().min(20000).default(20000),
+    // Rede de seguranca do lead que respondeu e ficou sem resposta (deploy no meio do buffer,
+    // erro da IA, envio recusado pela UAZAPI).
+    PENDING_REPLY_CRON: z.string().default('*/5 * * * *'),
+    PENDING_REPLY_AFTER_MS: z.coerce.number().int().min(60000).default(180000),
+    PENDING_REPLY_WINDOW_HOURS: z.coerce.number().int().positive().default(24),
     AI_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(90000),
     UAZAPI_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
     // Servidor UAZAPI usado para criar a instancia de um SDR novo. Sem os dois, o portal

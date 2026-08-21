@@ -36,6 +36,7 @@ import { createMemoryLeadRepository, type LeadRepository } from './modules/leads
 import { registerLeadRoutes } from './modules/leads/lead-routes.js';
 import { createInitialOutreachService } from './modules/scheduler/initial-outreach.js';
 import { createFollowupOutreachService } from './modules/scheduler/followup-outreach.js';
+import { createPendingReplyService } from './modules/scheduler/pending-reply.js';
 import { registerSchedulerRoutes } from './modules/scheduler/scheduler-routes.js';
 import { createMemorySdrAgentRepository, type SdrAgentRepository } from './modules/sdr-agents/sdr-agent-repository.js';
 import { registerSdrAgentRoutes } from './modules/sdr-agents/sdr-agent-routes.js';
@@ -75,6 +76,10 @@ export interface AppOptions extends FastifyServerOptions {
 
 function createLazyDbAiRunRepository(): AiRunRepository {
   return {
+    async countRepliesSince(conversationId, since) {
+      const { createDbAiRunRepository } = await import('./modules/ai/db-ai-run-repository.js');
+      return createDbAiRunRepository().countRepliesSince(conversationId, since);
+    },
     async create(input) {
       const { createDbAiRunRepository } = await import('./modules/ai/db-ai-run-repository.js');
       return createDbAiRunRepository().create(input);
@@ -123,6 +128,10 @@ function createLazyDbConversationRepository(): ConversationRepository {
     async listBySdr(sdrAgentId) {
       const { createDbConversationRepository } = await import('./modules/conversations/db-conversation-repository.js');
       return createDbConversationRepository().listBySdr(sdrAgentId);
+    },
+    async listByLastMessageBetween(since, before, limit) {
+      const { createDbConversationRepository } = await import('./modules/conversations/db-conversation-repository.js');
+      return createDbConversationRepository().listByLastMessageBetween(since, before, limit);
     },
     async listLastMessages(conversationIds) {
       const { createDbConversationRepository } = await import('./modules/conversations/db-conversation-repository.js');
@@ -615,6 +624,14 @@ export function buildApp(options: AppOptions = {}): AppInstance {
     delayMs: inboundResponseBufferMs ?? (env.NODE_ENV === 'test' ? 0 : env.INBOUND_RESPONSE_BUFFER_MS),
     leadRepository: leads,
   });
+  const pendingReply = createPendingReplyService({
+    aiResponseService,
+    aiRunRepository: aiRuns,
+    conversationRepository: conversations,
+    jobLogRepository: jobLogs,
+    leadRepository: leads,
+    sdrAgentRepository: sdrAgents,
+  });
   const audioTranscriptionService = createAudioTranscriptionService({ uazapiClient: uazapi });
 
   void app.register(cookie, {
@@ -643,7 +660,7 @@ export function buildApp(options: AppOptions = {}): AppInstance {
   registerLeadRoutes(app, repository, companies, sdrAgents, leads, aiRuns, jobLogs);
   registerUazapiRoutes(app, repository, sdrAgents, uazapi);
   registerInstanceConnectRoutes(app, repository, sdrAgents, instanceShareLinks, uazapi);
-  registerSchedulerRoutes(app, repository, initialOutreach, followupOutreach);
+  registerSchedulerRoutes(app, repository, initialOutreach, followupOutreach, pendingReply);
   registerConversationRoutes(app, repository, conversations, leads, sdrAgents);
   registerWebhookEventRoutes(app, repository, webhookEvents);
   registerAiRunRoutes(app, repository, aiRuns);
