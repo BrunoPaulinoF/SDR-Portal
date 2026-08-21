@@ -979,6 +979,33 @@ describe('mensagem sem nexo: correcao do que o lead nao disse', () => {
   });
 });
 
+describe('resposta da IA com campos nulos', () => {
+  it('trata null como ausencia em vez de descartar a resposta inteira', async () => {
+    const { parseAiResponse } = await import('../src/modules/ai/ai-response.js');
+
+    // O caso de producao: o modelo mandou status_sugerido null e a geracao do follow-up
+    // inteira foi perdida com "Expected string, received null".
+    const comNulos = parseAiResponse('{"mensagem_usuario":"oi","nao_responder":false,"status_sugerido":null,"stage_sugerido":null,"actions":null}');
+    expect(comNulos.mensagem_usuario).toBe('oi');
+    expect(comNulos.status_sugerido).toBeUndefined();
+    expect(comNulos.stage_sugerido).toBeUndefined();
+    expect(comNulos.actions).toEqual([]);
+
+    const tudoNulo = parseAiResponse('{"mensagem_usuario":null,"nao_responder":null}');
+    expect(tudoNulo.mensagem_usuario).toBe('');
+    expect(tudoNulo.nao_responder).toBe(false);
+  });
+
+  it('continua lendo a resposta normal', async () => {
+    const { parseAiResponse } = await import('../src/modules/ai/ai-response.js');
+    const parsed = parseAiResponse('texto antes {"mensagem_usuario":"ola","status_sugerido":"in_conversation","actions":[{"type":"notify_handoff","summary":"x"}]} depois');
+
+    expect(parsed.mensagem_usuario).toBe('ola');
+    expect(parsed.status_sugerido).toBe('in_conversation');
+    expect(parsed.actions).toEqual([{ type: 'notify_handoff', summary: 'x' }]);
+  });
+});
+
 describe('saudacao pela hora local e nome sem sufixo societario', () => {
   it('descreve o momento no fuso do SDR com o periodo do dia', async () => {
     const { describeNowInTimeZone } = await import('../src/modules/timezone.js');
