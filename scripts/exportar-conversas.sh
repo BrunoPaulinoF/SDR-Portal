@@ -4,7 +4,8 @@
 #
 # Só faz SELECT. Não escreve nada no banco e não põe segredo nenhum no pacote gerado.
 #
-# Precisa rodar de onde o banco é alcançável — na VPS, ou no shell do container do portal.
+# Precisa rodar de onde o banco é alcançável E onde exista psql — na prática, na VPS.
+# O Console do container do portal não serve: a imagem não copia scripts/ nem tem psql.
 # De uma sessão do Claude Code na web o host do banco não resolve; o porquê está em
 # docs/ACESSO-AOS-DADOS.md.
 #

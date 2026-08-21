@@ -16,6 +16,38 @@ na VPS e anexar o pacote. Detalhes, alternativas, mapa das tabelas e armadilhas 
 (áudio vem em `transcription`, outbound pode estar duplicado): **`docs/ACESSO-AOS-DADOS.md`**.
 Queries prontas: `docs/sql/conversas.sql`.
 
+## Produção roda no EasyPanel (comando sempre para o Console de lá)
+
+A VPS não é operada por `docker compose`. O app é um serviço do EasyPanel, e o que o usuário
+tem à mão é o **Console** do serviço, que abre um shell **dentro do container**. Então:
+
+- **Sempre entregue o comando pronto para colar nesse Console**, começando por `cd /app`.
+  Nunca escreva `docker compose exec app ...`, `docker exec ...`, `ssh` nem caminho de host:
+  lá dentro nada disso existe.
+- A imagem é `node:22-alpine` com as devDependencies removidas (`npm prune --omit=dev`). Não
+  há `tsx`, `typescript`, `drizzle-kit`, `vitest`, `git` nem `psql`. Só roda o que já está
+  compilado: `npm run build` no Console **não funciona**, e por isso todo script de produção
+  é chamado como `node dist/...`.
+- O que existe no container (ver `Dockerfile`): `dist/`, `node_modules` de produção,
+  `drizzle/`, `docs/prompts/` e `entrypoint.sh`. `scripts/` **não** é copiado — o
+  `exportar-conversas.sh` não roda aí (precisa de `psql` e do repositório).
+- As variáveis de ambiente do serviço já chegam ao shell do Console, então não é preciso
+  exportar `DATABASE_URL`, `ENCRYPTION_KEY` ou `SESSION_SECRET`.
+- **Mudança em código ou em `docs/prompts/` só chega ao container depois de um Deploy** no
+  EasyPanel (rebuild a partir do `main`). Rodar o script antes do deploy grava no banco o
+  texto ANTIGO. A ordem é sempre: merge → Deploy → Console.
+
+Gravar no SDR os prompts versionados (o caso mais comum):
+
+```bash
+cd /app
+node dist/src/db/apply-sdr-prompts.js --agent="Franc"            # dry-run: mostra o plano
+node dist/src/db/apply-sdr-prompts.js --agent="Franc" --apply    # grava
+```
+
+`--agent` aceita o id ou um pedaço do nome (com mais de um match ele lista os ids e não grava
+nada). Outras opções: `--dir=docs/prompts/<sdr>`, `--playbook=consultivo|convite`.
+
 ## Commands
 
 ```bash
