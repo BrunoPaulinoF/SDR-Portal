@@ -420,27 +420,36 @@ describe('rota /conversations', () => {
 });
 
 describe('pausa da IA na caixa de conversas', () => {
-  it('conversa pausada mostra o motivo e o botao de liberar', async () => {
-    const portal = await buildPortal();
-    await portal.leadRepository.pauseAi(portal.chatCarlos.leadId, new Date('2026-08-20T17:20:00Z'), 'lead_image_message');
-    const { app, cookie } = await loggedInApp({
-      conversationRepository: portal.conversationRepository,
-      leadRepository: portal.leadRepository,
-      sdrAgentRepository: portal.sdrAgentRepository,
-    });
+  const motivosNaTela = [
+    { motivo: 'lead_image_message', texto: 'o lead enviou uma imagem' },
+    { motivo: 'lead_video_message', texto: 'o lead enviou um video' },
+    { motivo: 'lead_document_message', texto: 'o lead enviou um documento' },
+    { motivo: 'manual_whatsapp_message', texto: 'alguem respondeu pelo WhatsApp do SDR' },
+  ];
 
-    const response = await app.inject({
-      method: 'GET',
-      url: `/conversations?sdr=${portal.carlos.id}&chat=${portal.chatCarlos.id}`,
-      headers: { cookie },
-    });
+  for (const caso of motivosNaTela) {
+    it(`conversa pausada por ${caso.motivo} mostra o motivo e o botao de liberar`, async () => {
+      const portal = await buildPortal();
+      await portal.leadRepository.pauseAi(portal.chatCarlos.leadId, new Date('2026-08-20T17:20:00Z'), caso.motivo);
+      const { app, cookie } = await loggedInApp({
+        conversationRepository: portal.conversationRepository,
+        leadRepository: portal.leadRepository,
+        sdrAgentRepository: portal.sdrAgentRepository,
+      });
 
-    expect(response.statusCode).toBe(200);
-    expect(response.body).toContain('o lead enviou uma imagem');
-    expect(response.body).toContain('Liberar IA');
-    expect(response.body).toContain(`/conversations/${portal.chatCarlos.id}/ia`);
-    await app.close();
-  });
+      const response = await app.inject({
+        method: 'GET',
+        url: `/conversations?sdr=${portal.carlos.id}&chat=${portal.chatCarlos.id}`,
+        headers: { cookie },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.body).toContain(caso.texto);
+      expect(response.body).toContain('Liberar IA');
+      expect(response.body).toContain(`/conversations/${portal.chatCarlos.id}/ia`);
+      await app.close();
+    });
+  }
 
   it('o botao libera a IA e devolve o lead para a conversa', async () => {
     const portal = await buildPortal();
@@ -538,6 +547,55 @@ describe('conversas em tempo real sem recarregar a pagina', () => {
     // fragmento, nao pagina: nada de <html> nem do menu lateral
     expect(dados.threadHtml).not.toContain('<html');
     expect(dados.chatsHtml).not.toContain('sidebar');
+    await app.close();
+  });
+
+  it('clicar num chat pede so a conversa (parte=thread), sem remontar a lista', async () => {
+    const portal = await buildPortal();
+    const { app, cookie } = await loggedInApp({
+      conversationRepository: portal.conversationRepository,
+      leadRepository: portal.leadRepository,
+      sdrAgentRepository: portal.sdrAgentRepository,
+    });
+
+    // sem `sdr`: o proprio chat diz de quem e, e o clique nao precisa esperar a caixa inteira
+    const response = await app.inject({
+      method: 'GET',
+      url: `/conversations/updates?parte=thread&chat=${portal.chatMariana.id}`,
+      headers: { cookie },
+    });
+    const dados = response.json();
+
+    expect(response.statusCode).toBe(200);
+    expect(dados.sdr).toBe(portal.mariana.id);
+    expect(dados.chat).toBe(portal.chatMariana.id);
+    expect(dados.threadHtml).toContain('Pode mandar os precos da padaria');
+    expect(dados.chatsHtml).toBeUndefined();
+    expect(dados.chatsSig).toBeUndefined();
+    await app.close();
+  });
+
+  it('parte=thread tambem respeita a assinatura e nao reenvia o que nao mudou', async () => {
+    const portal = await buildPortal();
+    const { app, cookie } = await loggedInApp({
+      conversationRepository: portal.conversationRepository,
+      leadRepository: portal.leadRepository,
+      sdrAgentRepository: portal.sdrAgentRepository,
+    });
+
+    const primeira = await app.inject({
+      method: 'GET',
+      url: `/conversations/updates?parte=thread&chat=${portal.chatCarlos.id}`,
+      headers: { cookie },
+    });
+    const segunda = await app.inject({
+      method: 'GET',
+      url: `/conversations/updates?parte=thread&chat=${portal.chatCarlos.id}&threadSig=${primeira.json().threadSig}`,
+      headers: { cookie },
+    });
+
+    expect(segunda.json().threadHtml).toBeUndefined();
+    expect(segunda.json().threadSig).toBe(primeira.json().threadSig);
     await app.close();
   });
 

@@ -3347,95 +3347,121 @@ describe('UAZAPI webhook routes', () => {
     expect(messages.some((message) => message.messageType === 'audio' && message.transcription === 'Texto transcrito do audio')).toBe(true);
   });
 
-  it('pauses the AI until the portal releases it when the lead sends an image', async () => {
-    const aiCalls: string[] = [];
-    const uazapiCalls: string[] = [];
-    const companyRepository = createMemoryCompanyRepository();
-    const sdrAgentRepository = createMemorySdrAgentRepository();
-    const leadRepository = createMemoryLeadRepository();
-    const conversationRepository = createMemoryConversationRepository();
-    const webhookEventRepository = createMemoryWebhookEventRepository();
-    const aiRunRepository = createMemoryAiRunRepository();
-    const company = await companyRepository.create({
-      name: 'Insumo Smart',
-      legalName: null,
-      cnpj: null,
-      segment: 'Gastronomia',
-      description: null,
-      websiteUrl: null,
-      defaultHandoffName: null,
-      defaultHandoffPhone: null,
-    });
-    const agent = await sdrAgentRepository.create({
-      companyId: company.id,
-      name: 'sdr-insumo-smart',
-      displayName: 'Franciely',
-      isActive: true,
-      aiProvider: 'openai',
-      openaiApiKeyEncrypted: encryptSecret('openai-key'),
-      uazapiBaseUrl: 'https://api.uazapi.com',
-      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
-    });
-    const lead = await leadRepository.create({
-      companyId: company.id,
-      sdrAgentId: agent.id,
-      whatsappNumber: '5511444444444',
-      companyName: 'Restaurante da Foto',
-      cnpj: null,
-      tradeName: null,
-      segment: 'Gastronomia',
-      city: null,
-      state: null,
-      contactName: null,
-      extraData: null,
-      status: 'in_conversation',
-      source: 'manual',
-    });
+  const midiaQuePausa = [
+    {
+      rotulo: 'image',
+      motivo: 'lead_image_message',
+      numero: '5511444444444',
+      payload: { messageType: 'ImageMessage', mimetype: 'image/jpeg', arquivo: 'foto.jpg', text: 'olha o meu cardapio' },
+    },
+    {
+      rotulo: 'video',
+      motivo: 'lead_video_message',
+      numero: '5511444444445',
+      payload: { messageType: 'VideoMessage', mimetype: 'video/mp4', arquivo: 'tour.mp4', text: 'gravei a loja pra voce' },
+    },
+    {
+      rotulo: 'document',
+      motivo: 'lead_document_message',
+      numero: '5511444444446',
+      payload: { messageType: 'DocumentMessage', mimetype: 'application/pdf', arquivo: 'cardapio.pdf', text: 'segue o PDF' },
+    },
+  ];
 
-    app = buildApp({
-      aiClient: createMockAiClient(aiCalls, JSON.stringify({ mensagem_usuario: 'Nao deveria responder.', nao_responder: false, actions: [] })),
-      aiRunRepository,
-      companyRepository,
-      conversationRepository,
-      leadRepository,
-      sdrAgentRepository,
-      uazapiClient: createMockUazapiClient(uazapiCalls),
-      webhookEventRepository,
-    });
+  for (const midia of midiaQuePausa) {
+    it(`pauses the AI until the portal releases it when the lead sends a ${midia.rotulo}`, async () => {
+      const aiCalls: string[] = [];
+      const uazapiCalls: string[] = [];
+      const companyRepository = createMemoryCompanyRepository();
+      const sdrAgentRepository = createMemorySdrAgentRepository();
+      const leadRepository = createMemoryLeadRepository();
+      const conversationRepository = createMemoryConversationRepository();
+      const webhookEventRepository = createMemoryWebhookEventRepository();
+      const aiRunRepository = createMemoryAiRunRepository();
+      const company = await companyRepository.create({
+        name: 'Insumo Smart',
+        legalName: null,
+        cnpj: null,
+        segment: 'Gastronomia',
+        description: null,
+        websiteUrl: null,
+        defaultHandoffName: null,
+        defaultHandoffPhone: null,
+      });
+      const agent = await sdrAgentRepository.create({
+        companyId: company.id,
+        name: 'sdr-insumo-smart',
+        displayName: 'Franciely',
+        isActive: true,
+        aiProvider: 'openai',
+        openaiApiKeyEncrypted: encryptSecret('openai-key'),
+        uazapiBaseUrl: 'https://api.uazapi.com',
+        uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+      });
+      const lead = await leadRepository.create({
+        companyId: company.id,
+        sdrAgentId: agent.id,
+        whatsappNumber: midia.numero,
+        companyName: `Restaurante da midia ${midia.rotulo}`,
+        cnpj: null,
+        tradeName: null,
+        segment: 'Gastronomia',
+        city: null,
+        state: null,
+        contactName: null,
+        extraData: null,
+        status: 'in_conversation',
+        source: 'manual',
+      });
 
-    const response = await app.inject({
-      method: 'POST',
-      url: `/webhooks/uazapi/${agent.id}`,
-      payload: {
-        event: 'messages',
-        data: {
-          id: 'IMAGE-1',
-          chatid: '5511444444444@s.whatsapp.net',
-          content: { URL: 'https://meta.example/foto.jpg', mimetype: 'image/jpeg' },
-          fromMe: false,
-          messageType: 'ImageMessage',
-          sender_pn: '5511444444444@s.whatsapp.net',
-          text: 'olha o meu cardapio',
-          type: 'media',
+      app = buildApp({
+        aiClient: createMockAiClient(aiCalls, JSON.stringify({ mensagem_usuario: 'Nao deveria responder.', nao_responder: false, actions: [] })),
+        aiRunRepository,
+        companyRepository,
+        conversationRepository,
+        leadRepository,
+        sdrAgentRepository,
+        uazapiClient: createMockUazapiClient(uazapiCalls),
+        webhookEventRepository,
+      });
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/webhooks/uazapi/${agent.id}`,
+        payload: {
+          event: 'messages',
+          data: {
+            id: `MIDIA-${midia.rotulo}`,
+            chatid: `${midia.numero}@s.whatsapp.net`,
+            content: { URL: `https://meta.example/${midia.payload.arquivo}`, mimetype: midia.payload.mimetype },
+            fromMe: false,
+            messageType: midia.payload.messageType,
+            sender_pn: `${midia.numero}@s.whatsapp.net`,
+            text: midia.payload.text,
+            // payload generico: so o mimetype e o messageType dizem o que veio
+            type: 'media',
+          },
         },
-      },
+      });
+
+      const conversations = await conversationRepository.list();
+      const messages = conversations[0] ? await conversationRepository.listMessages(conversations[0].id) : [];
+      const updatedLead = await leadRepository.findById(lead.id);
+
+      expect(response.statusCode).toBe(200);
+      expect(messages[0]?.messageType).toBe(midia.rotulo);
+      // nem a legenda faz a IA responder: quem abre o arquivo e um humano
+      expect(aiCalls).toHaveLength(0);
+      expect(uazapiCalls).toHaveLength(0);
+      expect(updatedLead?.status).toBe('human_paused');
+      expect(updatedLead?.aiPauseReason).toBe(midia.motivo);
+      expect(updatedLead?.humanPausedUntil).toBeNull();
+      // a pausa segura o follow-up pelo status, sem desligar o follow-up de vez
+      expect(updatedLead?.followupDisabledAt).toBeNull();
     });
+  }
 
-    const conversations = await conversationRepository.list();
-    const messages = conversations[0] ? await conversationRepository.listMessages(conversations[0].id) : [];
-    const updatedLead = await leadRepository.findById(lead.id);
-
-    expect(response.statusCode).toBe(200);
-    expect(messages[0]?.messageType).toBe('image');
-    // nem a legenda da foto faz a IA responder: quem olha a imagem e um humano
-    expect(aiCalls).toHaveLength(0);
-    expect(uazapiCalls).toHaveLength(0);
-    expect(updatedLead?.status).toBe('human_paused');
-    expect(updatedLead?.aiPauseReason).toBe('lead_image_message');
-    expect(updatedLead?.humanPausedUntil).toBeNull();
-  });
-
-  it('keeps answering when the lead sends a sticker: sticker is not an image to look at', async () => {
+  it('keeps answering when the lead sends a sticker: sticker is reaction, not media to look at', async () => {
     const aiCalls: string[] = [];
     const uazapiCalls: string[] = [];
     const companyRepository = createMemoryCompanyRepository();

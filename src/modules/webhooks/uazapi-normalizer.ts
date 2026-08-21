@@ -24,20 +24,31 @@ export function isAudioMessageType(messageType: string): boolean {
   return normalized.includes('audio') || normalized.includes('ogg') || normalized.includes('opus') || normalized.includes('ptt') || normalized.includes('voice');
 }
 
+/** Midia que a IA nao le: foto, video ou arquivo. Audio fica de fora — esse e transcrito. */
+export type LeadMediaKind = 'image' | 'video' | 'document';
+
+const LEAD_MEDIA_HINTS: Array<{ hints: string[]; kind: LeadMediaKind }> = [
+  { kind: 'image', hints: ['image', 'photo', 'jpeg', 'jpg', 'png'] },
+  { kind: 'video', hints: ['video', 'mp4', 'mpeg4', 'quicktime', 'webm', '3gpp'] },
+  {
+    kind: 'document',
+    hints: ['document', 'pdf', 'msword', 'officedocument', 'spreadsheet', 'presentation', 'text/plain', 'csv', 'zip'],
+  },
+];
+
 /**
- * Foto/print mandado pelo lead. A IA nao enxerga a imagem, entao a conversa e pausada para
- * um humano olhar — ver `AI_PAUSE_REASONS.leadImage`. Figurinha nao conta: e reacao, nao conteudo.
+ * Foto, video ou arquivo mandado pelo lead. A IA nao abre nenhum dos tres, entao a conversa e
+ * pausada para um humano olhar — ver `AI_PAUSE_REASONS`. Figurinha nao conta: chega como
+ * `image/webp`, mas e reacao, nao conteudo. Devolve `null` para o que a IA sabe tratar.
  */
-export function isImageMessageType(messageType: string): boolean {
-  const normalized = messageType.toLowerCase();
-  if (normalized.includes('sticker')) return false;
-  return (
-    normalized.includes('image') ||
-    normalized.includes('photo') ||
-    normalized.includes('jpeg') ||
-    normalized.includes('jpg') ||
-    normalized.includes('png')
-  );
+export function leadMediaKind(value: string): LeadMediaKind | null {
+  const normalized = value.toLowerCase();
+  if (normalized.includes('sticker')) return null;
+
+  for (const { hints, kind } of LEAD_MEDIA_HINTS) {
+    if (hints.some((hint) => normalized.includes(hint))) return kind;
+  }
+  return null;
 }
 
 function asRecord(value: unknown): RecordValue {
@@ -107,15 +118,14 @@ function isAudioPayload(messageType: string | null, content: RecordValue): boole
 }
 
 /**
- * Alem do proprio tipo, o mimetype (`image/jpeg`) denuncia foto em payload generico
- * (`type: "media"`). A figurinha viaja como `image/webp`, entao o nome do tipo tem de ser
- * lido junto: sem isso toda figurinha viraria foto e pausaria a conversa.
+ * Alem do proprio tipo, o mimetype (`image/jpeg`, `application/pdf`) denuncia a midia em
+ * payload generico (`type: "media"`). Os dois sao lidos juntos porque um sozinho engana: a
+ * figurinha viaja como `image/webp` e so o nome do tipo (`StickerMessage`) a desmascara.
  */
-function isImagePayload(declaredType: string | null, rawMessageType: string | null, content: RecordValue): boolean {
-  const hints = [declaredType, rawMessageType, firstString(content.mimetype, content.mimeType, content.type)]
+function mediaHints(declaredType: string | null, rawMessageType: string | null, content: RecordValue): string {
+  return [declaredType, rawMessageType, firstString(content.mimetype, content.mimeType, content.type)]
     .filter((hint): hint is string => Boolean(hint))
     .join(' ');
-  return isImageMessageType(hints);
 }
 
 /**
@@ -167,9 +177,7 @@ export function normalizeUazapiWebhook(body: unknown): NormalizedWebhookMessage 
   const declaredType = firstString(data.type, rawMessageType) ?? 'unknown';
   const messageType = isAudioPayload(rawMessageType, content)
     ? 'audio'
-    : isImagePayload(declaredType, rawMessageType, content)
-      ? 'image'
-      : declaredType;
+    : (leadMediaKind(mediaHints(declaredType, rawMessageType, content)) ?? declaredType);
   const text = firstString(
     data.text,
     data.body,

@@ -268,8 +268,10 @@ export function createMemoryLeadRepository(seedLeads: Lead[] = []): LeadReposito
       if (!current) return null;
       const lead: Lead = {
         ...current,
+        // `human_paused` ja fica de fora da fila de follow-up, entao a pausa nao precisa (nem
+        // deve) gravar followup_disabled_at: liberar devolve o follow-up sem ressuscitar o que
+        // foi desligado por outro motivo (lead sem interesse, handoff, acao da IA).
         status: 'human_paused',
-        followupDisabledAt: current.followupDisabledAt ?? pausedAt,
         humanPausedUntil: null,
         aiPausedAt: pausedAt,
         aiPauseReason: reason,

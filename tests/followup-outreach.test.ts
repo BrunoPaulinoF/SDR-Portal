@@ -287,6 +287,42 @@ describe('followup outreach guards', () => {
   });
 });
 
+describe('follow-up e a pausa da IA', () => {
+  it('conversa pausada nao recebe follow-up, e liberar devolve o envio', async () => {
+    const cold = makeLead();
+    const { leads, service, uazapi } = await buildHarness([cold], fakeAiClient(aiReply('Passando para saber se seguimos.')));
+
+    await leads.pauseAi(cold.id, new Date(NOW.getTime() - 2 * HOUR), 'lead_image_message');
+    const pausado = await service.runOnce(NOW);
+    const durante = await leads.findById(cold.id);
+
+    expect(pausado.sent).toBe(0);
+    expect(uazapi.sent).toHaveLength(0);
+    // a pausa segura o follow-up pelo status; nao desliga o follow-up de vez
+    expect(durante?.followupDisabledAt).toBeNull();
+
+    await leads.resumeAi(cold.id, new Date(NOW.getTime() - HOUR));
+    const liberado = await service.runOnce(NOW);
+
+    expect(liberado.sent).toBe(1);
+    expect(uazapi.sent).toHaveLength(1);
+  });
+
+  it('liberar nao ressuscita o follow-up que ja tinha sido desligado por outro motivo', async () => {
+    const semInteresse = makeLead({ followupDisabledAt: new Date(NOW.getTime() - 10 * HOUR) });
+    const { leads, service, uazapi } = await buildHarness([semInteresse], fakeAiClient(aiReply('nao deveria sair')));
+
+    await leads.pauseAi(semInteresse.id, new Date(NOW.getTime() - 2 * HOUR), 'portal_manual');
+    await leads.resumeAi(semInteresse.id, new Date(NOW.getTime() - HOUR));
+    const result = await service.runOnce(NOW);
+    const lead = await leads.findById(semInteresse.id);
+
+    expect(lead?.followupDisabledAt).toEqual(new Date(NOW.getTime() - 10 * HOUR));
+    expect(result.sent).toBe(0);
+    expect(uazapi.sent).toHaveLength(0);
+  });
+});
+
 describe('reset conversation', () => {
   it('encerra o lead anterior para o agendador nao disparar follow-up na thread antiga', async () => {
     const agent = await makeAgent({ id: 'sdr-1', firstMessageMode: 'ab_test' });

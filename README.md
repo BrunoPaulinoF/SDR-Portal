@@ -187,8 +187,9 @@ Processamento atual do webhook:
 - Se a UAZAPI retornar link do audio sem transcricao e houver chave OpenAI disponivel, tenta transcrever direto pela OpenAI como fallback.
 - Quando a mensagem é recebida do lead, marca o lead como `in_conversation` e desativa follow-up pendente.
 - Quando detecta mensagem manual enviada pelo celular (`fromMe=true` e `wasSentByApi=false`), marca o lead como `human_paused` e grava `ai_paused_at`/`ai_pause_reason=manual_whatsapp_message`.
-- Quando o lead manda uma **imagem** (inclusive com legenda), pausa do mesmo jeito com `ai_pause_reason=lead_image_message` e nao chama a IA: ela nao ve a foto, entao quem responde e um humano. Figurinha nao pausa — chega como `image/webp`, mas e reacao, nao conteudo.
-- As duas pausas **nao expiram sozinhas**: `human_paused_until` fica nulo e a IA so volta pelo botao "Liberar IA" em `GET /conversations` (`POST /conversations/:id/ia`). A coluna `sdr_agents.human_pause_hours` ficou sem uso e saiu do formulario do SDR.
+- Quando o lead manda **imagem, video ou documento** (inclusive com legenda), pausa do mesmo jeito, com `ai_pause_reason=lead_image_message`/`lead_video_message`/`lead_document_message`, e nao chama a IA: ela nao abre nenhum dos tres, entao quem responde e um humano. Audio continua sendo transcrito e respondido normalmente. Figurinha nao pausa — chega como `image/webp`, mas e reacao, nao conteudo.
+- As pausas **nao expiram sozinhas**: `human_paused_until` fica nulo e a IA so volta pelo botao "Liberar IA" em `GET /conversations` (`POST /conversations/:id/ia`). A coluna `sdr_agents.human_pause_hours` ficou sem uso e saiu do formulario do SDR.
+- A pausa **nao grava `followup_disabled_at`**: `human_paused` ja fica de fora da fila de follow-up, entao o follow-up so fica parado enquanto a pausa durar e volta inteiro ao liberar. Follow-up desligado por outro motivo (lead sem interesse, handoff, acao `disable_followup` da IA) continua desligado depois de liberar.
 
 Motor IA de resposta:
 

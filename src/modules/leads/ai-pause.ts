@@ -1,4 +1,5 @@
 import type { Lead } from '../../db/schema.js';
+import type { LeadMediaKind } from '../webhooks/uazapi-normalizer.js';
 
 /**
  * Pausa da IA numa conversa. Desde que o portal ganhou o botao de liberar, a pausa NAO
@@ -7,19 +8,33 @@ import type { Lead } from '../../db/schema.js';
  * dessa mudanca, mas nada novo escreve nessa coluna.
  */
 export const AI_PAUSE_REASONS = {
-  /** O lead mandou uma imagem: a IA nao enxerga a foto, entao quem responde e um humano. */
+  /** O lead mandou foto, video ou arquivo: a IA nao abre nenhum, entao quem responde e um humano. */
   leadImage: 'lead_image_message',
+  leadVideo: 'lead_video_message',
+  leadDocument: 'lead_document_message',
   /** Alguem respondeu pelo proprio WhatsApp do SDR (`fromMe` sem passar pela API). */
   manualWhatsapp: 'manual_whatsapp_message',
   /** Pausa pedida no botao da caixa de conversas. */
   portal: 'portal_manual',
 } as const;
 
+const LEAD_MEDIA_REASONS: Record<LeadMediaKind, string> = {
+  image: AI_PAUSE_REASONS.leadImage,
+  video: AI_PAUSE_REASONS.leadVideo,
+  document: AI_PAUSE_REASONS.leadDocument,
+};
+
 const REASON_LABELS: Record<string, string> = {
   [AI_PAUSE_REASONS.leadImage]: 'o lead enviou uma imagem',
+  [AI_PAUSE_REASONS.leadVideo]: 'o lead enviou um video',
+  [AI_PAUSE_REASONS.leadDocument]: 'o lead enviou um documento',
   [AI_PAUSE_REASONS.manualWhatsapp]: 'alguem respondeu pelo WhatsApp do SDR',
   [AI_PAUSE_REASONS.portal]: 'a pausa foi feita aqui no portal',
 };
+
+export function leadMediaPauseReason(kind: LeadMediaKind): string {
+  return LEAD_MEDIA_REASONS[kind];
+}
 
 type PauseFields = Pick<Lead, 'aiPausedAt' | 'humanPausedUntil'>;
 

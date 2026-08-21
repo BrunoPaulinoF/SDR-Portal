@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { env } from '../../config/env.js';
 import type { Conversation, Lead } from '../../db/schema.js';
 import type { ConversationRepository } from '../conversations/conversation-repository.js';
-import { AI_PAUSE_REASONS, isAiPaused } from '../leads/ai-pause.js';
+import { AI_PAUSE_REASONS, isAiPaused, leadMediaPauseReason } from '../leads/ai-pause.js';
 import type { LeadRepository } from '../leads/lead-repository.js';
 import { whatsappNumberVariants } from '../phone/whatsapp-number.js';
 import { followupDueAt } from '../scheduler/initial-outreach.js';
@@ -12,7 +12,7 @@ import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
 import type { createAiResponseService } from '../ai/ai-response-service.js';
 import type { createAudioTranscriptionService } from '../audio/audio-transcription-service.js';
 import type { ResetConversationService } from './reset-conversation-service.js';
-import { isAudioMessageType, isGroupWebhook, isImageMessageType, normalizeUazapiWebhook } from './uazapi-normalizer.js';
+import { isAudioMessageType, isGroupWebhook, leadMediaKind, normalizeUazapiWebhook } from './uazapi-normalizer.js';
 import type { WebhookEventRepository } from './webhook-event-repository.js';
 
 const paramsSchema = z.object({ sdrAgentId: z.string().uuid() });
@@ -231,9 +231,10 @@ export function registerUazapiWebhookRoutes(
         await leadRepository.updateWhatsappIdentity(lead.id, { jid: normalized.whatsappJid, lid: normalized.whatsappLid }, now);
         // o follow-up conta a partir desta resposta, nao da primeira mensagem enviada ao lead
         await leadRepository.markInboundReceived(lead.id, now, followupDueAt(agent, now));
-        if (isImageMessageType(normalized.messageType)) {
-          // a IA nao ve a foto: responder as cegas e pior do que chamar um humano
-          if (!isAiPaused(lead, now)) await leadRepository.pauseAi(lead.id, now, AI_PAUSE_REASONS.leadImage);
+        const mediaKind = leadMediaKind(normalized.messageType);
+        if (mediaKind) {
+          // foto, video ou arquivo: a IA nao abre nenhum, e responder as cegas e pior do que chamar um humano
+          if (!isAiPaused(lead, now)) await leadRepository.pauseAi(lead.id, now, leadMediaPauseReason(mediaKind));
         } else if (hasReplyableContent(normalized.text, transcription)) {
           await aiResponseService.respondToInbound({ agent, conversation, lead });
         }

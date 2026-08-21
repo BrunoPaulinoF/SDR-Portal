@@ -24,10 +24,14 @@ const inboxQuerySchema = z.object({
   chat: z.string().uuid().optional(),
   q: z.string().trim().max(120).optional(),
 });
-/** A pagina manda de volta a assinatura do HTML que ja tem: igual, o servidor nao reenvia nada. */
+/**
+ * A pagina manda de volta a assinatura do HTML que ja tem: igual, o servidor nao reenvia nada.
+ * `parte=thread` e o caminho curto do clique — so a conversa pedida, sem remontar a lista toda.
+ */
 const inboxUpdatesQuerySchema = inboxQuerySchema.extend({
   chatsSig: z.string().max(64).optional(),
   threadSig: z.string().max(64).optional(),
+  parte: z.enum(['thread']).optional(),
 });
 const aiSwitchBodySchema = z.object({ acao: z.enum(['pausar', 'liberar']) });
 
@@ -105,6 +109,28 @@ async function loadInbox(deps: InboxDependencies, filters: InboxFilters): Promis
   };
 }
 
+/**
+ * So a conversa pedida. Clicar num chat nao precisa da lista inteira (que custa um SELECT por
+ * SDR mais a ultima mensagem de cada conversa): abre a conversa na hora e a lista se acerta
+ * sozinha na proxima rodada.
+ */
+async function loadThread(deps: InboxDependencies, chatId: string): Promise<{ sdrAgentId: string; thread: InboxThread } | null> {
+  const conversation = await deps.conversationRepository.findById(chatId);
+  if (!conversation) return null;
+  const agent = await deps.sdrAgentRepository.findById(conversation.sdrAgentId);
+  if (!agent) return null;
+
+  const [lead, messages] = await Promise.all([
+    deps.leadRepository.findById(conversation.leadId),
+    deps.conversationRepository.listMessages(conversation.id),
+  ]);
+
+  return {
+    sdrAgentId: agent.id,
+    thread: buildInboxThread({ conversation, lead, messages, now: new Date(), timeZone: resolveTimeZone(agent.timezone) }),
+  };
+}
+
 function wantsJson(request: FastifyRequest): boolean {
   const accept = request.headers.accept;
   return typeof accept === 'string' && accept.includes('application/json');
@@ -140,6 +166,19 @@ export function registerConversationRoutes(
 
     const parsed = inboxUpdatesQuerySchema.safeParse(request.query ?? {});
     if (!parsed.success) return reply.status(400).send({ ok: false });
+
+    if (parsed.data.parte === 'thread' && parsed.data.chat) {
+      const found = await loadThread(deps, parsed.data.chat);
+      const html = renderInboxThreadFragment(found?.thread ?? null, true);
+      const sig = inboxSignature(html);
+      return reply.send({
+        sdr: found?.sdrAgentId ?? '',
+        chat: found?.thread.conversationId ?? '',
+        threadSig: sig,
+        ...(parsed.data.threadSig === sig ? {} : { threadHtml: html }),
+      });
+    }
+
     const state = await loadInbox(deps, parsed.data);
     const chatsHtml = renderInboxChatsFragment(state);
     const chatsSig = inboxSignature(chatsHtml);

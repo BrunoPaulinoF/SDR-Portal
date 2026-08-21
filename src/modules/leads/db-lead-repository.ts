@@ -179,12 +179,13 @@ export function createDbLeadRepository(): LeadRepository {
     },
 
     async pauseAi(id, pausedAt, reason) {
-      const [current] = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
       const [lead] = await db
         .update(leads)
         .set({
+          // `human_paused` ja fica de fora da fila de follow-up, entao a pausa nao precisa (nem
+          // deve) gravar followup_disabled_at: liberar devolve o follow-up sem ressuscitar o que
+          // foi desligado por outro motivo (lead sem interesse, handoff, acao da IA).
           status: 'human_paused',
-          followupDisabledAt: current?.followupDisabledAt ?? pausedAt,
           // pausa sem prazo: quem devolve a conversa para a IA e o botao do portal
           humanPausedUntil: null,
           aiPausedAt: pausedAt,

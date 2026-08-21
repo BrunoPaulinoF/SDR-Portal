@@ -206,8 +206,11 @@ const inboxScript = `<script>
       chatsSig: raiz.getAttribute('data-chats-sig') || '',
       threadSig: raiz.getAttribute('data-thread-sig') || ''
     };
-    var emVoo = false;
-    var pendente = null;
+    // pedidoAtual/abortador: so a resposta do pedido mais novo pode mexer na tela. Sem isso a
+    // resposta de uma rodada automatica que ja estava no ar chegava depois do clique e devolvia
+    // estado.chat para a conversa anterior — a conversa clicada so abria no clique seguinte.
+    var pedidoAtual = 0;
+    var abortador = null;
     var filtro = '';
 
     function porId(id) { return document.getElementById(id); }
@@ -275,17 +278,17 @@ const inboxScript = `<script>
 
     function atualizar(opcoes) {
       var config = opcoes || {};
-      if (emVoo) {
-        // clique e busca nao podem se perder atras de uma rodada automatica; rodada some sem dor
-        if (config.chatNovo || config.listaNova) {
-          pendente = {
-            chatNovo: Boolean(config.chatNovo || (pendente && pendente.chatNovo)),
-            listaNova: Boolean(config.listaNova || (pendente && pendente.listaNova))
-          };
-        }
-        return Promise.resolve();
+      var doUsuario = Boolean(config.chatNovo || config.listaNova);
+      if (abortador) {
+        // clique e busca nao esperam a rodada automatica terminar: atropelam. Rodada que fica
+        // atras de um pedido do usuario some sem dor — a proxima vem em poucos segundos.
+        if (!doUsuario) return Promise.resolve();
+        abortador.abort();
       }
-      emVoo = true;
+
+      var pedido = (pedidoAtual += 1);
+      var controle = typeof AbortController === 'function' ? new AbortController() : null;
+      abortador = controle;
       var params = new URLSearchParams();
       if (estado.sdr) params.set('sdr', estado.sdr);
       if (estado.chat) params.set('chat', estado.chat);
@@ -293,10 +296,13 @@ const inboxScript = `<script>
       // sem assinatura o servidor sempre manda o HTML: e assim que o clique troca de conversa
       if (!config.chatNovo) params.set('threadSig', estado.threadSig);
       if (!config.listaNova) params.set('chatsSig', estado.chatsSig);
+      // clique quer a conversa na tela ja; a lista se acerta na proxima rodada
+      if (config.apenasThread) params.set('parte', 'thread');
 
       return fetch('/conversations/updates?' + params.toString(), {
         credentials: 'same-origin',
-        headers: { accept: 'application/json' }
+        headers: { accept: 'application/json' },
+        signal: controle ? controle.signal : undefined
       })
         .then(function (resposta) {
           // sessao expirada: o fetch segue o redirect e cai na tela de login
@@ -308,6 +314,8 @@ const inboxScript = `<script>
           return resposta.json();
         })
         .then(function (dados) {
+          // resposta atrasada de um pedido ja substituido nao encosta na tela
+          if (pedido !== pedidoAtual) return;
           if (typeof dados.sdr === 'string' && dados.sdr) estado.sdr = dados.sdr;
           if (typeof dados.chat === 'string') estado.chat = dados.chat;
           if (typeof dados.chatsHtml === 'string') trocarLista(dados.chatsHtml);
@@ -317,14 +325,10 @@ const inboxScript = `<script>
           marcarAtivo();
         })
         .catch(function () {
-          // rede caiu ou sessao expirou: a proxima rodada tenta de novo
+          // abortado, rede caiu ou sessao expirou: a proxima rodada tenta de novo
         })
         .then(function () {
-          emVoo = false;
-          var proxima = pendente;
-          pendente = null;
-          if (proxima) return atualizar(proxima);
-          return undefined;
+          if (pedido === pedidoAtual) abortador = null;
         });
     }
 
@@ -333,7 +337,7 @@ const inboxScript = `<script>
       estado.chat = id;
       marcarAtivo();
       window.history.pushState({ chat: id }, '', endereco());
-      void atualizar({ chatNovo: true });
+      void atualizar({ chatNovo: true, apenasThread: true });
     }
 
     document.addEventListener('click', function (evento) {
