@@ -250,12 +250,15 @@ segurança para esse caso.
 
 ### Aplicando estes arquivos no banco sem colar campo a campo
 
-`npm run sdr:prompts` grava os arquivos deste diretório no SDR. Ele roda dentro do container
-do app (é quem enxerga o banco) e, sem `--apply`, só mostra o que mudaria:
+`apply-sdr-prompts` grava os arquivos deste diretório no SDR. Ele roda dentro do container do
+app (é quem enxerga o banco) e, sem `--apply`, só mostra o que mudaria. Em produção isso é o
+**Console do serviço no EasyPanel**, que já abre um shell no container — e só depois de um
+Deploy, senão o container ainda tem os arquivos antigos:
 
 ```bash
-docker compose exec app npm run sdr:prompts -- --agent="Francielly"           # mostra o plano
-docker compose exec app npm run sdr:prompts -- --agent="Francielly" --apply   # grava
+cd /app
+node dist/src/db/apply-sdr-prompts.js --agent="Franc"            # mostra o plano
+node dist/src/db/apply-sdr-prompts.js --agent="Franc" --apply    # grava
 ```
 
 O que ele faz: escreve `prompt.txt`, `offer-description.txt`, `first-message-prompt.txt`,

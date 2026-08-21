@@ -45,8 +45,9 @@ $ curl -s "$APP_URL/health"
 
 ### 1. Export gerado na VPS (recomendado)
 
-Nada muda na infra e nada fica exposto. O usuário roda, **na VPS ou no shell do container do
-portal** (onde o nome `sdr-portal_sdrportal` resolve):
+Nada muda na infra e nada fica exposto. O usuário roda **na VPS** (onde o nome
+`sdr-portal_sdrportal` resolve). Não serve o Console do container do portal: a imagem não leva
+`scripts/` nem tem `psql` — ver a seção do EasyPanel no `CLAUDE.md`.
 
 ```bash
 ./scripts/exportar-conversas.sh --sdr "Mariana" --dias 30
