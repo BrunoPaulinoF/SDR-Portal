@@ -27,6 +27,14 @@ function reasoningEffortOf(agent: Pick<SdrAgent, 'aiProvider' | 'aiReasoningEffo
 
 /** Atraso aplicado ao follow-up quando nao foi possivel gerar a mensagem, para nao travar a fila. */
 const FOLLOWUP_RETRY_DELAY_MINUTES = 60;
+
+/**
+ * Quantas vezes um mesmo lead pode voltar para a fila sem mensagem gerada antes de
+ * desistirmos dele. Sem esse teto o lead fica na fila para sempre: a IA olha o mesmo
+ * historico de hora em hora, decide de novo que nao ha follow-up a escrever, e cada
+ * decisao dessas e uma chamada paga. Um lead chegou a sete em um unico dia.
+ */
+const FOLLOWUP_MAX_SKIPS = 3;
 const FOLLOWUP_HISTORY_MESSAGES = 20;
 
 export interface FollowupOutreachResult {
@@ -187,6 +195,11 @@ ${historyBlock(history)}`,
 }
 
 /** Devolve `null` quando o follow-up nao deve ser enviado (sem prompt, sem chave, falha da IA ou recusa do modelo). */
+/** Tentativas anteriores em que este lead voltou para a fila sem mensagem gerada. */
+function previousFollowupSkips(logs: { jobName: string; status: string }[]): number {
+  return logs.filter((log) => log.jobName === 'followup-outreach' && log.status === 'skipped').length;
+}
+
 async function buildFollowupMessage(
   deps: FollowupOutreachDependencies,
   agent: SdrAgent,
@@ -358,23 +371,39 @@ export function createFollowupOutreachService(deps: FollowupOutreachDependencies
       const { conversation, history } = await loadHistory(lead);
       const text = await buildFollowupMessage(deps, agent, lead, history);
       if (!text) {
-        // Sem mensagem gerada nao enviamos nada generico: adia e tenta de novo depois.
-        const retryAt = new Date(now.getTime() + FOLLOWUP_RETRY_DELAY_MINUTES * 60 * 1000);
-        await deps.leadRepository.rescheduleFollowup(lead.id, retryAt, now);
+        // Sem mensagem gerada nao enviamos nada generico. Adiar e o certo enquanto houver
+        // chance de a proxima tentativa dar em algo; depois do teto, o lead sai da fila.
+        const attempt = previousFollowupSkips(await deps.jobLogRepository.findByLeadId(lead.id)) + 1;
+        const desistir = attempt >= FOLLOWUP_MAX_SKIPS;
+        const retryAt = desistir ? null : new Date(now.getTime() + FOLLOWUP_RETRY_DELAY_MINUTES * 60 * 1000);
+
+        if (retryAt) {
+          await deps.leadRepository.rescheduleFollowup(lead.id, retryAt, now);
+        } else {
+          await deps.leadRepository.disableFollowup(lead.id, now);
+        }
+
         await deps.jobLogRepository.create({
           jobName: 'followup-outreach',
           jobKey: `followup-skipped-${lead.id}`,
           sdrAgentId: agent.id,
           leadId: lead.id,
           status: 'skipped',
-          attempt: 1,
+          attempt,
           payload: JSON.stringify({ number: lead.whatsappNumber, historyMessages: history.length }),
-          result: JSON.stringify({ reason: 'sem mensagem de follow-up gerada', retryAt: retryAt.toISOString() }),
+          result: JSON.stringify({
+            reason: desistir
+              ? `sem mensagem de follow-up gerada em ${attempt} tentativas; follow-up desativado para o lead`
+              : 'sem mensagem de follow-up gerada',
+            retryAt: retryAt?.toISOString() ?? null,
+          }),
           error: null,
           startedAt,
           finishedAt: new Date(),
         });
-        details.push(`${agent.name}: follow-up nao enviado para ${lead.companyName} (mensagem nao gerada).`);
+        details.push(
+          `${agent.name}: follow-up nao enviado para ${lead.companyName} (mensagem nao gerada${desistir ? '; follow-up desativado' : ''}).`,
+        );
         return 'skipped';
       }
 
