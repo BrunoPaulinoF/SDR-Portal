@@ -1,6 +1,7 @@
 import type { Conversation, Lead, SdrAgent } from '../../db/schema.js';
 import { aiHistoryText } from '../conversations/conversation-history.js';
 import type { ConversationRepository } from '../conversations/conversation-repository.js';
+import { isAiPaused } from '../leads/ai-pause.js';
 import {
   contactDisplayName,
   leadStartedTheConversation,
@@ -372,7 +373,8 @@ export function createAiResponseService(deps: AiResponseDependencies) {
   return {
     async respondToInbound(input: RespondInput): Promise<void> {
       if (!input.agent.isActive) return;
-      if (input.lead.humanPausedUntil && input.lead.humanPausedUntil > new Date()) return;
+      // pausa da conversa: so o botao "Liberar IA" do portal devolve a resposta automatica
+      if (isAiPaused(input.lead, new Date())) return;
 
       const apiKey = resolveAiApiKey(input.agent);
       const credentials = uazapiCredentials(input.agent);

@@ -417,9 +417,14 @@ function createLazyDbLeadRepository(): LeadRepository {
       return createDbLeadRepository().listImports();
     },
 
-    async markHumanPaused(id, pausedAt, pausedUntil, reason) {
+    async pauseAi(id, pausedAt, reason) {
       const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
-      return createDbLeadRepository().markHumanPaused(id, pausedAt, pausedUntil, reason);
+      return createDbLeadRepository().pauseAi(id, pausedAt, reason);
+    },
+
+    async resumeAi(id, resumedAt) {
+      const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
+      return createDbLeadRepository().resumeAi(id, resumedAt);
     },
 
     async markInboundReceived(id, receivedAt, followupDueAt) {
