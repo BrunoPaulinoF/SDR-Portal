@@ -3,6 +3,7 @@ import type { createAiResponseService } from '../ai/ai-response-service.js';
 import type { AiRunRepository } from '../ai/ai-run-repository.js';
 import type { ConversationRepository } from '../conversations/conversation-repository.js';
 import type { JobLogRepository } from '../jobs/job-log-repository.js';
+import { isAiPaused } from '../leads/ai-pause.js';
 import type { LeadRepository } from '../leads/lead-repository.js';
 import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
 
@@ -76,7 +77,7 @@ export function createPendingReplyService(deps: PendingReplyDependencies) {
 
     const lead = await deps.leadRepository.findById(conversation.leadId);
     if (!lead) return { skip: 'lead inexistente' };
-    if (lead.humanPausedUntil && lead.humanPausedUntil > now) return { skip: 'IA pausada' };
+    if (isAiPaused(lead, now)) return { skip: 'IA pausada' };
 
     const agent = await deps.sdrAgentRepository.findById(lead.sdrAgentId);
     if (!agent) return { skip: 'SDR inexistente' };

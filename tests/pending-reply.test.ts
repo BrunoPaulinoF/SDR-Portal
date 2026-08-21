@@ -4,6 +4,7 @@ import type { Conversation, Lead, Message, SdrAgent } from '../src/db/schema.js'
 import { createMemoryAiRunRepository } from '../src/modules/ai/ai-run-repository.js';
 import { createMemoryConversationRepository } from '../src/modules/conversations/conversation-repository.js';
 import { createMemoryJobLogRepository } from '../src/modules/jobs/job-log-repository.js';
+import { AI_PAUSE_REASONS } from '../src/modules/leads/ai-pause.js';
 import { createMemoryLeadRepository } from '../src/modules/leads/lead-repository.js';
 import { createPendingReplyService } from '../src/modules/scheduler/pending-reply.js';
 import { createMemorySdrAgentRepository } from '../src/modules/sdr-agents/sdr-agent-repository.js';
@@ -181,8 +182,8 @@ describe('resposta pendente: lead que respondeu e ficou sem resposta', () => {
 
   it('respeita a IA pausada no lead', async () => {
     const s = await buildScenario();
-    const now = new Date();
-    await s.leadRepository.markHumanPaused(s.lead.id, now, new Date(now.getTime() + 60 * MINUTE), 'manual_whatsapp_message');
+    // A pausa nao expira sozinha desde o botao "Liberar IA": quem decide e isAiPaused.
+    await s.leadRepository.pauseAi(s.lead.id, new Date(), AI_PAUSE_REASONS.manualWhatsapp);
 
     const result = await s.service.runOnce();
 
