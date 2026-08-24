@@ -277,6 +277,28 @@ describe('followup outreach guards', () => {
     expect(uazapi.sent).toHaveLength(0);
   });
 
+  it('desiste do lead depois de tres tentativas sem mensagem, em vez de reagendar para sempre', async () => {
+    const cold = makeLead();
+    // A IA recusa sempre: o historico dela nao muda entre uma tentativa e outra, entao a
+    // resposta tambem nao muda. Sem teto, o lead voltava de hora em hora — sete vezes num dia.
+    const { service, leads, uazapi } = await buildHarness([cold], fakeAiClient(aiReply('', true)));
+
+    await service.runOnce(NOW);
+    expect((await leads.findById(cold.id))?.followupDisabledAt).toBeNull();
+    expect((await leads.findById(cold.id))?.followupDueAt?.getTime()).toBe(NOW.getTime() + HOUR);
+
+    await service.runOnce(new Date(NOW.getTime() + 2 * HOUR));
+    expect((await leads.findById(cold.id))?.followupDisabledAt).toBeNull();
+
+    await service.runOnce(new Date(NOW.getTime() + 4 * HOUR));
+    const desistido = await leads.findById(cold.id);
+    expect(desistido?.followupDisabledAt).toBeInstanceOf(Date);
+
+    // E depois de desativado ele nao volta para a fila nem gasta outra chamada.
+    await service.runOnce(new Date(NOW.getTime() + 6 * HOUR));
+    expect(uazapi.sent).toHaveLength(0);
+  });
+
   it('nao envia quando o SDR nao tem followup_prompt configurado', async () => {
     const cold = makeLead();
     const { service, uazapi } = await buildHarness([cold], fakeAiClient(aiReply('nao deveria sair')), { followupPrompt: null });
