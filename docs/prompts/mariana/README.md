@@ -11,7 +11,8 @@ Quando alterar um prompt no portal, atualize o arquivo aqui no mesmo commit.
 | `prompt.txt` | Prompt principal | sim — região estável, depois do `SDR_BASE_PROMPT` |
 | `offer-description.txt` | Oferta | sim — região estável |
 | `first-message-prompt.txt` | Prompt da primeira mensagem | só quando o modo A/B está desligado |
-| `followup-prompt.txt` | Prompt de follow-up | sim, no job de follow-up |
+| `followup-prompt.txt` | Prompt de follow-up | sim, no job de follow-up (quem respondeu e esfriou) |
+| `bump-prompt.txt` | Prompt do segundo toque | sim, no job de follow-up (quem nunca respondeu) |
 | `lead-qualification-prompt.txt` | Prompt de qualificação | sim, no `lead_fit_assessment` |
 | `handoff-template.txt` | Template de handoff | não é prompt: é a mensagem enviada ao humano |
 
@@ -108,6 +109,50 @@ qualifica se um lead deve receber abordagem fria de **consultoria/mentoria de pl
 estrategico**" — sobra de outro produto, fixa em `initial-outreach.ts`, contradizendo o
 `lead-qualification-prompt.txt` logo abaixo. Passou a ser neutra ("a abordagem fria deste SDR ...
 nao presuma nenhum outro produto").
+
+## Revisao de 25/08: o follow-up nao alcancava quem nunca respondeu
+
+Leitura das 37 conversas da Mariana em producao: 32 abordagens frias, 18 com algum inbound,
+mas so 4 com uma pessoa de verdade do outro lado — as outras 14 foram o robo de horario da
+propria loja. Zero handoff. E, em sete dias, **um** follow-up enviado.
+
+Duas causas no codigo, alem da janela de envio (que e configuracao do portal, nao prompt):
+
+1. **Quem nunca respondeu estava fora da fila.** `findNextFollowupDueForSdr` exigia
+   `status = 'in_conversation'` e `last_inbound_at IS NOT NULL`, mas `markInitialSent` sempre
+   gravou o `followup_due_at` de todo lead abordado. O agendamento existia e ninguem lia: os 14
+   leads mudos nunca receberiam segunda mensagem. O filtro agora aceita tambem
+   `initial_sent` + `last_inbound_at IS NULL`.
+2. **Recusa do modelo e erro tecnico caiam no mesmo lugar.** `buildFollowupMessage` devolvia
+   `null` em cinco situacoes diferentes e o chamador reagendava todas em +60min, sem contador e
+   sem teto — entao um lead que o modelo decidiu nao abordar voltava de hora em hora, para
+   sempre, gastando uma chamada de IA por vez. Nos logs de 20 e 21/08 a cadencia era literal:
+   13:35, 14:35, 15:35, 16:35, 17:36. Agora `refused` encerra o follow-up do lead e `error`
+   reagenda contando a tentativa, ate `MAX_FOLLOWUP_ATTEMPTS`.
+
+Abrir o filtro sozinho nao resolveria: o roteiro de follow-up manda "retomar o ultimo assunto
+real" e lista "o historico nao justifica uma nova mensagem sua" como motivo de recusa — para o
+lead mudo isso e verdade, e o modelo recusaria quase todos. Por isso o job passou a ter dois
+modos, escolhidos por `last_inbound_at`, cada um com o proprio bloco de regras e o proprio
+prefixo estavel de cache:
+
+| Modo | Publico | Prompt do SDR |
+| --- | --- | --- |
+| `reengage` | respondeu e esfriou | `followup-prompt.txt` |
+| `bump` | nunca respondeu | `bump-prompt.txt` (vazio: cai no de follow-up) |
+
+O `bump-prompt.txt` diz em uma frase o que a KyberFood faz — a primeira mensagem nao diz —, faz
+uma pergunta facil, proibe refazer a pergunta da abordagem e proibe cobrar a resposta que nao
+veio. Tem uma secao so para o caso mais comum desse publico: quando a unica coisa no historico
+e a autoresposta da loja, ninguem leu a Mariana ainda, entao ela escreve para a pessoa e nao
+comenta a mensagem do robo.
+
+Fora dos prompts, na mesma revisao: o nome do lead parou de sair como veio da lista. O cadastro
+gruda descritor de segmento e cidade no nome real, e a abordagem perguntava por "a pessoa
+responsavel pelo Escher Burger - Hamburguer Gourmet - Hamburguer artesanal?". `lead-display-name.ts`
+agora corta o rabo depois do primeiro separador e a cidade colada no fim, sempre com a guarda de
+so cortar quando o que sobra ainda identifica a loja — "Pizzaria Limeira" em Limeira continua
+inteiro, e "Pizzaria - Dom Rei" nao vira "Pizzaria".
 
 ## Playbook
 

@@ -40,6 +40,7 @@ function withDefaults(input: SdrAgentInput): Omit<SdrAgent, 'id' | 'createdAt' |
     firstMessagePrompt: nullable(input.firstMessagePrompt),
     leadQualificationPrompt: nullable(input.leadQualificationPrompt),
     followupPrompt: nullable(input.followupPrompt),
+    bumpPrompt: nullable(input.bumpPrompt),
     firstMessageMode: input.firstMessageMode ?? 'ai',
     playbook: input.playbook ?? DEFAULT_SDR_PLAYBOOK,
     aiProvider: input.aiProvider ?? 'deepseek',

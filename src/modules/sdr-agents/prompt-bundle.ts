@@ -16,6 +16,7 @@ export const PROMPT_FILES = {
   offerDescription: 'offer-description.txt',
   firstMessagePrompt: 'first-message-prompt.txt',
   followupPrompt: 'followup-prompt.txt',
+  bumpPrompt: 'bump-prompt.txt',
   leadQualificationPrompt: 'lead-qualification-prompt.txt',
   handoffMessageTemplate: 'handoff-template.txt',
 } as const;
