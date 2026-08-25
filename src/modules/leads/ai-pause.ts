@@ -9,6 +9,8 @@ import type { Lead } from '../../db/schema.js';
 export const AI_PAUSE_REASONS = {
   /** O lead mandou uma imagem: a IA nao enxerga a foto, entao quem responde e um humano. */
   leadImage: 'lead_image_message',
+  /** O lead mandou um audio que nao deu para transcrever: a IA nao ouve, entao quem responde e um humano. */
+  leadAudio: 'lead_audio_no_transcription',
   /** Alguem respondeu pelo proprio WhatsApp do SDR (`fromMe` sem passar pela API). */
   manualWhatsapp: 'manual_whatsapp_message',
   /** Pausa pedida no botao da caixa de conversas. */
@@ -17,6 +19,7 @@ export const AI_PAUSE_REASONS = {
 
 const REASON_LABELS: Record<string, string> = {
   [AI_PAUSE_REASONS.leadImage]: 'o lead enviou uma imagem',
+  [AI_PAUSE_REASONS.leadAudio]: 'o lead enviou um audio que nao deu para transcrever',
   [AI_PAUSE_REASONS.manualWhatsapp]: 'alguem respondeu pelo WhatsApp do SDR',
   [AI_PAUSE_REASONS.portal]: 'a pausa foi feita aqui no portal',
 };

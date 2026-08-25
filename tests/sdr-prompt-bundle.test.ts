@@ -66,7 +66,8 @@ describe('bundle de prompts do repositorio', () => {
     const prompt = bundle.fields.prompt ?? '';
 
     // A curiosidade preservada e a aplicacao na casa do lead, nao o que a empresa faz.
-    expect(prompt).toContain('acompanhar de perto os números da operação e transformá-los em decisões práticas para a gestão financeira');
+    expect(prompt).toContain('acompanhar de perto os números da operação');
+    expect(prompt).toContain('transformá-los em decisões práticas para a gestão financeira');
     expect(prompt).toContain('Como cada casa tem uma realidade');
     // O que soava despreparo nos prints.
     expect(prompt).toContain('Nunca diga "só o Fernando sabe explicar"');
@@ -74,6 +75,36 @@ describe('bundle de prompts do repositorio', () => {
     expect(prompt).toContain('NUNCA repita a mesma resposta');
     // A oferta nao pode entregar a "dor" como diagnostico pronto do lead.
     expect(bundle.fields.offerDescription).toContain('NÃO é diagnóstico deste lead');
+  });
+
+  it('explica com exemplo concreto e nao deixa nenhuma frase vaga pronta para copiar', async () => {
+    const bundle = await readPromptBundle(INSUMOSMART_DIR);
+    const prompt = bundle.fields.prompt ?? '';
+
+    // Nas conversas reais, "o que e?" so converteu quando veio com nome de coisa do dia a dia.
+    for (const concreto of ['custo de insumo', 'margem por prato', 'preço de cardápio']) {
+      expect(prompt).toContain(concreto);
+    }
+
+    // O modelo copiava o texto do exemplo e ignorava o rotulo: 6 das 7 explicacoes em producao
+    // saiam com a frase que o proprio prompt marcava como RUIM. Exemplo errado agora e descrito,
+    // nunca escrito — se voltar a existir uma frase ruim pronta, ela volta a ser enviada.
+    expect(prompt).not.toContain('RUIM:');
+    expect(prompt).not.toContain('a parte de números que nunca dá tempo de olhar');
+
+    // "Nao entendi" chegou a disparar handoff em producao.
+    expect(prompt).toContain('NÃO é autorização');
+    expect(prompt).toContain('isso é o contrário de um aceite');
+  });
+
+  it('nao cobra a vaga do projeto de quem nunca ouviu falar dele', async () => {
+    // 9 dos 11 follow-ups foram para leads que so tinham recebido "Opa, tudo bom?" e mesmo assim
+    // falavam em "esse projeto" e "fechar as vagas". A resposta previsivel: deixa para outra empresa.
+    const followup = (await readPromptBundle(INSUMOSMART_DIR)).fields.followupPrompt ?? '';
+
+    expect(followup).toContain('NUNCA ouviu falar do projeto');
+    expect(followup).toContain('não fale em projeto, em vaga nem em outra empresa');
+    expect(followup).toContain('Se ela já ouviu o convite');
   });
 
   it('planeja playbook, modo da primeira mensagem e prompts para um SDR ainda consultivo', async () => {

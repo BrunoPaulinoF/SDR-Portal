@@ -222,6 +222,46 @@ versionadas: a SDR nunca diz "vou passar você para o Fernando" (ele não respon
 número — o que sai daqui é o contato indo para o WhatsApp dele) e nunca solta o nome sozinho,
 já que o lead não sabe quem é Fernando: ele é "o Fernando, dono da Insumo Smart".
 
+## O que a primeira semana de conversas reais mudou aqui
+
+A análise completa está em [`docs/analises/francielly-2026-08.md`](../../analises/francielly-2026-08.md).
+Três coisas que este diretório afirmava não sobreviveram ao contato com as conversas:
+
+**1. O exemplo negativo virava a resposta enviada.** O `prompt.txt` mostrava a resposta certa e a
+errada lado a lado, rotuladas BOM e RUIM. Em produção, **6 das 7 explicações saíram com o texto
+marcado como RUIM**, quase palavra por palavra, e a versão BOM não saiu nenhuma vez. O modelo
+copia a frase e ignora o rótulo. Agora o erro é **descrito entre parênteses, nunca escrito**: se
+voltar a existir uma frase ruim pronta no prompt, ela volta a ser enviada. O teste
+`sdr-prompt-bundle` falha se `RUIM:` reaparecer.
+
+**2. A proposta central era abstrata demais para ser entendida.** *"Acompanhar de perto os números
+da operação e transformá-los em decisões práticas para a gestão financeira"* é verdade, mas ninguém
+do outro lado entendeu. A CT Express gastou cinco rodadas de "não entendi", chegou a *"não quero
+falar com ninguém não"*, voltou 40 minutos depois — e converteu no minuto em que ouviu **"custo de
+insumo, margem por prato e preço de cardápio"**. Esses três exemplos concretos passaram a fazer
+parte da frase, já na primeira explicação. Eles estavam no prompt antes, mas só como reformulação
+para quando o lead reclamasse: tarde demais.
+
+**3. O follow-up cobrava uma conversa que nunca aconteceu.** O texto padrão fala de "esse projeto" e
+de "fechar as vagas" — e **9 dos 11 follow-ups** foram para leads que só tinham recebido "Opa, tudo
+bom?". A Baunille respondeu o óbvio: *"pode deixar para outra empresa"*. O texto padrão foi escrito
+quando a primeira mensagem ainda carregava o pitch inteiro; depois que a abertura virou o passo 1
+sozinho, ele passou a cobrar quem não sabia de nada. Agora o `followup-prompt.txt` decide pelo
+histórico: quem já ouviu o convite recebe o texto das vagas, quem parou antes recebe o passo em que
+a conversa parou.
+
+Também entrou uma regra que faltava: **"não entendi" não é aceite**. Em produção, `notify_handoff`
+disparou logo depois de *"não entendi sua proposta"*, e o Fernando recebeu um lead cujo resumo era
+"o lead não entendeu a explicação".
+
+> **Nada disso está em produção até o Deploy.** Os prompts vivem no banco: depois do merge, é
+> Deploy no EasyPanel e então `node dist/src/db/apply-sdr-prompts.js --agent="Franc" --apply` no
+> Console. Rodar antes do Deploy grava o texto antigo.
+
+Duas coisas que a análise apontou e que **não** foram mexidas aqui, porque são decisão do Fernando:
+o bloco `LEAD NÃO É DO RAMO ESPERADO` que ele escreveu direto no portal (e que hoje cancela as três
+regras de indicação), e a troca do modelo para `deepseek-v4-flash`.
+
 ## Como configurar no portal
 
 Na tela do SDR (`/sdr-agents/<id>/edit`):

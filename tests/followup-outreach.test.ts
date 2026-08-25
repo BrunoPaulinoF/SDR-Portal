@@ -268,13 +268,30 @@ describe('followup outreach guards', () => {
     expect(updated?.followupDueAt?.getTime()).toBe(NOW.getTime() + HOUR);
   });
 
-  it('respeita nao_responder do modelo e nao envia nada', async () => {
+  it('respeita nao_responder do modelo, desliga o follow-up e nao devolve o lead para a fila', async () => {
+    // nao_responder e decisao, nao falha: reagendar fazia o mesmo lead ser reavaliado de hora em
+    // hora — na producao um deles gastou 38 geracoes numa semana sem nunca enviar nada.
     const cold = makeLead();
-    const { service, uazapi } = await buildHarness([cold], fakeAiClient(aiReply('', true)));
+    const { service, leads, uazapi } = await buildHarness([cold], fakeAiClient(aiReply('', true)));
 
     await service.runOnce(NOW);
 
     expect(uazapi.sent).toHaveLength(0);
+    const updated = await leads.findById(cold.id);
+    expect(updated?.followupDisabledAt).not.toBeNull();
+    expect(updated?.followupDueAt?.getTime()).not.toBe(NOW.getTime() + HOUR);
+  });
+
+  it('mensagem vazia sem nao_responder continua sendo falha de geracao: reagenda em vez de desligar', async () => {
+    const cold = makeLead();
+    const { service, leads, uazapi } = await buildHarness([cold], fakeAiClient(aiReply('   ')));
+
+    await service.runOnce(NOW);
+
+    expect(uazapi.sent).toHaveLength(0);
+    const updated = await leads.findById(cold.id);
+    expect(updated?.followupDisabledAt).toBeNull();
+    expect(updated?.followupDueAt?.getTime()).toBe(NOW.getTime() + HOUR);
   });
 
   it('nao envia quando o SDR nao tem followup_prompt configurado', async () => {

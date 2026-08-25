@@ -3347,6 +3347,99 @@ describe('UAZAPI webhook routes', () => {
     expect(messages.some((message) => message.messageType === 'audio' && message.transcription === 'Texto transcrito do audio')).toBe(true);
   });
 
+  it('pauses the AI when the lead sends audio that could not be transcribed, instead of ignoring the lead', async () => {
+    // Na producao 5 de 6 audios voltaram sem transcricao. Como a IA nao ouve, ninguem respondia
+    // — e o lead ainda levava cobranca de follow-up no dia seguinte por "nao ter respondido".
+    const aiCalls: string[] = [];
+    const uazapiCalls: string[] = [];
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const conversationRepository = createMemoryConversationRepository();
+    const webhookEventRepository = createMemoryWebhookEventRepository();
+    const aiRunRepository = createMemoryAiRunRepository();
+    const company = await companyRepository.create({
+      name: 'Insumo Smart',
+      legalName: null,
+      cnpj: null,
+      segment: 'Gastronomia',
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'sdr-insumo-smart',
+      displayName: 'Franciely',
+      isActive: true,
+      aiProvider: 'openai',
+      openaiApiKeyEncrypted: encryptSecret('openai-key'),
+      uazapiBaseUrl: 'https://api.uazapi.com',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+    });
+    const lead = await leadRepository.create({
+      companyId: company.id,
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511555555555',
+      companyName: 'Tortuga Bar e Lanchonete',
+      cnpj: null,
+      tradeName: null,
+      segment: 'Gastronomia',
+      city: null,
+      state: null,
+      contactName: null,
+      extraData: null,
+      status: 'in_conversation',
+      source: 'manual',
+    });
+
+    const uazapiClient = createMockUazapiClient(uazapiCalls);
+    // Sem transcricao e sem link do arquivo: nao ha nem como tentar o fallback do Whisper.
+    uazapiClient.downloadMessage = async (input) => {
+      uazapiCalls.push(`download:${input.id}:${input.transcribe ? 'transcribe' : 'raw'}:${input.token}`);
+      return { status: 200, ok: true, body: {} };
+    };
+
+    app = buildApp({
+      aiClient: createMockAiClient(aiCalls, JSON.stringify({ mensagem_usuario: 'Nao deveria responder.', nao_responder: false, actions: [] })),
+      aiRunRepository,
+      companyRepository,
+      conversationRepository,
+      leadRepository,
+      sdrAgentRepository,
+      uazapiClient,
+      webhookEventRepository,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/webhooks/uazapi/${agent.id}`,
+      payload: {
+        event: 'messages',
+        data: {
+          id: 'AUDIO-MUDO',
+          chatid: '5511555555555@s.whatsapp.net',
+          content: { URL: 'https://meta.example/audio.ogg', PTT: true, mimetype: 'audio/ogg; codecs=opus' },
+          fromMe: false,
+          mediaType: 'audio',
+          messageType: 'AudioMessage',
+          sender_pn: '5511555555555@s.whatsapp.net',
+          type: 'media',
+        },
+      },
+    });
+
+    const updatedLead = await leadRepository.findById(lead.id);
+
+    expect(response.statusCode).toBe(200);
+    // A IA nao chuta uma resposta para um audio que ela nao ouviu.
+    expect(aiCalls).toHaveLength(0);
+    // Mas a conversa para de sumir em silencio: fica pausada, esperando um humano no portal.
+    expect(updatedLead?.status).toBe('human_paused');
+    expect(updatedLead?.aiPauseReason).toBe('lead_audio_no_transcription');
+  });
+
   it('pauses the AI until the portal releases it when the lead sends an image', async () => {
     const aiCalls: string[] = [];
     const uazapiCalls: string[] = [];

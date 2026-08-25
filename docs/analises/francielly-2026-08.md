@@ -4,6 +4,13 @@ Leitura das conversas reais da Insumo Smart no portal, com foco na semana em que
 `convite` está no ar. O objetivo é responder duas coisas: **quanto ela está entregando** e
 **onde a abordagem e o pitch estão perdendo lead**.
 
+> **Status das correções.** Já aplicados neste repositório: a frase concreta da proposta e a
+> retirada do exemplo RUIM, a regra de que "não entendi" não é aceite, o follow-up separado por
+> etapa, o fim do loop de geração de follow-up e o áudio sem transcrição que deixou de sumir em
+> silêncio. Os prompts só valem em produção **depois do Deploy no EasyPanel + `apply-sdr-prompts`**.
+> Continuam abertos, porque são decisão do Fernando: o bloco `LEAD NÃO É DO RAMO ESPERADO` escrito
+> à mão no portal, a volta para o `deepseek-v4-pro` e a resposta ao lead da CT Express.
+
 ## O que foi lido
 
 As 200 conversas mais recentes da Francielly (de 854 no portal, sobre uma base de 1353 leads),

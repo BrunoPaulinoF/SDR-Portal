@@ -208,6 +208,13 @@ export function registerUazapiWebhookRoutes(
         const audio = await audioTranscriptionService.transcribe({ agent, messageId: normalized.whatsappMessageId });
         transcription = audio.transcription;
         mediaUrl = mediaUrl ?? audio.mediaUrl;
+        if (!transcription) {
+          // Sem isto a falha e invisivel: o audio some do funil sem deixar rastro de por que.
+          request.log.warn(
+            { leadId: lead.id, whatsappMessageId: normalized.whatsappMessageId, hasMediaUrl: Boolean(audio.mediaUrl) },
+            'Audio do lead nao pode ser transcrito',
+          );
+        }
       }
 
       await conversationRepository.createMessage({
@@ -236,6 +243,10 @@ export function registerUazapiWebhookRoutes(
           if (!isAiPaused(lead, now)) await leadRepository.pauseAi(lead.id, now, AI_PAUSE_REASONS.leadImage);
         } else if (hasReplyableContent(normalized.text, transcription)) {
           await aiResponseService.respondToInbound({ agent, conversation, lead });
+        } else if (isAudioMessageType(normalized.messageType)) {
+          // Mesmo motivo da imagem: a IA nao ouve o audio. Ficar em silencio e pior — o lead
+          // que respondeu por audio some do funil e ainda leva cobranca de follow-up depois.
+          if (!isAiPaused(lead, now)) await leadRepository.pauseAi(lead.id, now, AI_PAUSE_REASONS.leadAudio);
         }
       } else if (!normalized.sentByApi) {
         // mensagem digitada no celular do SDR: a IA so volta quando alguem liberar no portal

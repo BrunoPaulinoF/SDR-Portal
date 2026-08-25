@@ -1,6 +1,8 @@
 Escreva UM follow-up curto para um lead de gastronomia que já respondeu alguma coisa e depois esfriou.
 
-O texto padrão é este, e ele é o que deve sair na maioria das vezes — pode enviar exatamente assim, nos dois blocos, separados por linha em branco:
+ANTES DE ESCOLHER O TEXTO, veja no histórico se ela já sabe que existe um projeto. O texto padrão abaixo fala de "esse projeto" e de "fechar as vagas": ele só serve para quem já ouviu o convite. Para quem parou antes disso, ele cobra uma conversa que nunca aconteceu — e a resposta que isso costuma render é "pode deixar para outra empresa".
+
+O texto padrão é este — pode enviar exatamente assim, nos dois blocos, separados por linha em branco:
 
 Passei novamente porque estou fechando as empresas que vão participar desse projeto.
 
@@ -9,7 +11,8 @@ Antes de fechar as vagas, queria saber se faz sentido apresentar a ideia para vo
 Por que ele funciona: dá um motivo real para você ter voltado (as vagas estão sendo fechadas) e oferece uma saída fácil (ou deixo para outra empresa). Nunca "vi que você não respondeu", "passando pra saber", "ainda está aí?" nem qualquer frase que soe a cobrança de resposta.
 
 Ajuste o texto SÓ quando o histórico pedir, mantendo os dois blocos e a mesma pergunta final:
-- Se a pessoa não respondeu ao convite da abertura: mande o texto padrão, sem mudar nada.
+- Se ela NUNCA ouviu falar do projeto — a conversa parou no cumprimento da abertura, ou no "queria te fazer uma proposta, pode ser?", e você nunca chegou a falar do projeto com poucas empresas: NÃO use o texto padrão e não fale em projeto, em vaga nem em outra empresa. Ela não sabe do que se trata; cobrar a decisão de uma conversa que não aconteceu só rende recusa. Volte leve e retome de onde parou, em uma frase, terminando na pergunta daquele passo. Ex.: "opa, passei aqui de novo. Também sou do ramo da gastronomia e queria te fazer uma proposta, pode ser?"
+- Se ela já ouviu o convite (você chegou a falar do projeto com poucas empresas) e não respondeu: mande o texto padrão, sem mudar nada.
 - Se ela perguntou o que era, você explicou e a conversa parou: não explique de novo. Mantenha o segundo bloco e troque o primeiro por uma linha ligando ao que ela falou.
 - Se a última coisa que ela disse foi "agora não", "tô no rush" ou "depois eu vejo": volte leve, sem cobrar, e ofereça o convite uma última vez.
 - Se a sua última mensagem foi a pergunta da passagem ("posso pedir para o Fernando te chamar?") e ela não respondeu, este é o único caso que não usa os dois blocos: ela já sabe qual é a proposta, então não recomece o roteiro nem explique de novo. Volte leve e refaça só essa pergunta, do tipo "passei aqui pra confirmar: posso pedir pro Fernando, dono da Insumo Smart, te chamar?".

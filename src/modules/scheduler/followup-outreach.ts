@@ -187,18 +187,30 @@ ${historyBlock(history)}`,
   ];
 }
 
-/** Devolve `null` quando o follow-up nao deve ser enviado (sem prompt, sem chave, falha da IA ou recusa do modelo). */
+/**
+ * `declined` e `failed` sao coisas diferentes e nao podem ter o mesmo desfecho: quando a IA le
+ * o historico e responde `nao_responder`, ela esta dizendo que este lead NUNCA deve receber
+ * follow-up (recusou sabendo do que se trata, pediu para nao receber mais, fechou a casa, ja
+ * foi para o Fernando). Reagendar isso devolve o lead para a fila e a mesma decisao e paga de
+ * novo a cada hora — um lead sozinho chegou a 38 geracoes numa semana. So `failed` (sem prompt,
+ * sem chave, erro do provedor, JSON truncado) merece nova tentativa.
+ */
+type FollowupMessage =
+  | { kind: 'send'; text: string }
+  | { kind: 'declined' }
+  | { kind: 'failed' };
+
 async function buildFollowupMessage(
   deps: FollowupOutreachDependencies,
   agent: SdrAgent,
   lead: Lead,
   history: Message[],
-): Promise<string | null> {
+): Promise<FollowupMessage> {
   const prompt = agent.followupPrompt?.trim();
-  if (!prompt) return null;
+  if (!prompt) return { kind: 'failed' };
 
   const apiKey = resolveAiApiKey(agent);
-  if (!apiKey) return null;
+  if (!apiKey) return { kind: 'failed' };
 
   const messages = followupAiMessages(agent, lead, history);
   const startedAt = Date.now();
@@ -234,7 +246,10 @@ async function buildFollowupMessage(
       latencyMs: Date.now() - startedAt,
     });
 
-    return parsed.nao_responder || !parsed.mensagem_usuario.trim() ? null : parsed.mensagem_usuario.trim();
+    if (parsed.nao_responder) return { kind: 'declined' };
+    const text = parsed.mensagem_usuario.trim();
+    // Texto vazio sem `nao_responder` e geracao falha, nao decisao: vale nova tentativa.
+    return text ? { kind: 'send', text } : { kind: 'failed' };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown follow-up AI error';
     await deps.aiRunRepository.create({
@@ -254,7 +269,7 @@ async function buildFollowupMessage(
       promptCacheHitTokens: null,
       latencyMs: Date.now() - startedAt,
     });
-    return null;
+    return { kind: 'failed' };
   }
 }
 
@@ -357,9 +372,31 @@ export function createFollowupOutreachService(deps: FollowupOutreachDependencies
       if (!credentials) throw new Error('SDR sem URL/token UAZAPI configurado.');
 
       const { conversation, history } = await loadHistory(lead);
-      const text = await buildFollowupMessage(deps, agent, lead, history);
-      if (!text) {
-        // Sem mensagem gerada nao enviamos nada generico: adia e tenta de novo depois.
+      const followup = await buildFollowupMessage(deps, agent, lead, history);
+
+      if (followup.kind === 'declined') {
+        // A IA leu o historico e disse que este lead nao deve receber follow-up. Isso e decisao,
+        // nao falha: desliga de vez em vez de reagendar, senao a mesma decisao volta toda hora.
+        await deps.leadRepository.disableFollowup(lead.id, now);
+        await deps.jobLogRepository.create({
+          jobName: 'followup-outreach',
+          jobKey: `followup-declined-${lead.id}`,
+          sdrAgentId: agent.id,
+          leadId: lead.id,
+          status: 'skipped',
+          attempt: 1,
+          payload: JSON.stringify({ number: lead.whatsappNumber, historyMessages: history.length }),
+          result: JSON.stringify({ reason: 'a IA decidiu nao fazer follow-up deste lead', followupDisabled: true }),
+          error: null,
+          startedAt,
+          finishedAt: new Date(),
+        });
+        details.push(`${agent.name}: follow-up desligado para ${lead.companyName} (a IA decidiu nao mandar).`);
+        return 'skipped';
+      }
+
+      if (followup.kind === 'failed') {
+        // Aqui sim foi falha de geracao: nao enviamos nada generico, adiamos e tentamos de novo.
         const retryAt = new Date(now.getTime() + FOLLOWUP_RETRY_DELAY_MINUTES * 60 * 1000);
         await deps.leadRepository.rescheduleFollowup(lead.id, retryAt, now);
         await deps.jobLogRepository.create({
@@ -378,6 +415,8 @@ export function createFollowupOutreachService(deps: FollowupOutreachDependencies
         details.push(`${agent.name}: follow-up nao enviado para ${lead.companyName} (mensagem nao gerada).`);
         return 'skipped';
       }
+
+      const text = followup.text;
 
       await deps.uazapiClient.sendPresence({ ...credentials, number: lead.whatsappNumber, presence: 'composing', delay: 1000 });
       const result = await deps.uazapiClient.sendText({
