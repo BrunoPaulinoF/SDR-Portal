@@ -97,6 +97,7 @@ function normalize(input: LeadInput): Omit<Lead, 'id' | 'createdAt' | 'updatedAt
     followupDueAt: null,
     followupSentAt: null,
     followupDisabledAt: null,
+    followupAttempts: 0,
     humanPausedUntil: null,
     aiPausedAt: null,
     aiPauseReason: null,
@@ -214,8 +215,9 @@ export function createMemoryLeadRepository(seedLeads: Lead[] = []): LeadReposito
           .filter(
             (lead) =>
               lead.sdrAgentId === sdrAgentId &&
-              lead.status === 'in_conversation' &&
-              lead.lastInboundAt !== null &&
+              // Retomada (respondeu e esfriou) ou segundo toque (nunca respondeu).
+              ((lead.status === 'in_conversation' && lead.lastInboundAt !== null) ||
+                (lead.status === 'initial_sent' && lead.lastInboundAt === null)) &&
               lead.followupDueAt !== null &&
               lead.followupDueAt <= now &&
               lead.followupSentAt === null &&
@@ -303,6 +305,8 @@ export function createMemoryLeadRepository(seedLeads: Lead[] = []): LeadReposito
         lastInboundAt: receivedAt,
         // reancora o follow-up na ultima interacao real, nao na primeira mensagem
         followupDueAt: followupDueAt === undefined ? current.followupDueAt : followupDueAt,
+        // O lead voltou a falar: as tentativas gastas antes disso nao contam mais.
+        followupAttempts: 0,
         updatedAt: receivedAt,
       };
       rows.set(id, lead);
@@ -320,7 +324,8 @@ export function createMemoryLeadRepository(seedLeads: Lead[] = []): LeadReposito
     async rescheduleFollowup(id, followupDueAt, updatedAt) {
       const current = rows.get(id);
       if (!current) return null;
-      const lead: Lead = { ...current, followupDueAt, updatedAt };
+      // Todo reagendamento e uma tentativa que falhou: o contador e o que impede o loop eterno.
+      const lead: Lead = { ...current, followupDueAt, followupAttempts: current.followupAttempts + 1, updatedAt };
       rows.set(id, lead);
       return lead;
     },

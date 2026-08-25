@@ -120,10 +120,15 @@ export function createDbLeadRepository(): LeadRepository {
         blockingOther.push(gt(other.lastInboundAt, quietSince), gt(other.lastOutboundAt, quietSince));
       }
 
+      // Duas populacoes recebem follow-up: quem respondeu e esfriou (retomada) e quem nunca
+      // respondeu a abordagem (segundo toque). A segunda ficava de fora e nunca era tocada.
+      const target = or(
+        and(eq(leads.status, 'in_conversation'), isNotNull(leads.lastInboundAt)),
+        and(eq(leads.status, 'initial_sent'), isNull(leads.lastInboundAt)),
+      );
+
       const conditions: SQL[] = [
         eq(leads.sdrAgentId, sdrAgentId),
-        eq(leads.status, 'in_conversation'),
-        isNotNull(leads.lastInboundAt),
         lte(leads.followupDueAt, now),
         isNull(leads.followupSentAt),
         isNull(leads.followupDisabledAt),
@@ -134,6 +139,7 @@ export function createDbLeadRepository(): LeadRepository {
             .where(and(eq(other.sdrAgentId, sdrAgentId), ne(other.id, leads.id), sameChat, or(...blockingOther))),
         ),
       ];
+      if (target) conditions.push(target);
       if (quietSince) conditions.push(quietSinceCondition(leads, quietSince));
 
       const [lead] = await db
@@ -218,6 +224,8 @@ export function createDbLeadRepository(): LeadRepository {
       const values: Partial<typeof leads.$inferInsert> = {
         status: current?.status === 'transferred' || current?.status === 'not_interested' ? current.status : 'in_conversation',
         lastInboundAt: receivedAt,
+        // O lead voltou a falar: as tentativas gastas antes disso nao contam mais.
+        followupAttempts: 0,
         updatedAt: receivedAt,
       };
       // reancora o follow-up na ultima interacao real, nao na primeira mensagem
@@ -237,7 +245,12 @@ export function createDbLeadRepository(): LeadRepository {
     },
 
     async rescheduleFollowup(id, followupDueAt, updatedAt) {
-      const [lead] = await db.update(leads).set({ followupDueAt, updatedAt }).where(eq(leads.id, id)).returning();
+      // Todo reagendamento e uma tentativa que falhou: o contador e o que impede o loop eterno.
+      const [lead] = await db
+        .update(leads)
+        .set({ followupDueAt, followupAttempts: sql`${leads.followupAttempts} + 1`, updatedAt })
+        .where(eq(leads.id, id))
+        .returning();
       return lead ?? null;
     },
 

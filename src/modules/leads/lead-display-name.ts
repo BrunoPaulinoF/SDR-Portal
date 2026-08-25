@@ -58,6 +58,47 @@ function looksLikeBusinessName(value: string): boolean {
 }
 
 /**
+ * Todo termo util do trecho e palavra de ramo: sozinho ele nao identifica loja nenhuma.
+ * "Pizzaria" e generico; "Suprema Pizza" nao e.
+ */
+function isGenericFragment(value: string): boolean {
+  const words = wordsOf(value).filter((word) => !TITLE_CASE_LOWER_WORDS.has(word));
+  if (words.length === 0) return true;
+  return words.every((word) => BUSINESS_WORDS.has(word) || (word.endsWith('s') && BUSINESS_WORDS.has(word.slice(0, -1))));
+}
+
+/** Separador que, no cadastro, quase sempre antecede descritor de segmento ou cidade. */
+const CATALOG_TAIL_SEPARATOR = /\s+[-|·—–]\s+/;
+
+/**
+ * Tira o rabo de catalogo do nome do negocio. As listas de origem (Google Maps, base de CNPJ)
+ * grudam descritor de segmento e cidade no nome real — "Suprema Pizza - Rodizio de pizza e
+ * delivery de pizza", "Bom Beef Burgers Rio Claro". Numa abordagem isso denuncia a lista
+ * raspada na primeira linha: ninguem chama o vizinho pelo nome inteiro do cadastro.
+ *
+ * As duas regras so cortam quando o que sobra continua identificando a loja. Se restar apenas
+ * palavra de ramo, o nome fica inteiro: "Pizzaria - Dom Rei" nao vira "Pizzaria", e "Pizzaria
+ * Limeira" em Limeira continua "Pizzaria Limeira".
+ */
+function withoutCatalogTail(value: string, city: string | null | undefined): string {
+  let name = value.trim();
+
+  const head = name.split(CATALOG_TAIL_SEPARATOR)[0]?.trim() ?? '';
+  if (head && head !== name && !isGenericFragment(head)) name = head;
+
+  const cityWords = wordsOf(city ?? '');
+  if (cityWords.length === 0) return name;
+
+  const tokens = name.split(/\s+/);
+  const kept = tokens.slice(0, tokens.length - cityWords.length);
+  const tail = tokens.slice(tokens.length - cityWords.length).join(' ');
+  if (kept.length === 0 || wordsOf(tail).join(' ') !== cityWords.join(' ')) return name;
+
+  const withoutCity = kept.join(' ');
+  return isGenericFragment(withoutCity) ? name : withoutCity;
+}
+
+/**
  * Razao social que e so o nome do titular, sem o documento colado que denuncia o MEI
  * ("ERICA CRISTINA GUIMARAES PEREIRA LUIZ"). Sem isso a abordagem sai como
  * "Falo com a pessoa responsavel pela Erica Cristina Guimaraes Pereira Luiz?".
@@ -128,10 +169,14 @@ function businessNameFrom(lead: Lead, value: string | null | undefined, kind: 'l
 
   const withoutDocument = withoutMeiDocument(name);
   // Sem documento colado a razao social ainda pode ser so o nome do titular.
-  if (!withoutDocument) return kind === 'legal' && looksLikePersonName(name) ? '' : prettifyBusinessName(name);
+  // looksLikePersonName le o nome inteiro: cortar o rabo de catalogo antes esconderia o sinal.
+  if (!withoutDocument) {
+    if (kind === 'legal' && looksLikePersonName(name)) return '';
+    return prettifyBusinessName(withoutCatalogTail(name, lead.city));
+  }
   // Razao social de MEI: so aproveitamos quando o que sobra e nome de negocio
   // ("12.345.678 PIZZARIA DO ZE"), nunca o nome da pessoa fisica.
-  return looksLikeBusinessName(withoutDocument) ? prettifyBusinessName(withoutDocument) : '';
+  return looksLikeBusinessName(withoutDocument) ? prettifyBusinessName(withoutCatalogTail(withoutDocument, lead.city)) : '';
 }
 
 /** Razao social utilizavel ({{razaosocial}}). Vazio quando so ha nome de pessoa fisica. */

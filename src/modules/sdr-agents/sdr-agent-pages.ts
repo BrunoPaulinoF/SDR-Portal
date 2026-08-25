@@ -17,6 +17,7 @@ interface SdrAgentFormData {
   firstMessagePrompt: string;
   leadQualificationPrompt: string;
   followupPrompt: string;
+  bumpPrompt: string;
   playbook: string;
   aiProvider: string;
   aiModel: string;
@@ -120,6 +121,15 @@ Nao fale em agenda ou horarios.
 Faca uma pergunta simples.
 Use no maximo 2 paragrafos curtos.`;
 
+const exampleBumpPrompt = `Crie um segundo toque curto para um lead que nunca respondeu a primeira mensagem.
+
+Regras:
+Nao repita a primeira mensagem nem refaca a mesma pergunta com outras palavras.
+Diga em uma frase concreta do que se trata.
+Nao cobre a resposta que nao veio.
+Termine com uma pergunta facil de responder.
+Use no maximo 2 linhas curtas.`;
+
 const exampleHandoffTemplate = `Novo lead interessado em telefonema com o Igor.
 
 SDR: {{sdrName}}
@@ -143,7 +153,8 @@ const fieldHelp: Partial<Record<keyof SdrAgentFormData, string>> = {
   followupCooldownMaxMinutes: 'Intervalo maximo entre follow-ups automaticos.',
   followupCooldownMinMinutes: 'Intervalo minimo entre follow-ups automaticos.',
   followupEnabled: 'Quando ativo, o sistema tenta enviar um unico follow-up somente para leads que ja responderam.',
-  followupPrompt: 'Instrucao usada pela IA para criar o follow-up. O sistema nao envia este texto literalmente.',
+  followupPrompt: 'Instrucao usada pela IA para criar o follow-up de quem respondeu e esfriou. O sistema nao envia este texto literalmente.',
+  bumpPrompt: 'Instrucao do segundo toque em quem nunca respondeu a abordagem. Deixe vazio para usar o prompt de follow-up tambem nesse caso.',
   handoffMessageTemplate: 'Mensagem enviada ao responsavel humano quando a IA solicita transferencia.',
   demoContactName: 'Nome que aparece no cartao de contato que a IA envia para o lead testar (deixe vazio para desativar).',
   demoContactPhone: 'WhatsApp que vai dentro do cartao de contato, com DDI e DDD. Ex.: 5519997353221.',
@@ -186,6 +197,7 @@ const defaultForm: SdrAgentFormData = {
   firstMessagePrompt: exampleFirstMessagePrompt,
   leadQualificationPrompt: DEFAULT_LEAD_QUALIFICATION_PROMPT,
   followupPrompt: exampleFollowupPrompt,
+  bumpPrompt: exampleBumpPrompt,
   playbook: DEFAULT_SDR_PLAYBOOK,
   aiProvider: 'deepseek',
   aiModel: 'deepseek-v4-pro',
@@ -240,6 +252,7 @@ function agentToForm(agent?: SdrAgent): SdrAgentFormData {
     firstMessagePrompt: agent.firstMessagePrompt ?? '',
     leadQualificationPrompt: agent.leadQualificationPrompt ?? DEFAULT_LEAD_QUALIFICATION_PROMPT,
     followupPrompt: agent.followupPrompt ?? '',
+    bumpPrompt: agent.bumpPrompt ?? '',
     playbook: resolveSdrPlaybook(agent.playbook),
     aiProvider: agent.aiProvider,
     aiModel: agent.aiModel,
@@ -503,9 +516,10 @@ function renderSdrAgentForm(action: string, companies: Company[], agent?: SdrAge
       ${renderFlowSection(
         3,
         'Follow-up',
-        'Escreve a unica mensagem de retomada para leads que responderam e depois sumiram.',
+        'Escreve a unica mensagem de volta: retomada para quem respondeu e sumiu, segundo toque para quem nunca respondeu.',
         `
-      ${renderTextArea('followupPrompt', 'Prompt de follow-up', data.followupPrompt, 5)}
+      ${renderTextArea('followupPrompt', 'Prompt de follow-up (quem respondeu e esfriou)', data.followupPrompt, 5)}
+      ${renderTextArea('bumpPrompt', 'Prompt do segundo toque (quem nunca respondeu)', data.bumpPrompt, 5)}
         `,
       )}
 

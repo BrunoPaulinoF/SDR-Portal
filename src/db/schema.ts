@@ -61,6 +61,8 @@ export const sdrAgents = pgTable('sdr_agents', {
   firstMessagePrompt: text('first_message_prompt'),
   leadQualificationPrompt: text('lead_qualification_prompt'),
   followupPrompt: text('followup_prompt'),
+  /** Instrucao do 2o toque em quem nunca respondeu. Vazio: cai no followupPrompt. */
+  bumpPrompt: text('bump_prompt'),
   firstMessageMode: text('first_message_mode').default('ai').notNull(),
   playbook: text('playbook').default('consultivo').notNull(),
   aiProvider: text('ai_provider').default('deepseek').notNull(),
@@ -138,6 +140,8 @@ export const leads = pgTable(
     followupDueAt: timestamp('followup_due_at', { withTimezone: true }),
     followupSentAt: timestamp('followup_sent_at', { withTimezone: true }),
     followupDisabledAt: timestamp('followup_disabled_at', { withTimezone: true }),
+    /** Geracoes de follow-up que falharam por erro tecnico. Zera quando o lead responde. */
+    followupAttempts: integer('followup_attempts').default(0).notNull(),
     humanPausedUntil: timestamp('human_paused_until', { withTimezone: true }),
     aiPausedAt: timestamp('ai_paused_at', { withTimezone: true }),
     aiPauseReason: text('ai_pause_reason'),

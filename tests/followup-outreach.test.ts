@@ -122,6 +122,7 @@ function makeLead(overrides: Partial<Lead> = {}): Lead {
     followupDueAt: new Date(NOW.getTime() - HOUR),
     followupSentAt: null,
     followupDisabledAt: null,
+    followupAttempts: 0,
     humanPausedUntil: null,
     aiPausedAt: null,
     aiPauseReason: null,
@@ -284,6 +285,113 @@ describe('followup outreach guards', () => {
     await service.runOnce(NOW);
 
     expect(uazapi.sent).toHaveLength(0);
+  });
+});
+
+describe('segundo toque em quem nunca respondeu', () => {
+  /** Lead abordado que ficou mudo: status parado em initial_sent e nenhum inbound. */
+  function makeSilentLead(overrides: Partial<Lead> = {}): Lead {
+    return makeLead({
+      status: 'initial_sent',
+      lastInboundAt: null,
+      lastOutboundAt: new Date(NOW.getTime() - 30 * HOUR),
+      ...overrides,
+    });
+  }
+
+  it('envia segundo toque para o lead que nunca respondeu — ele ficava fora da fila', async () => {
+    const ai = fakeAiClient(aiReply('Eu trabalho com um atendente de IA que responde o zap do delivery. Quem responde as mensagens aí?'));
+    const { service, leads, uazapi } = await buildHarness([makeSilentLead()], ai);
+
+    const result = await service.runOnce(NOW);
+
+    expect(result.sent).toBe(1);
+    expect(uazapi.sent).toHaveLength(1);
+    expect((await leads.findById('lead-1'))?.status).toBe('followup_sent');
+  });
+
+  it('usa o roteiro de segundo toque, nao o de retomada', async () => {
+    const ai = fakeAiClient(aiReply('segundo toque'));
+    const { service } = await buildHarness([makeSilentLead()], ai);
+
+    await service.runOnce(NOW);
+
+    const system = ai.calls[0]?.messages[0]?.content ?? '';
+    expect(system).toContain('Este lead NUNCA respondeu');
+    expect(system).not.toContain('retome o ultimo assunto real');
+    expect(ai.calls[0]?.messages[1]?.content).toContain('o lead nunca respondeu a sua primeira mensagem');
+  });
+
+  it('usa o bumpPrompt do SDR quando ele existe', async () => {
+    const ai = fakeAiClient(aiReply('ok'));
+    const { service } = await buildHarness([makeSilentLead()], ai, {
+      bumpPrompt: 'Diga em uma frase o que e e pergunte quem responde o zap.',
+    });
+
+    await service.runOnce(NOW);
+
+    const system = ai.calls[0]?.messages[0]?.content ?? '';
+    expect(system).toContain('Diga em uma frase o que e e pergunte quem responde o zap.');
+    expect(system).not.toContain('Retome a conversa de forma leve');
+  });
+
+  it('cai no followupPrompt quando o SDR nao tem bumpPrompt', async () => {
+    const ai = fakeAiClient(aiReply('ok'));
+    const { service } = await buildHarness([makeSilentLead()], ai);
+
+    await service.runOnce(NOW);
+
+    const system = ai.calls[0]?.messages[0]?.content ?? '';
+    // O roteiro de segundo toque continua sendo o do modo bump; so a instrucao do SDR e emprestada.
+    expect(system).toContain('Retome a conversa de forma leve');
+    expect(system).toContain('Este lead NUNCA respondeu');
+  });
+
+  it('continua tratando quem respondeu e esfriou como retomada', async () => {
+    const ai = fakeAiClient(aiReply('retomada'));
+    const { service } = await buildHarness([makeLead()], ai);
+
+    await service.runOnce(NOW);
+
+    const system = ai.calls[0]?.messages[0]?.content ?? '';
+    expect(system).toContain('retome o ultimo assunto real');
+    expect(system).not.toContain('Este lead NUNCA respondeu');
+  });
+});
+
+describe('recusa do modelo x falha tecnica', () => {
+  it('encerra o follow-up quando o modelo recusa, em vez de perguntar de hora em hora', async () => {
+    const { service, leads, uazapi } = await buildHarness([makeLead()], fakeAiClient(aiReply('', true)));
+
+    await service.runOnce(NOW);
+
+    const updated = await leads.findById('lead-1');
+    expect(uazapi.sent).toHaveLength(0);
+    expect(updated?.followupDisabledAt).not.toBeNull();
+    // Recusa nao e tentativa perdida: o lead sai da fila, nao volta reagendado.
+    expect(updated?.followupDueAt?.getTime()).toBe(NOW.getTime() - HOUR);
+    expect(updated?.followupAttempts).toBe(0);
+  });
+
+  it('reagenda e conta a tentativa quando a geracao falha por erro tecnico', async () => {
+    const { service, leads } = await buildHarness([makeLead()], failingAiClient());
+
+    await service.runOnce(NOW);
+
+    const updated = await leads.findById('lead-1');
+    expect(updated?.followupDueAt?.getTime()).toBe(NOW.getTime() + HOUR);
+    expect(updated?.followupAttempts).toBe(1);
+    expect(updated?.followupDisabledAt).toBeNull();
+  });
+
+  it('desiste do lead depois de tres falhas tecnicas, em vez de tentar para sempre', async () => {
+    const { service, leads } = await buildHarness([makeLead({ followupAttempts: 2 })], failingAiClient());
+
+    await service.runOnce(NOW);
+
+    const updated = await leads.findById('lead-1');
+    expect(updated?.followupDisabledAt).not.toBeNull();
+    expect(updated?.followupSentAt).toBeNull();
   });
 });
 

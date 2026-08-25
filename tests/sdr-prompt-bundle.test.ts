@@ -102,6 +102,7 @@ describe('bundle de prompts do repositorio', () => {
       offerDescription: bundle.fields.offerDescription ?? null,
       firstMessagePrompt: bundle.fields.firstMessagePrompt ?? null,
       followupPrompt: bundle.fields.followupPrompt ?? null,
+      bumpPrompt: bundle.fields.bumpPrompt ?? null,
       leadQualificationPrompt: bundle.fields.leadQualificationPrompt ?? null,
       handoffMessageTemplate: bundle.fields.handoffMessageTemplate ?? null,
     });

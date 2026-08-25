@@ -12,7 +12,8 @@ Quando alterar um prompt no portal, atualize o arquivo aqui no mesmo commit.
 | `offer-description.txt` | Descrição da oferta | sim — região estável |
 | `first-message-prompt.txt` | Prompt da primeira mensagem | só quando a mensagem fixa está desligada |
 | `first-message-variants.md` | Tela **Msg inicial** (mensagem fixa) | não passa pela IA: texto fixo |
-| `followup-prompt.txt` | Prompt de follow-up | sim, no job de follow-up |
+| `followup-prompt.txt` | Prompt de follow-up | sim, no job de follow-up (quem respondeu e esfriou) |
+| `bump-prompt.txt` | Prompt do segundo toque | sim, no job de follow-up (quem nunca respondeu) |
 | `lead-qualification-prompt.txt` | Prompt de qualificação | sim, no `lead_fit_assessment` |
 | `handoff-template.txt` | Template de handoff | não é prompt: é a mensagem enviada ao Fernando |
 
@@ -233,6 +234,7 @@ Na tela do SDR (`/sdr-agents/<id>/edit`):
 | Descrição da oferta | `offer-description.txt` |
 | Prompt de qualificação | `lead-qualification-prompt.txt` |
 | Prompt de follow-up | `followup-prompt.txt` |
+| Prompt do segundo toque | `bump-prompt.txt` |
 | Nome do contato de handoff | `Fernando` |
 | Telefone de handoff | WhatsApp do Fernando (com DDI/DDD) |
 | Template de handoff | `handoff-template.txt` |
