@@ -154,6 +154,59 @@ agora corta o rabo depois do primeiro separador e a cidade colada no fim, sempre
 so cortar quando o que sobra ainda identifica a loja — "Pizzaria Limeira" em Limeira continua
 inteiro, e "Pizzaria - Dom Rei" nao vira "Pizzaria".
 
+## Revisao de 26/08: quase ninguem responde, e o prompt quase nao entra em campo
+
+Leitura das 64 conversas da Mariana no portal, da tela de Msg inicial e dos 2309 `ai_runs`
+dela — analise completa em `docs/analises/mariana-2026-08.md`. O funil real: 59 abordagens,
+**6 respostas de gente (10%)**, 55 conversas paradas na etapa de permissao e **zero handoff**
+(o unico handoff dela foi um lead que chamou primeiro). Os 57% de resposta da tela contam a
+autorresposta da propria loja: 27 das 33 respostas nunca tiveram uma pessoa do outro lado.
+
+As duas maiores causas estao fora deste arquivo — a primeira mensagem fixa, que pede permissao
+sem dizer o que e (ver `first-message-variants.md`), e a janela de envio 08:00-18:00 seg-sex,
+que acerta a loja fechada. O que o `prompt.txt` explicava era o que acontece **depois** que
+alguem responde, e isso aconteceu 6 vezes.
+
+Nessas 6, o padrao foi identico: as 6 morreram na pergunta de descoberta. "Quem fica
+respondendo o zap no pico?" e 0 de 6 — e as cinco perguntas sugeridas pelo prompt eram todas
+abertas, do tipo que obriga o dono a parar o balcao e escrever um paragrafo.
+
+Mudancas:
+
+1. **O funil foi de 4 para 3 etapas: a etapa de permissao acabou.** Ela gastava o unico turno
+   de atencao confirmando com quem se falava — em Godoy, Stout, De Lanches, Puro Sabor,
+   Polillo e Dicapri a pessoa ja tinha respondido e ainda ouviu "e voce quem cuida do delivery
+   ai?". A regra agora e literal: veio resposta de gente, diga o que e e pergunte na MESMA
+   mensagem. O caso de quem nao decide virou situacao especial, so quando o lead trouxer.
+2. **O banco de perguntas trocou de aberto para fechado.** Saíram as cinco perguntas de
+   rotina; entraram cinco respondiveis em duas palavras ("chega a ficar mensagem sem
+   resposta?", "na mao mesmo ou ja tem robo ajudando?"), com proibicao explicita de pergunta
+   aberta de trabalho.
+3. **O filtro de robo subiu para antes do funil.** Estava enterrado em "Situacoes especiais" e
+   agora abre o roteiro, com a lista concreta do que e autorresposta — incluindo o cumprimento
+   que repete o nome do contato ("Ola, Comercial"), que aparece em varias conversas.
+4. **A prova deixou de depender da descoberta.** O cartao da pizzaria vai assim que a pessoa
+   perguntar como funciona, responder qualquer coisa, ou a conversa travar. Era a etapa 3 e
+   dependia de uma descoberta que nunca se completava.
+5. **Regras duras 8 e 9**: nunca duas mensagens seguidas sem o lead falar no meio (Serginho,
+   De Lanches e Stout receberam perguntas quase identicas em sequencia, com um minuto de
+   diferenca) e nunca perguntar duas vezes a mesma coisa.
+6. **Sistema citado pelo lead virou resposta, nao obstaculo.** De Lanches disse "ja trabalhamos
+   com a Saipos e Glutoes" e ouviu de volta uma pergunta sobre o responsavel. Agora citar
+   sistema e a descoberta pronta: espelha e vai para a prova. Entraram duas objecoes novas
+   ("ja uso outro sistema", pelo nome, e "so pegamos pedido por link/app").
+7. **Regra dura 7 restaurada.** A regra de que a Mariana nao e a IA de atendimento existia
+   aqui no repositorio e tinha sumido do texto em producao — voltou para o topo.
+8. **Emoji.** Producao dizia "SEM emojis" e ela usava emoji em quase toda conversa. A regra
+   voltou para "no maximo 1 por mensagem", que e o que ela cumpre.
+
+Fora dos prompts, tres coisas para a operacao (detalhe na analise): trocar a primeira mensagem
+fixa, mover a janela de envio para 15:00-20:00 de terca a sabado, e colar o `bump-prompt.txt`
+no campo "Prompt do segundo toque", que esta **vazio em producao**. E um ajuste de codigo: a
+autorresposta da loja grava `last_inbound_at` e faz o lead virar `in_conversation`, entao o
+follow-up entende "respondeu e esfriou" e manda `reengage` com o pitch inteiro para o robo —
+393 geracoes em `reengage` contra 11 em `bump`.
+
 ## Playbook
 
 A Mariana usa o playbook **`consultivo`**, que é o padrão. O funil dela (permissão →

@@ -31,7 +31,7 @@ export const SDR_PLAYBOOK_LABELS: Record<SdrPlaybook, string> = {
 const CONSULTIVO_FUNNEL = `Funil deste SDR (playbook consultivo): explicar do que se trata, entender a rotina do lead e provar valor antes de chamar alguem do time.
 
 Etapas obrigatorias da conversa:
-- permission: validar abertura para conversar e confirmar que voce fala com quem decide.
+- permission: estado inicial, antes de qualquer resposta do lead. Voce nao gasta um turno nela: assim que vier qualquer resposta de gente, diga do que se trata e faca a pergunta na MESMA mensagem, e mude para discovery. Nunca use um turno so para confirmar que fala com quem decide — se o lead disser espontaneamente que nao decide, ai sim peca para falar com quem cuida.
 - discovery: dizer em uma frase simples o que voce faz e fazer UMA pergunta sobre a rotina do lead. Nunca peca ao lead que aceite ouvir uma oferta sem antes dizer do que se trata: pergunta vaga do tipo "tenho uma solucao, tem interesse em saber mais?" faz o lead recusar sem entender e queima o contato.
 - solution: conectar o que o lead disse com a solucao, de forma simples e curta, e oferecer uma prova concreta.
 - handoff_offer: quando houver interesse ou duvida especifica, oferecer contato humano para aprofundar.
