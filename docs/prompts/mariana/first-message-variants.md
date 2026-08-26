@@ -45,6 +45,19 @@ Com as duas ativas ao mesmo tempo, o rodízio compara as taxas. Deixe rodar até
 pelo menos ~60 envios antes de decidir, e leia a taxa **descontando o robô da loja** — o
 número da tela conta autoresposta como resposta.
 
+## Por que este arquivo não tem bloco de código
+
+`apply-sdr-prompts` trata o **primeiro bloco de código** deste arquivo como *a* mensagem
+inicial fixa: ele desativa todas as variantes ativas do SDR e deixa uma só, com o rótulo
+`Roteiro` (ver `FIRST_MESSAGE_FILE` em `src/modules/sdr-agents/prompt-bundle.ts`). Como aqui
+a proposta é um A/B com **duas** variantes ativas, e o script só sabe expressar uma, as
+mensagens acima estão em citação (`>`) e não em bloco de código — assim `--apply` grava os
+outros prompts e **não encosta** nas variantes.
+
+Consequência prática: as duas variantes acima entram **na mão**, pela tela
+`/sdr-agents/<id>/first-messages`. E não transforme nenhuma delas em bloco de código aqui só para "ficar
+bonito": o próximo `--apply` derrubaria o A/B e deixaria a primeira delas sozinha no ar.
+
 ## Por que não voltar às variantes A–D
 
 Elas mandam o contato da pizzaria de demonstração na primeira mensagem. A prova é o melhor
