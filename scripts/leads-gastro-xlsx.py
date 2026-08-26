@@ -16,16 +16,30 @@ ENTRADA = sys.argv[1] if len(sys.argv) > 1 else "local-secrets/leads-ranked.json
 SAIDA = sys.argv[2] if len(sys.argv) > 2 else "docs/leads/leads-gastro-delivery-sp.xlsx"
 
 COLUNAS = [
-    ("rank", "#", 5), ("score", "Score", 7), ("nome", "Nome", 34),
-    ("tipo", "Tipo", 26), ("categoria", "Categoria", 20),
-    ("cidade", "Cidade", 17), ("bairro", "Bairro", 18), ("endereco", "Endereco", 40),
-    ("telefone", "Telefone", 17), ("telefone_e164", "E.164 (import)", 16),
-    ("whatsapp_provavel", "WhatsApp?", 15),
-    ("delivery", "Delivery", 15), ("plataformas", "Plataformas", 20),
+    ("rank", "#", 5), ("score", "Score", 7), ("nome", "Nome da empresa", 34),
+    ("tipo", "Tipo", 26), ("categoria", "Segmento", 20),
+    ("cidade", "Cidade", 17), ("estado", "Estado", 8), ("bairro", "Bairro", 18),
+    ("endereco", "Endereco", 40),
+    ("telefone", "Telefone (formatado)", 20), ("telefone_e164", "WhatsApp", 16),
+    ("whatsapp_provavel", "Tem WhatsApp?", 15),
+    ("delivery", "Delivery", 22), ("plataformas", "Plataformas", 20),
     ("nota", "Nota", 7), ("avaliacoes", "Avaliacoes", 11),
     ("site", "Site", 30), ("maps", "Google Maps", 22),
     ("porque", "Por que entrou", 60), ("ressalvas", "Ressalvas", 50),
 ]
+
+# Estes cabecalhos sao lidos pelo import de leads do portal, que casa por alias
+# (src/modules/leads/lead-importer.ts): "Nome da empresa", "WhatsApp", "Segmento",
+# "Cidade" e "Estado". Renomear qualquer um deles quebra o import automatico.
+# "Telefone (formatado)" e "Tem WhatsApp?" sao propositalmente NAO-aliases, para
+# nao disputarem o mapeamento com a coluna do numero.
+
+IDX = {chave: i for i, (chave, _, _) in enumerate(COLUNAS, start=1)}
+
+
+def col(chave):
+    """Letra da coluna a partir da chave, para as formulas nunca sairem do lugar."""
+    return get_column_letter(IDX[chave])
 
 AZUL = "1F3864"
 FAIXA = "F2F5FA"
@@ -55,7 +69,7 @@ def aba_leads(wb, leads):
     for r, lead in enumerate(leads, start=2):
         for c, (chave, _, _) in enumerate(COLUNAS, start=1):
             valor = lead.get(chave, "")
-            cel = ws.cell(row=r, column=c, value=valor)
+            cel = ws.cell(row=r, column=c, value=valor if valor != "" else None)
             cel.font = Font(name=FONTE, size=9)
             cel.border = borda
             cel.alignment = Alignment(vertical="top", wrap_text=chave in ("porque", "ressalvas", "endereco"))
@@ -64,15 +78,15 @@ def aba_leads(wb, leads):
         # Score colorido: verde = trabalhar primeiro, vermelho = so se sobrar tempo.
         s = lead.get("score", 0)
         cor = VERDE if s >= 75 else AMARELO if s >= 55 else VERMELHO
-        ws.cell(row=r, column=2).fill = PatternFill("solid", fgColor=cor)
-        ws.cell(row=r, column=2).font = Font(name=FONTE, size=9, bold=True)
+        ws.cell(row=r, column=IDX["score"]).fill = PatternFill("solid", fgColor=cor)
+        ws.cell(row=r, column=IDX["score"]).font = Font(name=FONTE, size=9, bold=True)
         # WhatsApp duvidoso e o que mais queima base: destaca.
         if lead.get("whatsapp_provavel") != "Sim":
-            ws.cell(row=r, column=11).fill = PatternFill("solid", fgColor=VERMELHO)
-        for col, chave in ((16, "site"), (17, "maps")):
+            ws.cell(row=r, column=IDX["whatsapp_provavel"]).fill = PatternFill("solid", fgColor=VERMELHO)
+        for coluna, chave in ((IDX["site"], "site"), (IDX["maps"], "maps")):
             url = lead.get(chave)
             if url:
-                cel = ws.cell(row=r, column=col)
+                cel = ws.cell(row=r, column=coluna)
                 cel.hyperlink = url
                 cel.value = "abrir" if chave == "maps" else url[:60]
                 cel.font = Font(name=FONTE, size=9, color="0563C1", underline="single")
@@ -103,21 +117,21 @@ def aba_resumo(wb, leads):
     ws.cell(row=2, column=1, value="Fonte: Google Maps via Apify (compass/crawler-google-places)").font = Font(
         name=FONTE, size=9, italic=True, color="595959")
 
-    linha(3, "Total de leads na planilha", f"=COUNTA(Leads!A2:A{n})", pct=False)
-    linha(4, "Com celular (WhatsApp provavel)", f'=COUNTIF(Leads!K2:K{n},"Sim")')
-    linha(5, "Delivery confirmado por plataforma de pedido", f'=COUNTIF(Leads!L2:L{n},"Confirmado*")')
-    linha(6, "Entrega marcada no perfil do Google", f'=COUNTIF(Leads!L2:L{n},"Sim*")')
-    linha(7, "Rede ou franquia", f'=COUNTIF(Leads!D2:D{n},"Rede/franquia*")+COUNTIF(Leads!D2:D{n},"Franquia*")')
-    linha(8, "Score alto (>=75): comecar por aqui", f"=COUNTIF(Leads!B2:B{n},\">=75\")")
+    linha(3, "Total de leads na planilha", f'=COUNTA(Leads!{col("rank")}2:{col("rank")}{n})', pct=False)
+    linha(4, "Com celular (WhatsApp provavel)", f'=COUNTIF(Leads!{col("whatsapp_provavel")}2:{col("whatsapp_provavel")}{n},"Sim")')
+    linha(5, "Delivery confirmado por plataforma de pedido", f'=COUNTIF(Leads!{col("delivery")}2:{col("delivery")}{n},"Confirmado*")')
+    linha(6, "Entrega marcada no perfil do Google", f'=COUNTIF(Leads!{col("delivery")}2:{col("delivery")}{n},"Sim*")')
+    linha(7, "Rede ou franquia", f'=COUNTIF(Leads!{col("tipo")}2:{col("tipo")}{n},"Rede/franquia*")+COUNTIF(Leads!{col("tipo")}2:{col("tipo")}{n},"Franquia*")')
+    linha(8, "Score alto (>=75): comecar por aqui", f'=COUNTIF(Leads!{col("score")}2:{col("score")}{n},">=75")')
     linha(9, "Prontos para abordagem (celular + plataforma de pedido)",
-          f'=COUNTIFS(Leads!K2:K{n},"Sim",Leads!L2:L{n},"Confirmado*")')
+          f'=COUNTIFS(Leads!{col("whatsapp_provavel")}2:{col("whatsapp_provavel")}{n},"Sim",Leads!{col("delivery")}2:{col("delivery")}{n},"Confirmado*")')
 
     titulo(11, "Por cidade")
     cidades = sorted({l.get("cidade", "") for l in leads if l.get("cidade")})
     for i, cidade in enumerate(cidades):
         r = 12 + i
         ws.cell(row=r, column=1, value=cidade).font = Font(name=FONTE, size=10)
-        c = ws.cell(row=r, column=2, value=f'=COUNTIF(Leads!F2:F{n},A{r})')
+        c = ws.cell(row=r, column=2, value=f'=COUNTIF(Leads!{col("cidade")}2:{col("cidade")}{n},A{r})')
         c.font = Font(name=FONTE, size=10)
         p = ws.cell(row=r, column=3, value=f"=IFERROR(B{r}/$B$3,0)")
         p.number_format = "0.0%"

@@ -5,7 +5,23 @@ via Apify em 26/08/2026. Três abas: **Leads** (a lista, já ordenada por score)
 **Resumo** (contagens em fórmula, que se ajustam se você apagar linhas) e
 **Criterio** (o que somou e o que subtraiu em cada lead).
 
-A coluna **E.164 (import)** é a que entra direto no import de leads do portal.
+## Import no portal
+
+O arquivo entra direto em **Leads → Importar**, sem mapear coluna à mão: os
+cabeçalhos já são os aliases que o `lead-importer.ts` reconhece — **Nome da
+empresa**, **WhatsApp**, **Segmento**, **Cidade** e **Estado**. As 500 linhas
+importam com zero erro (`tests/leads-gastro-planilha.test.ts` cobre isso).
+
+Duas armadilhas que já quebraram o import uma vez, para não reintroduzir:
+
+- **Célula vazia tem de ser `None`, nunca `''`.** O openpyxl grava string vazia
+  como inline string sem conteúdo, e o `read-excel-file` do portal aborta a
+  leitura do arquivo inteiro com `Unsupported "inline string" cell value
+  structure` — antes mesmo de chegar no mapeamento de colunas.
+- **Os cabeçalhos são contrato.** Renomear "Nome da empresa" ou "WhatsApp" faz o
+  import cair em "Colunas obrigatorias nao encontradas". Por isso "Telefone
+  (formatado)" e "Tem WhatsApp?" têm nomes propositalmente fora da lista de
+  aliases: senão disputariam o mapeamento com a coluna do número.
 
 ## Como refazer
 

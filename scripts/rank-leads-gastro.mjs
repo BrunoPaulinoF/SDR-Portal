@@ -77,6 +77,19 @@ const CIDADE_CANONICA = {
   'sao jose dos campos': 'São José dos Campos',
 };
 
+// O Google devolve o estado por extenso ("Sao Paulo"), mas o import de leads do
+// portal espera UF. Mapa completo para nao quebrar se a varredura mudar de praca.
+const UF = {
+  acre: 'AC', alagoas: 'AL', amapa: 'AP', amazonas: 'AM', bahia: 'BA',
+  ceara: 'CE', 'distrito federal': 'DF', 'espirito santo': 'ES', goias: 'GO',
+  maranhao: 'MA', 'mato grosso': 'MT', 'mato grosso do sul': 'MS',
+  'minas gerais': 'MG', para: 'PA', paraiba: 'PB', parana: 'PR',
+  pernambuco: 'PE', piaui: 'PI', 'rio de janeiro': 'RJ',
+  'rio grande do norte': 'RN', 'rio grande do sul': 'RS', rondonia: 'RO',
+  roraima: 'RR', 'santa catarina': 'SC', 'sao paulo': 'SP', sergipe: 'SE',
+  tocantins: 'TO',
+};
+
 /** Telefone BR -> {e164, ddd, celular}. Celular = 9 digitos comecando em 9. */
 function analisarTelefone(bruto) {
   const d = String(bruto ?? '').replace(/\D/g, '');
@@ -242,6 +255,7 @@ function main() {
       unidades: r.unidades,
       categoria: p.categoryName ?? '',
       cidade: p.city || CIDADE_CANONICA[deaccent((p._searchCity ?? '').split(',')[0])] || '',
+      estado: UF[deaccent(p.state ?? '')] ?? p.state ?? 'SP',
       bairro: p.neighborhood ?? '',
       endereco: p.address ?? '',
       telefone: r.tel.exibicao,
