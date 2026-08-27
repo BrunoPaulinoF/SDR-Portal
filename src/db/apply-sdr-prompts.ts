@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+
 import { and, asc, eq, ilike, or } from 'drizzle-orm';
 
 import { closeDb, db } from './client.js';
@@ -10,6 +12,7 @@ import {
   planPromptUpdate,
   readPromptBundle,
   type PromptUpdatePlan,
+  promptDirNameFor,
 } from '../modules/sdr-agents/prompt-bundle.js';
 
 /**
@@ -27,14 +30,22 @@ import {
  * --apply. Sem --apply nada e gravado.
  */
 
-const DEFAULT_DIR = 'docs/prompts/insumosmart';
-const DEFAULT_PLAYBOOK: SdrPlaybook = 'convite';
+/**
+ * Nao existe diretorio padrao, de proposito. Ele ja foi `docs/prompts/insumosmart`, e o efeito
+ * era que `--agent="Mariana" --apply` — a forma documentada de usar o script — gravava os
+ * prompts da Insumo Smart na Mariana e ainda trocava o playbook dela para `convite`. Foi o que
+ * aconteceu em 27/08: a Mariana passou a se apresentar como SDR da Insumo Smart para os leads
+ * da KyberFood. O diretorio agora sai do nome do proprio SDR, e `--dir` so entra quando alguem
+ * escreve explicitamente qual bundle quer.
+ */
+const PROMPTS_ROOT = 'docs/prompts';
+
 
 function out(line: string): void {
   process.stdout.write(`${line}\n`);
 }
 
-function parseArgs(argv: string[]): { agent: string | null; apply: boolean; dir: string; playbook: string } {
+function parseArgs(argv: string[]): { agent: string | null; apply: boolean; dir: string | null; playbook: string | null } {
   const flags = new Map<string, string>();
   let apply = false;
 
@@ -50,8 +61,8 @@ function parseArgs(argv: string[]): { agent: string | null; apply: boolean; dir:
   return {
     agent: flags.get('agent') ?? process.env.SDR_AGENT ?? null,
     apply: apply || process.env.APPLY === 'true',
-    dir: flags.get('dir') ?? process.env.PROMPTS_DIR ?? DEFAULT_DIR,
-    playbook: flags.get('playbook') ?? process.env.SDR_PLAYBOOK ?? DEFAULT_PLAYBOOK,
+    dir: flags.get('dir') ?? process.env.PROMPTS_DIR ?? null,
+    playbook: flags.get('playbook') ?? process.env.SDR_PLAYBOOK ?? null,
   };
 }
 
@@ -185,20 +196,37 @@ async function main(): Promise<void> {
   if (!args.agent) {
     throw new Error('Informe o SDR: --agent="<id ou nome>" (ou a variavel SDR_AGENT)');
   }
-  if (!isSdrPlaybook(args.playbook)) {
+  if (args.playbook !== null && !isSdrPlaybook(args.playbook)) {
     throw new Error(`Playbook invalido: "${args.playbook}". Use consultivo ou convite.`);
   }
 
   const agent = await findAgent(args.agent);
-  const bundle = await readPromptBundle(args.dir);
+
+  // Sem `--dir`, o bundle e o do proprio SDR. Se ele nao existir, para aqui: escolher um
+  // diretorio por conta propria e como o prompt de um SDR foi parar dentro de outro.
+  const dir = args.dir ?? `${PROMPTS_ROOT}/${promptDirNameFor(agent.name)}`;
+  if (args.dir === null && !existsSync(dir)) {
+    throw new Error(
+      `Nao existe ${dir} para o SDR "${agent.name}". Crie o diretorio ou passe --dir=<diretorio> apontando o bundle certo.`,
+    );
+  }
+
+  // Sem `--playbook`, o do SDR fica como esta: trocar o funil de alguem sem ninguem pedir e
+  // mudanca de comportamento silenciosa, nao aplicacao de prompt.
+  // `playbook` e coluna de texto livre: se o que estiver gravado nao for um playbook conhecido,
+  // cai no padrao documentado em vez de propagar lixo.
+  const playbookAtual: SdrPlaybook = isSdrPlaybook(agent.playbook) ? agent.playbook : 'consultivo';
+  const playbook: SdrPlaybook = args.playbook !== null && isSdrPlaybook(args.playbook) ? args.playbook : playbookAtual;
+
+  const bundle = await readPromptBundle(dir);
   const plan = planPromptUpdate({
     agent,
     bundle,
     currentFirstMessage: await currentFixedFirstMessage(agent.id),
-    playbook: args.playbook,
+    playbook,
   });
 
-  printPlan(agent, args.dir, plan);
+  printPlan(agent, dir, plan);
   out('');
 
   if (plan.changes.length === 0) return;
