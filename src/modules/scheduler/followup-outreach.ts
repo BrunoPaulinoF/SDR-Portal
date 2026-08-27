@@ -18,6 +18,7 @@ import type { LeadRepository } from '../leads/lead-repository.js';
 import { decryptSecret } from '../security/secrets.js';
 import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
 import { describeNowInTimeZone, startOfDayInTimeZone } from '../timezone.js';
+import { checkWhatsappChannel } from '../uazapi/instance-provisioning.js';
 import type { UazapiClient } from '../uazapi/uazapi-client.js';
 
 /** Resolve o nivel salvo para a escala do provider deste SDR; `null` omite o parametro. */
@@ -426,6 +427,15 @@ export function createFollowupOutreachService(deps: FollowupOutreachDependencies
     try {
       const credentials = getCredentials(agent);
       if (!credentials) throw new Error('SDR sem URL/token UAZAPI configurado.');
+
+      // Canal fora do ar e problema do SDR, nao do lead: barra ANTES da geracao de IA. Sem
+      // isso o modelo escrevia a mensagem, a UAZAPI recusava o envio e o lead voltava intacto
+      // no proximo tick — o mesmo texto era pago de novo a cada 5min, sem nunca sair.
+      const channel = await checkWhatsappChannel(deps.uazapiClient, credentials);
+      if (!channel.usable) {
+        details.push(`${agent.name}: ${channel.reason}`);
+        return 'skipped';
+      }
 
       const { conversation, history } = await loadHistory(lead);
       // Sem inbound nenhum nao ha conversa para retomar: e um segundo toque na abordagem.

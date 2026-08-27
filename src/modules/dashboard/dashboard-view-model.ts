@@ -5,6 +5,19 @@ export type DashboardPeriod = 'today' | '7d' | '30d' | 'all';
 
 export const pendingLeadLowThreshold = 100;
 
+/**
+ * Piso de tempo sem enviar que ja denuncia um SDR travado. Folgado de proposito: uma pausa de
+ * uma ou duas horas ainda cabe em jitter de cooldown e de tick, e o alarme so vale se ninguem
+ * aprender a ignora-lo. O corte real leva o cooldown do proprio SDR junto (ver
+ * `stalledAfterMinutes`), senao um cooldown longo viraria alarme falso sozinho.
+ */
+export const stalledDispatchMinutes = 180;
+
+/** Um SDR liberado para enviar e parado por mais que isto nao esta esperando: esta preso. */
+function stalledAfterMinutes(maxCooldownMinutes: number): number {
+  return Math.max(stalledDispatchMinutes, maxCooldownMinutes * 2);
+}
+
 export interface DashboardFilters {
   activeOnly: boolean;
   companyId: string;
@@ -318,6 +331,19 @@ function buildDispatchRow(agent: SdrAgent, company: Company | undefined, agentLe
         statusLabel: 'Cooldown flexivel',
       };
     }
+
+    // Fila cheia, dentro da janela, cooldown vencido e mesmo assim nada saiu: o disparo esta
+    // preso em algo que o banco nao mostra — WhatsApp deslogado, UAZAPI fora, scheduler morto.
+    // Sem esta linha o SDR aparecia como "Pronto" por dois dias enquanto nao enviava nada.
+    if (elapsedMinutes >= stalledAfterMinutes(maxCooldown)) {
+      return {
+        ...base,
+        detail: `Liberado para enviar, mas nada saiu ha ${formatDuration(elapsedMinutes)}. Confira a conexao do WhatsApp na tela Conectar deste SDR.`,
+        etaLabel: 'travado',
+        status: 'blocked',
+        statusLabel: 'Parado',
+      };
+    }
   }
 
   return { ...base, detail: `Proximo lead: ${nextLead.companyName}.`, etaLabel: 'pronto agora', status: 'ready', statusLabel: 'Pronto' };
@@ -464,7 +490,11 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
     })
     .filter((row) => row.totalSdrs > 0 || row.leadsTotal > 0)
     .sort((a, b) => b.leadsTotal - a.leadsTotal || a.companyName.localeCompare(b.companyName));
+  const stalledSdrs = dispatchRows.filter((row) => row.statusLabel === 'Parado').map((row) => row.sdrName);
   const alerts = [
+    stalledSdrs.length > 0
+      ? `SDR parado sem enviar: ${stalledSdrs.join(', ')}. Confira a conexao do WhatsApp na tela Conectar.`
+      : null,
     readyCount > 0 ? `${readyCount} SDR(s) pronto(s) para chamar o proximo lead.` : null,
     lowPendingCount > 0 ? `${lowPendingCount} SDR(s) com menos de ${pendingLeadLowThreshold} leads pendentes. Importe mais leads para evitar fila vazia.` : null,
     followupsDue > 0 ? `${followupsDue} follow-up(s) vencido(s) aguardando envio.` : null,

@@ -83,10 +83,27 @@ Os scripts deste repo já preferem `EXPORT_DATABASE_URL` quando ela existe.
 consegue logar em `POST /login` (campos `email` e `password`, cookie assinado
 `sdr_portal_session`) e ler `/conversations` e `/ai-runs`.
 
-**Na prática o modo automático bloqueia isso**: mandar credencial pela rede cai no
-classificador de permissão. Para liberar, o usuário precisa adicionar uma regra de Bash em
-`.claude/settings.json`. Mesmo liberado, o retorno é HTML server-rendered — dá para raspar, mas
-é frágil e pior que a opção 1 para qualquer análise em volume.
+**Isso funciona** — foi por aqui que o diagnóstico de 27/08 (SDR parado) saiu em minutos:
+
+```bash
+curl -s -c cookies.txt -X POST "$APP_URL/login" \
+  --data-urlencode "email=$ADMIN_EMAIL" --data-urlencode "password=$ADMIN_PASSWORD"
+curl -s -b cookies.txt "$APP_URL/job-logs" -o joblogs.html
+```
+
+O retorno é HTML server-rendered; as tabelas de `/job-logs` e `/ai-runs` saem com um
+`re.findall(r'<tr>(.*?)</tr>')` e viram contagem por dia/SDR em poucas linhas de Python.
+
+Para **por que um SDR parou**, este é o caminho mais rápido, melhor que a opção 1:
+
+| Página | O que responde |
+| --- | --- |
+| `/job-logs` | o erro exato do disparo, por SDR e por lead, minuto a minuto |
+| `/ai-runs` | quanta IA foi gasta e em quê (delata geração que nunca virou envio) |
+| `/sdr-agents/<id>/conectar` | estado da instância UAZAPI, com `lastDisconnect` e `lastDisconnectReason` |
+
+Para análise de **conteúdo de conversa** em volume, a opção 1 continua melhor: o HTML das
+conversas é pesado e frágil de raspar.
 
 ## Onde os dados moram
 
@@ -120,3 +137,17 @@ Notas que evitam conclusão errada:
 - Não copie segredo do ambiente (`ENCRYPTION_KEY`, `SESSION_SECRET`, chaves de IA, senha do
   banco) para arquivo, commit, PR ou mensagem.
 - Não escreva no banco de produção. Toda análise aqui é `select`.
+
+## Quando o SDR "parou": leia os três em ordem
+
+Um SDR pode parar sem nenhum erro visível na tela de conversas. A ordem que resolve:
+
+1. **`/job-logs`** — se houver linha `failed` repetindo, o motivo está ali. `UAZAPI ... HTTP 503`
+   em tudo, para um SDR só, com o outro SDR enviando normal, é instância deslogada — não é
+   queda da UAZAPI.
+2. **`/sdr-agents/<id>/conectar`** — confirma: `status: disconnected` e, no bloco de
+   diagnóstico, `lastDisconnectReason`. `401: logged out from another device` significa que
+   alguém removeu o aparelho em *WhatsApp → Aparelhos conectados*. **Só se resolve relendo o
+   QR code nessa mesma tela**, com o celular que atende.
+3. **`/dashboard`** — desde 27/08 o SDR liberado que não envia há horas aparece como
+   **Parado** (não mais como "Pronto"), e o alerta no topo diz o nome dele.
