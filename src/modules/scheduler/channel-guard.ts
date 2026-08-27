@@ -10,9 +10,6 @@ import type { UazapiClient } from '../uazapi/uazapi-client.js';
  */
 const channelDownLogIntervalMs = 30 * 60 * 1000;
 
-/** Intervalo entre tentativas de reconexao. Curto: queda de rede volta em segundos. */
-const reconnectIntervalMs = 5 * 60 * 1000;
-
 export type ChannelGuard = (
   jobName: string,
   agentId: string,
@@ -21,52 +18,29 @@ export type ChannelGuard = (
 ) => Promise<WhatsappChannelState>;
 
 /**
- * Guarda de canal com memoria de processo. Faz tres coisas em cima do `checkWhatsappChannel`:
+ * Guarda de canal com memoria de processo: pergunta a instancia se ela pode enviar e, quando
+ * nao pode, registra o motivo em `job_logs` no maximo uma vez a cada 30min por SDR — com o
+ * `lastDisconnectReason` junto, que e o que diz de quem e o conserto.
  *
- * 1. **Reconecta sozinha** quando a queda nao invalidou a sessao (rede, `restartRequired`).
- *    Ate 27/08 qualquer queda esperava uma pessoa clicar em Conectar — inclusive as que um
- *    `/instance/connect` resolveria em segundos.
- * 2. **Nao tenta** quando a sessao foi invalidada (`401: logged out`). Verificado contra a
- *    instancia real da Insumo Smart: o connect nao restaura nada, so publica um QR que ninguem
- *    esta olhando. Insistir seria queimar QR em looping.
- * 3. **Registra o motivo** em `job_logs` no maximo uma vez a cada 30min por SDR, com o
- *    `lastDisconnectReason` junto — e ele que diz se o conserto e do scheduler ou de quem tem
- *    o celular na mao.
+ * **A guarda nunca chama `/instance/connect`.** Em 27/08 ela chamou, por meio dia, na crenca de
+ * que aquilo restaurava uma sessao caida. Nao restaura: na UAZAPI o connect e a porta de
+ * entrada do pareamento — ele publica um QR e espera alguem ler. Sem ninguem olhando, o QR
+ * expira (`lastDisconnectReason: "QR Code timeout"`), a instancia volta a `disconnected` e a
+ * guarda chamava de novo. Era esse o ciclo de ~5min que ninguem conseguia explicar.
  *
- * Os dois relogios sao por SDR e zeram quando o canal volta, entao a proxima queda e anunciada
- * e tentada na hora. Reiniciar o app tambem zera, de proposito.
+ * O estrago nao era so o laco: cada connect em segundo plano invalidava o QR que a pessoa tinha
+ * na tela naquele instante, entao quem tentava parear pelo portal via a leitura simplesmente
+ * nao pegar. Reconectar instancia e trabalho de quem esta olhando a tela — o scheduler so
+ * observa, pula e conta o porque.
  */
 export function createChannelGuard(uazapiClient: UazapiClient, jobLogRepository: JobLogRepository): ChannelGuard {
   const lastLoggedAt = new Map<string, number>();
-  const lastReconnectAt = new Map<string, number>();
 
   return async function ensureChannel(jobName, agentId, credentials, now) {
-    let state = await checkWhatsappChannel(uazapiClient, credentials);
-
-    // `connecting` e a UAZAPI ja no meio do aperto de mao. Mandar `/instance/connect` por cima
-    // reinicia o processo e a instancia nunca fecha a conexao: em 27/08 a da Insumo Smart ficou
-    // 14min em `connecting` e caiu de novo. So `disconnected` merece um empurrao — e o proprio
-    // connect deixa a instancia em `connecting`, o que da a ela um turno limpo para concluir.
-    if (state.status === 'disconnected' && !state.needsQrScan) {
-      const previousAttempt = lastReconnectAt.get(agentId);
-      if (previousAttempt === undefined || now.getTime() - previousAttempt >= reconnectIntervalMs) {
-        lastReconnectAt.set(agentId, now.getTime());
-        // Tentativa de reconexao nunca pode derrubar a guarda: se ela falhar, o canal segue
-        // fora e o caminho normal (pular e registrar) tem de continuar valendo. Sem este
-        // try o erro subia para o catch do job e virava `failed` no lead da vez.
-        try {
-          await uazapiClient.connectInstance(credentials);
-          // Rele o estado: quando o connect pega, o tick corrente ja envia em vez de perder a vez.
-          state = await checkWhatsappChannel(uazapiClient, credentials);
-        } catch {
-          // Mantem o `state` da leitura anterior.
-        }
-      }
-    }
+    const state = await checkWhatsappChannel(uazapiClient, credentials);
 
     if (state.usable) {
       lastLoggedAt.delete(agentId);
-      lastReconnectAt.delete(agentId);
       return state;
     }
 

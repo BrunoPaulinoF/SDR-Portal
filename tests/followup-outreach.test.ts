@@ -560,7 +560,7 @@ describe('canal do WhatsApp fora do ar', () => {
     expect(result.sent).toBe(0);
     expect(result.skipped).toBe(1);
     expect(result.errors).toBe(0);
-    expect(result.details.join('\n')).toContain('WhatsApp deslogado');
+    expect(result.details.join('\n')).toContain('WhatsApp fora do ar');
   });
 
   it('nao queima tentativa nem desabilita o follow-up do lead', async () => {
@@ -599,60 +599,6 @@ describe('canal do WhatsApp fora do ar', () => {
 });
 
 /**
- * Nem toda queda precisa de gente. Verificado contra a instancia real da Insumo Smart em
- * 27/08: com a sessao invalidada, `/instance/connect` nao restaura nada — devolve um QR novo.
- * Queda por outro motivo volta com um connect, e ate aqui o portal esperava alguem clicar.
- */
-describe('reconexao automatica', () => {
-  const loggedOut: UazapiResult = {
-    status: 200,
-    ok: true,
-    body: { instance: { status: 'disconnected', lastDisconnectReason: '401: logged out from another device' } },
-  };
-  const dropped: UazapiResult = {
-    status: 200,
-    ok: true,
-    body: { instance: { status: 'disconnected', lastDisconnectReason: 'restartRequired' } },
-  };
-  const connected: UazapiResult = { status: 200, ok: true, body: { instance: { status: 'connected' } } };
-
-  it('reconecta e envia no mesmo tick quando a queda nao invalidou a sessao', async () => {
-    const ai = fakeAiClient(aiReply('Oi, posso retomar?'));
-    const { service, uazapi } = await buildHarness([makeLead()], ai, {}, [dropped, connected]);
-
-    const result = await service.runOnce(NOW);
-
-    expect(uazapi.connects).toBe(1);
-    expect(uazapi.sent).toHaveLength(1);
-    expect(result.sent).toBe(1);
-  });
-
-  // Insistir num QR que ninguem esta olhando so queima codigo atras de codigo.
-  it('nao tenta reconectar quando a sessao foi invalidada', async () => {
-    const ai = fakeAiClient(aiReply('Oi, posso retomar?'));
-    const { service, uazapi } = await buildHarness([makeLead()], ai, {}, loggedOut);
-
-    await service.runOnce(NOW);
-    await service.runOnce(new Date(NOW.getTime() + 10 * 60 * 1000));
-
-    expect(uazapi.connects).toBe(0);
-  });
-
-  it('espaca as tentativas em vez de tentar a cada tick', async () => {
-    const ai = fakeAiClient(aiReply('Oi, posso retomar?'));
-    const { service, uazapi } = await buildHarness([makeLead()], ai, {}, dropped);
-
-    for (let tick = 0; tick < 4; tick += 1) {
-      await service.runOnce(new Date(NOW.getTime() + tick * 60 * 1000));
-    }
-    expect(uazapi.connects).toBe(1);
-
-    await service.runOnce(new Date(NOW.getTime() + 6 * 60 * 1000));
-    expect(uazapi.connects).toBe(2);
-  });
-});
-
-/**
  * A primeira versao da guarda calou `/job-logs` por completo: canal fora deixou de escrever
  * qualquer linha. Quem abriu a tela em 27/08 viu a tabela parada no ultimo envio e leu isso
  * como scheduler morto — os dois SDRs "pararam", sendo que um so estava fora da janela.
@@ -676,7 +622,7 @@ describe('canal fora aparece no job-logs sem inundar', () => {
     const logs = await jobLogs.list();
     expect(logs).toHaveLength(1);
     expect(logs[0]?.status).toBe('skipped');
-    expect(logs[0]?.error).toContain('WhatsApp deslogado');
+    expect(logs[0]?.error).toContain('WhatsApp fora do ar');
     expect(logs[0]?.leadId).toBeNull();
   });
 
@@ -713,37 +659,54 @@ describe('canal fora aparece no job-logs sem inundar', () => {
   });
 });
 
+
 /**
- * `connecting` e a UAZAPI ja no meio do aperto de mao. A primeira versao da reconexao mandava
- * `/instance/connect` por cima desse estado, reiniciando o processo a cada tentativa: em 27/08
- * a instancia da Insumo Smart ficou 14min em `connecting` e caiu de novo, sem nunca fechar.
+ * O scheduler chamou `/instance/connect` por meio dia em 27/08, achando que aquilo restaurava
+ * uma sessao caida. Na UAZAPI o connect e a porta de entrada do pareamento: publica um QR e
+ * espera alguem ler. Sem ninguem olhando o QR expirava ("QR Code timeout"), a instancia voltava
+ * a `disconnected` e a guarda chamava outra vez — o ciclo de ~5min observado na Insumo Smart.
+ *
+ * Pior: cada chamada em segundo plano invalidava o QR que a pessoa tinha na tela, entao quem
+ * tentava parear pelo portal via a leitura nao pegar.
  */
-describe('reconexao nao atropela um handshake em andamento', () => {
-  const connecting: UazapiResult = { status: 200, ok: true, body: { instance: { status: 'connecting' } } };
-  const dropped: UazapiResult = {
+describe('o scheduler nunca inicia pareamento', () => {
+  const qrTimeout: UazapiResult = {
     status: 200,
     ok: true,
-    body: { instance: { status: 'disconnected', lastDisconnectReason: 'restartRequired' } },
+    body: { instance: { status: 'disconnected', lastDisconnectReason: 'QR Code timeout' } },
+  };
+  const connecting: UazapiResult = { status: 200, ok: true, body: { instance: { status: 'connecting' } } };
+  const loggedOut: UazapiResult = {
+    status: 200,
+    ok: true,
+    body: { instance: { status: 'disconnected', lastDisconnectReason: '401: logged out from another device' } },
   };
 
-  it('nao chama connect enquanto a instancia esta conectando', async () => {
+  for (const [nome, estado] of [
+    ['esperando leitura de QR', qrTimeout],
+    ['no meio do aperto de mao', connecting],
+    ['com a sessao invalidada', loggedOut],
+  ] as const) {
+    it(`nao chama connect com a instancia ${nome}`, async () => {
+      const ai = fakeAiClient(aiReply('Oi, posso retomar?'));
+      const { service, uazapi } = await buildHarness([makeLead()], ai, {}, estado);
+
+      for (let tick = 0; tick < 5; tick += 1) {
+        await service.runOnce(new Date(NOW.getTime() + tick * 6 * 60 * 1000));
+      }
+
+      expect(uazapi.connects).toBe(0);
+      expect(uazapi.sent).toHaveLength(0);
+    });
+  }
+
+  it('registra o QR Code timeout no log, que foi o que denunciou o laco', async () => {
     const ai = fakeAiClient(aiReply('Oi, posso retomar?'));
-    const { service, uazapi } = await buildHarness([makeLead()], ai, {}, connecting);
-
-    for (let tick = 0; tick < 4; tick += 1) {
-      await service.runOnce(new Date(NOW.getTime() + tick * 6 * 60 * 1000));
-    }
-
-    expect(uazapi.connects).toBe(0);
-    expect(uazapi.sent).toHaveLength(0);
-  });
-
-  it('continua empurrando quando a instancia esta mesmo caida', async () => {
-    const ai = fakeAiClient(aiReply('Oi, posso retomar?'));
-    const { service, uazapi } = await buildHarness([makeLead()], ai, {}, dropped);
+    const { service, jobLogs } = await buildHarness([makeLead()], ai, {}, qrTimeout);
 
     await service.runOnce(NOW);
 
-    expect(uazapi.connects).toBe(1);
+    const [log] = await jobLogs.list();
+    expect(log?.result).toContain('QR Code timeout');
   });
 });

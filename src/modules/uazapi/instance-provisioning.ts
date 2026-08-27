@@ -310,10 +310,9 @@ export interface WhatsappChannelState {
 
 /**
  * A UAZAPI devolve `401` / `logged out` quando o WhatsApp invalidou o pareamento — foi o caso
- * da Insumo Smart em 25 e 27/08 ("401: logged out from another device"). Aqui `/instance/connect`
- * nao restaura nada: ele so publica um QR novo, verificado contra a instancia real. Queda por
- * outro motivo (rede, `restartRequired`) volta sozinha com um connect, e e o que separa uma
- * pausa de segundos de um SDR parado ate alguem aparecer com o celular.
+ * da Insumo Smart em 25 e 27/08 ("401: logged out from another device"). Nao muda o que o
+ * scheduler faz (ele nunca reconecta, ver `createChannelGuard`), mas vai gravado no
+ * `job_logs` para separar "a sessao morreu" de "a instancia esta tentando subir".
  */
 function sessionWasInvalidated(disconnectReason: string | null): boolean {
   return disconnectReason !== null && /(^|\D)401(\D|$)|logged\s*out/i.test(disconnectReason);
@@ -362,9 +361,7 @@ export async function checkWhatsappChannel(
       status,
       disconnectReason,
       needsQrScan,
-      reason: needsQrScan
-        ? `WhatsApp deslogado (status ${status}${detail}) — so volta relendo o QR code na tela Conectar do SDR, com o celular que atende. Reconectar sozinho nao resolve.`
-        : `WhatsApp indisponivel (status ${status}${detail}) — o scheduler tenta reconectar sozinho.`,
+      reason: `WhatsApp fora do ar (status ${status}${detail}) — o disparo volta sozinho assim que a instancia conectar. Se ela nao conectar, leia o QR code na tela Conectar do SDR, com o celular que atende.`,
     };
   }
 
