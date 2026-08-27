@@ -139,6 +139,7 @@ interface Harness {
   agent: SdrAgent;
   leads: ReturnType<typeof createMemoryLeadRepository>;
   conversations: ReturnType<typeof createMemoryConversationRepository>;
+  jobLogs: ReturnType<typeof createMemoryJobLogRepository>;
   uazapi: ReturnType<typeof fakeUazapiClient>;
   service: ReturnType<typeof createFollowupOutreachService>;
 }
@@ -153,17 +154,18 @@ async function buildHarness(
   const leads = createMemoryLeadRepository(seedLeads);
   const conversations = createMemoryConversationRepository();
   const uazapi = fakeUazapiClient(instanceStatus);
+  const jobLogs = createMemoryJobLogRepository();
   const service = createFollowupOutreachService({
     aiClient,
     aiRunRepository: createMemoryAiRunRepository(),
     conversationRepository: conversations,
-    jobLogRepository: createMemoryJobLogRepository(),
+    jobLogRepository: jobLogs,
     leadRepository: leads,
     sdrAgentRepository: createMemorySdrAgentRepository([agent]),
     uazapiClient: uazapi,
   });
 
-  return { agent, leads, conversations, uazapi, service };
+  return { agent, jobLogs, leads, conversations, uazapi, service };
 }
 
 describe('followup outreach guards', () => {
@@ -575,5 +577,50 @@ describe('canal do WhatsApp fora do ar', () => {
     await service.runOnce(NOW);
 
     expect(uazapi.sent).toHaveLength(1);
+  });
+});
+
+/**
+ * A primeira versao da guarda calou `/job-logs` por completo: canal fora deixou de escrever
+ * qualquer linha. Quem abriu a tela em 27/08 viu a tabela parada no ultimo envio e leu isso
+ * como scheduler morto — os dois SDRs "pararam", sendo que um so estava fora da janela.
+ */
+describe('canal fora aparece no job-logs sem inundar', () => {
+  const disconnected: UazapiResult = { status: 200, ok: true, body: { instance: { status: 'disconnected' } } };
+  const MINUTE = 60 * 1000;
+
+  it('registra o motivo uma vez, e nao a cada tick', async () => {
+    const ai = fakeAiClient(aiReply('Oi, posso retomar?'));
+    const { service, jobLogs } = await buildHarness([makeLead()], ai, {}, disconnected);
+
+    for (let tick = 0; tick < 6; tick += 1) {
+      await service.runOnce(new Date(NOW.getTime() + tick * 5 * MINUTE));
+    }
+
+    const logs = await jobLogs.list();
+    expect(logs).toHaveLength(1);
+    expect(logs[0]?.status).toBe('skipped');
+    expect(logs[0]?.error).toContain('WhatsApp desconectado');
+    expect(logs[0]?.leadId).toBeNull();
+  });
+
+  it('volta a registrar depois da janela de silencio', async () => {
+    const ai = fakeAiClient(aiReply('Oi, posso retomar?'));
+    const { service, jobLogs } = await buildHarness([makeLead()], ai, {}, disconnected);
+
+    await service.runOnce(NOW);
+    await service.runOnce(new Date(NOW.getTime() + 31 * MINUTE));
+
+    expect(await jobLogs.list()).toHaveLength(2);
+  });
+
+  it('nao escreve nada quando o canal esta de pe', async () => {
+    const ai = fakeAiClient(aiReply('Oi, posso retomar?'));
+    const { service, jobLogs } = await buildHarness([makeLead()], ai, {}, okResult());
+
+    await service.runOnce(NOW);
+
+    const logs = await jobLogs.list();
+    expect(logs.every((log) => log.jobKey?.startsWith('channel-down') !== true)).toBe(true);
   });
 });

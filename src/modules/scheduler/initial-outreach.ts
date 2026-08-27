@@ -21,10 +21,10 @@ import type { LeadResearchResult, LeadResearchService } from '../leads/lead-rese
 import type { LeadRepository } from '../leads/lead-repository.js';
 import { normalizeWhatsappJid, whatsappIdentityFromUazapiSendResult, whatsappNumberFromUazapiSendResult } from '../phone/whatsapp-number.js';
 import { decryptSecret } from '../security/secrets.js';
-import { checkWhatsappChannel } from '../uazapi/instance-provisioning.js';
 import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
 import { describeNowInTimeZone, startOfDayInTimeZone } from '../timezone.js';
 import type { UazapiClient } from '../uazapi/uazapi-client.js';
+import { createChannelGuard } from './channel-guard.js';
 
 /** Resolve o nivel salvo para a escala do provider deste SDR; `null` omite o parametro. */
 function reasoningEffortOf(agent: Pick<SdrAgent, 'aiProvider' | 'aiReasoningEffort'>): string | null {
@@ -627,6 +627,9 @@ async function checkWhatsappExists(
 }
 
 export function createInitialOutreachService(deps: InitialOutreachDependencies) {
+  // Vive no processo, nao no tick: e o que permite anunciar canal fora sem repetir a linha.
+  const ensureChannel = createChannelGuard(deps.uazapiClient, deps.jobLogRepository);
+
   async function createInitialConversation(
     lead: Lead,
     agent: SdrAgent,
@@ -699,7 +702,7 @@ export function createInitialOutreachService(deps: InitialOutreachDependencies) 
       // Instancia deslogada devolve 503 em tudo. Sem essa guarda, cada tick virava uma linha
       // `failed` identica em job_logs (720 num unico dia) que nao dizia o que fazer, e a
       // pesquisa do lead so nao era paga por acidente da ordem das chamadas.
-      const channel = await checkWhatsappChannel(deps.uazapiClient, credentials);
+      const channel = await ensureChannel('initial-outreach', agent.id, credentials, now);
       if (!channel.usable) {
         details.push(`${agent.name}: ${channel.reason}`);
         return skippedProcessResult();
