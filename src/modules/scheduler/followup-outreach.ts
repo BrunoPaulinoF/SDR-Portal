@@ -4,6 +4,7 @@ import { resolveReasoningEffort } from '../ai/reasoning-effort.js';
 import type { AiRunRepository } from '../ai/ai-run-repository.js';
 import { parseAiResponse } from '../ai/ai-response.js';
 import { resolveAiApiKey } from '../ai/resolve-api-key.js';
+import { resolveSdrPlaybook, type SdrPlaybook } from '../ai/sdr-playbooks.js';
 import { aiHistoryText } from '../conversations/conversation-history.js';
 import type { ConversationRepository } from '../conversations/conversation-repository.js';
 import type { JobLogRepository } from '../jobs/job-log-repository.js';
@@ -141,7 +142,13 @@ Quando NAO enviar follow-up (responda com "nao_responder": true e "mensagem_usua
 - A conversa nao esfriou de verdade: a ultima troca e recente ou o lead ficou esperando resposta sua.
 - O historico nao justifica uma nova mensagem sua.`;
 
-const BUMP_RULES = `- Este lead NUNCA respondeu. A sua primeira mensagem foi entregue e ficou sem resposta, entao
+const BUMP_SKIP_RULES = `Quando NAO enviar este segundo toque (responda com "nao_responder": true e "mensagem_usuario": ""):
+- O lead pediu para nao receber mais mensagens ou ja disse que nao tem interesse.
+- A conversa ja foi passada para uma pessoa do time (handoff).
+- A sua primeira mensagem saiu ha pouco tempo e o lead ainda nem teve chance de responder.
+- O cadastro mostra que o lead esta claramente fora do publico deste SDR.`;
+
+const CONSULTIVO_BUMP_RULES = `- Este lead NUNCA respondeu. A sua primeira mensagem foi entregue e ficou sem resposta, entao
   nao existe conversa para retomar e voce nao sabe nada da rotina dele alem do cadastro.
 - Escreva um segundo toque, nao uma repeticao: nao reenvie a primeira mensagem nem refaca a
   mesma pergunta com outras palavras. Se a primeira perguntou por quem cuida do negocio, esta
@@ -155,26 +162,74 @@ const BUMP_RULES = `- Este lead NUNCA respondeu. A sua primeira mensagem foi ent
   escreva para a pessoa, nunca comente a mensagem automatica e nunca responda ao robo.
 ${COMMON_FOLLOWUP_RULES}
 
-Quando NAO enviar este segundo toque (responda com "nao_responder": true e "mensagem_usuario": ""):
-- O lead pediu para nao receber mais mensagens ou ja disse que nao tem interesse.
-- A conversa ja foi passada para uma pessoa do time (handoff).
-- A sua primeira mensagem saiu ha pouco tempo e o lead ainda nem teve chance de responder.
-- O cadastro mostra que o lead esta claramente fora do publico deste SDR.`;
+${BUMP_SKIP_RULES}`;
+
+/**
+ * No funil convite a primeira mensagem e um cumprimento seco DE PROPOSITO: a curiosidade e o
+ * ativo, e explicar cedo e o que queima o lead. A regra consultiva ("diga em uma frase concreta
+ * do que se trata, porque a primeira mensagem nao disse") manda fazer o contrario disso — e,
+ * como o unico conteudo que sobrava no prompt era o nome do produto, o segundo toque virou
+ * pitch: "trabalho com um software de gestao para restaurantes, ja usam algum sistema ai?".
+ */
+const CONVITE_BUMP_RULES = `- Este lead NUNCA respondeu. A sua primeira mensagem foi so um cumprimento curto: ele nao sabe
+  quem voce e, nao sabe do que se trata e nao recusou nada — so nao respondeu a um "oi".
+- Este toque avanca UMA casa do roteiro deste SDR: diga em meia linha quem voce e e faca a
+  pergunta seguinte do roteiro. As palavras dessa pergunta sao as da instrucao configurada
+  abaixo; nao invente outra formulacao.
+- NAO diga do que se trata. Nada de produto, software, sistema, plataforma, ferramenta,
+  funcionalidade, metodologia, entregavel, area de atuacao, resultado ou beneficio — nem em uma
+  frase, nem "so pra situar". A explicacao so existe se a pessoa perguntar, e isso e outro turno.
+- Nao faca pergunta sobre a operacao do lead ("ja usam algum sistema?", "como voces controlam o
+  estoque?", "posso te enviar um resumo?"). A unica pergunta permitida e a do roteiro.
+- Nao escreva como quem vende: voce e alguem do mesmo ramo com uma proposta para fazer.
+- Nao reenvie a primeira mensagem nem repita o cumprimento sozinho: sem nada novo, o segundo
+  toque e so barulho.
+- Nunca cobre a resposta que nao veio: nada de "vi que voce nao respondeu", "passando pra saber",
+  "voce chegou a ver minha mensagem?" ou "ainda esta ai?".
+- Se a unica coisa no historico for resposta automatica da propria loja (horario de
+  funcionamento, link de cardapio, "seja bem-vindo", "estamos fechados"), ninguem leu voce ainda:
+  escreva para a pessoa, nunca comente a mensagem automatica e nunca responda ao robo.
+${COMMON_FOLLOWUP_RULES}
+
+${BUMP_SKIP_RULES}`;
+
+/** O funil do SDR decide o roteiro: o segundo toque do convite e o oposto do consultivo. */
+function followupRules(playbook: SdrPlaybook, mode: FollowupMode): string {
+  if (mode !== 'bump') return REENGAGE_RULES;
+  return playbook === 'convite' ? CONVITE_BUMP_RULES : CONSULTIVO_BUMP_RULES;
+}
+
+/** Texto usado quando o SDR nao configurou instrucao para este modo. */
+function defaultConfiguredPrompt(playbook: SdrPlaybook, mode: FollowupMode): string {
+  if (mode !== 'bump') return 'Retomar a conversa de forma consultiva e curta.';
+  return playbook === 'convite'
+    ? 'Se apresentar em meia linha e pedir a proxima permissao do roteiro, sem dizer do que se trata.'
+    : 'Dizer em uma frase do que se trata e fazer uma pergunta facil.';
+}
 
 /**
  * Regiao estavel do prompt (base global + config do SDR). Nada de valor por lead aqui:
  * ver "AI prompt ordering" no CLAUDE.md. Cada modo tem o proprio prefixo estavel.
  */
 function followupSystemPrompt(agent: SdrAgent, configuredPrompt: string, mode: FollowupMode): string {
+  const playbook = resolveSdrPlaybook(agent.playbook);
   const intro =
     mode === 'bump'
       ? 'Voce escreve apenas uma mensagem curta de segundo toque para WhatsApp.'
       : 'Voce escreve apenas uma mensagem curta de follow-up para WhatsApp.';
 
+  // No convite o nome do produto e a unica pista de conteudo que sobra aqui — e o modelo usa.
+  // Foi dele que sairam os "software de gestao para restaurantes" que o funil proibe dizer.
+  const contexto =
+    playbook === 'convite'
+      ? `- Nome do SDR: ${agent.displayName}`
+      : `- Nome do SDR: ${agent.displayName}
+- Produto/servico: ${agent.productName ?? ''}`;
+
   return `${intro}
 
 Regras:
-${mode === 'bump' ? BUMP_RULES : REENGAGE_RULES}
+${followupRules(playbook, mode)}
 
 Formato obrigatorio de saida:
 Responda apenas em JSON estrito, sem markdown, sem texto antes ou depois.
@@ -188,11 +243,10 @@ Responda apenas em JSON estrito, sem markdown, sem texto antes ou depois.
 }
 
 Contexto minimo:
-- Nome do SDR: ${agent.displayName}
-- Produto/servico: ${agent.productName ?? ''}
+${contexto}
 
 Instrucao configurada pelo SDR:
-${configuredPrompt || (mode === 'bump' ? 'Dizer em uma frase do que se trata e fazer uma pergunta facil.' : 'Retomar a conversa de forma consultiva e curta.')}`;
+${configuredPrompt || defaultConfiguredPrompt(playbook, mode)}`;
 }
 
 function historyBlock(history: Message[]): string {
@@ -206,10 +260,19 @@ function historyBlock(history: Message[]): string {
     .join('\n');
 }
 
-/** O prompt do segundo toque e opcional: sem ele o SDR cai no roteiro de retomada. */
+/**
+ * O prompt do segundo toque e opcional: sem ele o SDR consultivo cai no roteiro de retomada.
+ *
+ * No convite essa queda nao serve: o roteiro de retomada e escrito para quem JA sabe do que se
+ * trata ("passei novamente porque estou fechando as empresas que vao participar desse projeto")
+ * e quem nunca respondeu nao sabe. Sem prompt de segundo toque, aqui vale a regra do modo, nao
+ * um texto que assume uma conversa que nunca houve.
+ */
 function configuredPromptFor(agent: SdrAgent, mode: FollowupMode): string {
-  if (mode === 'bump') return agent.bumpPrompt?.trim() || agent.followupPrompt?.trim() || '';
-  return agent.followupPrompt?.trim() ?? '';
+  if (mode !== 'bump') return agent.followupPrompt?.trim() ?? '';
+  const bump = agent.bumpPrompt?.trim();
+  if (bump) return bump;
+  return resolveSdrPlaybook(agent.playbook) === 'convite' ? '' : (agent.followupPrompt?.trim() ?? '');
 }
 
 function followupAiMessages(agent: SdrAgent, lead: Lead, history: Message[], mode: FollowupMode): AiChatMessage[] {
