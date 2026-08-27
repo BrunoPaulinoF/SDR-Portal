@@ -19,8 +19,8 @@ import type { LeadRepository } from '../leads/lead-repository.js';
 import { decryptSecret } from '../security/secrets.js';
 import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
 import { describeNowInTimeZone, startOfDayInTimeZone } from '../timezone.js';
-import { checkWhatsappChannel } from '../uazapi/instance-provisioning.js';
 import type { UazapiClient } from '../uazapi/uazapi-client.js';
+import { createChannelGuard } from './channel-guard.js';
 
 /** Resolve o nivel salvo para a escala do provider deste SDR; `null` omite o parametro. */
 function reasoningEffortOf(agent: Pick<SdrAgent, 'aiProvider' | 'aiReasoningEffort'>): string | null {
@@ -388,6 +388,9 @@ function getCredentials(agent: SdrAgent): { baseUrl: string; token: string } | n
 }
 
 export function createFollowupOutreachService(deps: FollowupOutreachDependencies) {
+  // Vive no processo, nao no tick: e o que permite anunciar canal fora sem repetir a linha.
+  const ensureChannel = createChannelGuard(deps.uazapiClient, deps.jobLogRepository);
+
   async function loadHistory(lead: Lead): Promise<{ conversation: Conversation | null; history: Message[] }> {
     const conversation = await deps.conversationRepository.findByLeadId(lead.id);
     if (!conversation) return { conversation: null, history: [] };
@@ -494,7 +497,7 @@ export function createFollowupOutreachService(deps: FollowupOutreachDependencies
       // Canal fora do ar e problema do SDR, nao do lead: barra ANTES da geracao de IA. Sem
       // isso o modelo escrevia a mensagem, a UAZAPI recusava o envio e o lead voltava intacto
       // no proximo tick — o mesmo texto era pago de novo a cada 5min, sem nunca sair.
-      const channel = await checkWhatsappChannel(deps.uazapiClient, credentials);
+      const channel = await ensureChannel('followup-outreach', agent.id, credentials, now);
       if (!channel.usable) {
         details.push(`${agent.name}: ${channel.reason}`);
         return 'skipped';
