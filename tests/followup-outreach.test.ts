@@ -364,6 +364,91 @@ describe('segundo toque em quem nunca respondeu', () => {
   });
 });
 
+describe('segundo toque no playbook convite', () => {
+  /** Lead abordado que ficou mudo: status parado em initial_sent e nenhum inbound. */
+  function makeSilentLead(overrides: Partial<Lead> = {}): Lead {
+    return makeLead({
+      status: 'initial_sent',
+      lastInboundAt: null,
+      lastOutboundAt: new Date(NOW.getTime() - 30 * HOUR),
+      ...overrides,
+    });
+  }
+
+  it('nao manda explicar do que se trata — no convite a primeira mensagem cala de proposito', async () => {
+    const ai = fakeAiClient(aiReply('ok'));
+    const { service } = await buildHarness([makeSilentLead()], ai, { playbook: 'convite' });
+
+    await service.runOnce(NOW);
+
+    const system = ai.calls[0]?.messages[0]?.content ?? '';
+    expect(system).toContain('NAO diga do que se trata');
+    expect(system).not.toContain('Diga em UMA frase concreta do que se trata');
+  });
+
+  /**
+   * O nome do produto era a unica pista de conteudo no prompt do segundo toque, e o modelo
+   * usava: "trabalho com um software de gestao para restaurantes, ja usam algum sistema ai?".
+   */
+  it('nao entrega o nome do produto ao modelo', async () => {
+    const ai = fakeAiClient(aiReply('ok'));
+    const { service } = await buildHarness([makeSilentLead()], ai, { playbook: 'convite' });
+
+    await service.runOnce(NOW);
+
+    expect(ai.calls[0]?.messages[0]?.content ?? '').not.toContain('KyberFood');
+  });
+
+  it('nao empresta o roteiro de retomada quando falta o bumpPrompt', async () => {
+    const ai = fakeAiClient(aiReply('ok'));
+    const { service } = await buildHarness([makeSilentLead()], ai, { playbook: 'convite' });
+
+    await service.runOnce(NOW);
+
+    const system = ai.calls[0]?.messages[0]?.content ?? '';
+    // A retomada assume que o lead ja sabe do que se trata; quem nunca respondeu nao sabe.
+    expect(system).not.toContain('Retome a conversa de forma leve');
+    expect(system).toContain('sem dizer do que se trata');
+  });
+
+  it('usa o bumpPrompt do SDR quando ele existe', async () => {
+    const ai = fakeAiClient(aiReply('ok'));
+    const { service } = await buildHarness([makeSilentLead()], ai, {
+      playbook: 'convite',
+      bumpPrompt: 'Opa! Aqui e a Francielly, tambem sou do ramo. Queria te fazer uma proposta, pode ser?',
+    });
+
+    await service.runOnce(NOW);
+
+    const system = ai.calls[0]?.messages[0]?.content ?? '';
+    expect(system).toContain('Queria te fazer uma proposta, pode ser?');
+    expect(system).toContain('NAO diga do que se trata');
+  });
+
+  it('mantem a retomada de quem respondeu e esfriou, sem o nome do produto', async () => {
+    const ai = fakeAiClient(aiReply('retomada'));
+    const { service } = await buildHarness([makeLead()], ai, { playbook: 'convite' });
+
+    await service.runOnce(NOW);
+
+    const system = ai.calls[0]?.messages[0]?.content ?? '';
+    expect(system).toContain('retome o ultimo assunto real');
+    expect(system).toContain('Retome a conversa de forma leve');
+    expect(system).not.toContain('KyberFood');
+  });
+
+  it('nao muda o segundo toque do playbook consultivo', async () => {
+    const ai = fakeAiClient(aiReply('ok'));
+    const { service } = await buildHarness([makeSilentLead()], ai);
+
+    await service.runOnce(NOW);
+
+    const system = ai.calls[0]?.messages[0]?.content ?? '';
+    expect(system).toContain('Diga em UMA frase concreta do que se trata');
+    expect(system).toContain('KyberFood');
+  });
+});
+
 describe('recusa do modelo x falha tecnica', () => {
   it('encerra o follow-up quando o modelo recusa, em vez de perguntar de hora em hora', async () => {
     const { service, leads, uazapi } = await buildHarness([makeLead()], fakeAiClient(aiReply('', true)));

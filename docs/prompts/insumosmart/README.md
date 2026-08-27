@@ -264,7 +264,8 @@ node dist/src/db/apply-sdr-prompts.js --agent="Franc" --apply    # grava
 ```
 
 O que ele faz: escreve `prompt.txt`, `offer-description.txt`, `first-message-prompt.txt`,
-`followup-prompt.txt`, `lead-qualification-prompt.txt` e `handoff-template.txt` nos campos
+`followup-prompt.txt`, `bump-prompt.txt`, `lead-qualification-prompt.txt` e
+`handoff-template.txt` nos campos
 correspondentes, coloca o playbook em **convite**, cadastra o roteiro de
 `first-message-variants.md` como variante **Roteiro** e muda o modo para **mensagem fixa**.
 As variantes antigas são desativadas, não apagadas — as métricas delas continuam lá.
@@ -289,6 +290,45 @@ deste diretório muda isso: os prompts vivem no banco.
 | `/sdr-agents/<id>/edit` → Playbook de conversa | **Convite** | Em Consultivo a IA explica, pergunta a rotina e vende — o funil oposto |
 | `/sdr-agents/<id>/first-messages` → Modo | **Mensagem fixa** | Em "gerada por IA" a abertura é reescrita a cada lead |
 | `/sdr-agents/<id>/first-messages` → Variante ativa | `Opa, tudo bom?` (passo 1) | Sem variante ativa o portal cai na IA mesmo em modo fixo |
+
+### O segundo toque saiu vendendo software (27/08)
+
+O sintoma que o Fernando viu não estava na abertura nem na conversa: o `Opa, tudo bom?` continuou
+saindo (mensagem fixa, 77 enviadas, 56% de resposta) e as respostas da SDR continuaram no roteiro
+("Também sou do ramo da gastronomia e queria te fazer uma proposta, pode ser?"). Quem mudou de
+comportamento foi o **segundo toque** — o follow-up de quem nunca respondeu, que entrou em campo
+em 25/08 e desde então gerou 204 mensagens assim:
+
+> Olá! Aqui é a Francielly, da Insumo Smart. Trabalho com um software de gestão para
+> restaurantes. Posso te enviar um resumo?
+
+> Oi, Francielly aqui, da Insumo Smart. A gente tem um software que organiza a operação de
+> restaurantes, desde o estoque até os pedidos. Vocês já usam algum sistema de gestão aí?
+
+Isso é o funil consultivo inteiro — explica o produto e pergunta sobre a operação — e ele saiu
+justamente para quem tinha recebido só um "opa". Três coisas somadas:
+
+1. **O job de follow-up não lia o playbook.** `followupSystemPrompt` montava um prompt próprio,
+   sem `SDR_BASE_PROMPT`, sem o bloco `convite` e sem o `prompt.txt` do SDR: nenhuma regra do
+   roteiro chegava ao modelo (1.9k tokens de entrada, contra 14k de uma resposta de conversa).
+2. **A regra do segundo toque mandava explicar.** O texto era um só para os dois playbooks e
+   dizia *"Diga em UMA frase concreta do que se trata, porque a primeira mensagem não disse"* —
+   escrito para o consultivo, e o oposto exato deste funil.
+3. **O nome do produto era a única pista de conteúdo no prompt.** Com `Produto/serviço` =
+   "Software Operado da Insumo Smart" e mais nada, o modelo preencheu o resto sozinho.
+
+O código passou a separar as regras por playbook: no `convite` o segundo toque tem a proibição
+explícita de dizer do que se trata, não recebe o nome do produto e, sem `bump-prompt.txt`
+configurado, **não** empresta mais o texto de retomada (que fala em "estou fechando as empresas"
+para quem nunca ouviu falar do projeto).
+
+O que ainda depende do portal:
+
+| Onde | Tem que estar | Se estiver vazio/errado |
+| --- | --- | --- |
+| `/sdr-agents/<id>/edit` → Prompt do segundo toque | `bump-prompt.txt` | Vazio, a SDR escreve o segundo toque sem roteiro — só as regras do funil a seguram |
+| `/sdr-agents/<id>/edit` → Produto/serviço | uma frase que a SDR possa dizer em voz alta | Nome de produto vira pitch nos prompts que ainda o recebem (qualificação, conversa) |
+| `/sdr-agents/<id>/edit` → Modelo | `deepseek-v4-pro` | `deepseek-v4-flash` segue instrução pior, e este roteiro é todo feito de proibição |
 
 ## O que medir
 
