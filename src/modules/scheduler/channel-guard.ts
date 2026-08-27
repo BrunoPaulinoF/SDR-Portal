@@ -43,7 +43,11 @@ export function createChannelGuard(uazapiClient: UazapiClient, jobLogRepository:
   return async function ensureChannel(jobName, agentId, credentials, now) {
     let state = await checkWhatsappChannel(uazapiClient, credentials);
 
-    if (!state.usable && !state.needsQrScan) {
+    // `connecting` e a UAZAPI ja no meio do aperto de mao. Mandar `/instance/connect` por cima
+    // reinicia o processo e a instancia nunca fecha a conexao: em 27/08 a da Insumo Smart ficou
+    // 14min em `connecting` e caiu de novo. So `disconnected` merece um empurrao — e o proprio
+    // connect deixa a instancia em `connecting`, o que da a ela um turno limpo para concluir.
+    if (state.status === 'disconnected' && !state.needsQrScan) {
       const previousAttempt = lastReconnectAt.get(agentId);
       if (previousAttempt === undefined || now.getTime() - previousAttempt >= reconnectIntervalMs) {
         lastReconnectAt.set(agentId, now.getTime());

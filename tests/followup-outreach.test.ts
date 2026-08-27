@@ -712,3 +712,38 @@ describe('canal fora aparece no job-logs sem inundar', () => {
     expect(logs.every((log) => log.jobKey?.startsWith('channel-down') !== true)).toBe(true);
   });
 });
+
+/**
+ * `connecting` e a UAZAPI ja no meio do aperto de mao. A primeira versao da reconexao mandava
+ * `/instance/connect` por cima desse estado, reiniciando o processo a cada tentativa: em 27/08
+ * a instancia da Insumo Smart ficou 14min em `connecting` e caiu de novo, sem nunca fechar.
+ */
+describe('reconexao nao atropela um handshake em andamento', () => {
+  const connecting: UazapiResult = { status: 200, ok: true, body: { instance: { status: 'connecting' } } };
+  const dropped: UazapiResult = {
+    status: 200,
+    ok: true,
+    body: { instance: { status: 'disconnected', lastDisconnectReason: 'restartRequired' } },
+  };
+
+  it('nao chama connect enquanto a instancia esta conectando', async () => {
+    const ai = fakeAiClient(aiReply('Oi, posso retomar?'));
+    const { service, uazapi } = await buildHarness([makeLead()], ai, {}, connecting);
+
+    for (let tick = 0; tick < 4; tick += 1) {
+      await service.runOnce(new Date(NOW.getTime() + tick * 6 * 60 * 1000));
+    }
+
+    expect(uazapi.connects).toBe(0);
+    expect(uazapi.sent).toHaveLength(0);
+  });
+
+  it('continua empurrando quando a instancia esta mesmo caida', async () => {
+    const ai = fakeAiClient(aiReply('Oi, posso retomar?'));
+    const { service, uazapi } = await buildHarness([makeLead()], ai, {}, dropped);
+
+    await service.runOnce(NOW);
+
+    expect(uazapi.connects).toBe(1);
+  });
+});
