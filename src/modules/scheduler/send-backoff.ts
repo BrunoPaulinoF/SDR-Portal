@@ -56,3 +56,46 @@ export class UazapiSendError extends Error {
     this.name = 'UazapiSendError';
   }
 }
+
+/**
+ * Quantas recusas seguidas no MESMO lead bastam para tira-lo da frente da fila.
+ *
+ * `findNextPendingForSdr` sempre devolve o lead mais antigo, entao um numero que a UAZAPI
+ * recusa e eterno primeiro colocado: em 27/08 o lead "Divino Sabor" acumulou 17 chamadas de
+ * IA sem nunca sair, com 536 leads atras dele que jamais seriam alcancados. Tres tentativas
+ * separam um tropeco momentaneo de um numero que nao vai passar hoje.
+ */
+const maxSendAttemptsPerLead = 3;
+
+export interface LeadSendFailures {
+  /** Ids a excluir da proxima busca na fila. */
+  blockedIds(): string[];
+  /** Registra a recusa e devolve `true` quando o lead acabou de sair da fila. */
+  record(leadId: string): boolean;
+  clear(leadId: string): void;
+}
+
+/**
+ * Memoria de processo, nao coluna no banco: a exclusao vale enquanto o problema durar e some
+ * no restart, quando o lead ganha uma chance nova. Guardar isso no lead exigiria migration e
+ * transformaria um problema de canal em marca permanente no cadastro.
+ */
+export function createLeadSendFailures(): LeadSendFailures {
+  const failures = new Map<string, number>();
+
+  return {
+    blockedIds() {
+      return [...failures.entries()].filter(([, count]) => count >= maxSendAttemptsPerLead).map(([leadId]) => leadId);
+    },
+
+    record(leadId) {
+      const count = (failures.get(leadId) ?? 0) + 1;
+      failures.set(leadId, count);
+      return count === maxSendAttemptsPerLead;
+    },
+
+    clear(leadId) {
+      failures.delete(leadId);
+    },
+  };
+}

@@ -25,7 +25,7 @@ import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
 import { describeNowInTimeZone, startOfDayInTimeZone } from '../timezone.js';
 import type { UazapiClient } from '../uazapi/uazapi-client.js';
 import { createChannelGuard } from './channel-guard.js';
-import { createSendBackoff, UazapiSendError } from './send-backoff.js';
+import { createLeadSendFailures, createSendBackoff, UazapiSendError } from './send-backoff.js';
 
 /** Resolve o nivel salvo para a escala do provider deste SDR; `null` omite o parametro. */
 function reasoningEffortOf(agent: Pick<SdrAgent, 'aiProvider' | 'aiReasoningEffort'>): string | null {
@@ -631,6 +631,7 @@ export function createInitialOutreachService(deps: InitialOutreachDependencies) 
   // Vive no processo, nao no tick: e o que permite anunciar canal fora sem repetir a linha.
   const ensureChannel = createChannelGuard(deps.uazapiClient, deps.jobLogRepository);
   const sendBackoff = createSendBackoff();
+  const leadSendFailures = createLeadSendFailures();
 
   async function createInitialConversation(
     lead: Lead,
@@ -695,6 +696,9 @@ export function createInitialOutreachService(deps: InitialOutreachDependencies) 
       }
     }
 
+    // O lead em que o envio foi tentado, para o catch saber de quem foi a recusa.
+    let attemptedLead: Lead | null = null;
+
     try {
       const credentials = getCredentials(agent);
       if (!credentials) {
@@ -721,7 +725,7 @@ export function createInitialOutreachService(deps: InitialOutreachDependencies) 
       let skipped = 0;
 
       while (true) {
-        const lead = await deps.leadRepository.findNextPendingForSdr(agent.id);
+        const lead = await deps.leadRepository.findNextPendingForSdr(agent.id, { skipLeadIds: leadSendFailures.blockedIds() });
         if (!lead) {
           if (skipped === 0) {
             details.push(`${agent.name}: nenhum lead pendente.`);
@@ -774,6 +778,7 @@ export function createInitialOutreachService(deps: InitialOutreachDependencies) 
           continue;
         }
 
+        attemptedLead = lead;
         const { text, variantId } = await resolveFirstMessage(deps, agent, lead, research);
         await deps.uazapiClient.sendPresence({ ...credentials, number: lead.whatsappNumber, presence: 'composing', delay: 1000 });
         const result = await deps.uazapiClient.sendText({
@@ -816,6 +821,7 @@ export function createInitialOutreachService(deps: InitialOutreachDependencies) 
           finishedAt: new Date(),
         });
         sendBackoff.clear(agent.id);
+        leadSendFailures.clear(lead.id);
         details.push(`${agent.name}: mensagem enviada para ${lead.companyName}.`);
         return sentProcessResult(skipped);
       }
@@ -824,21 +830,34 @@ export function createInitialOutreachService(deps: InitialOutreachDependencies) 
       // Recusa de envio e do canal, nao do lead da vez: recua o SDR para nao refazer o ciclo
       // caro a cada minuto. E guarda o que a UAZAPI respondeu — `UAZAPI returned HTTP 500`
       // sozinho nao diz nada a quem for depurar depois.
-      if (error instanceof UazapiSendError) sendBackoff.recordFailure(agent.id, now);
+      let leftQueue = false;
+      if (error instanceof UazapiSendError) {
+        sendBackoff.recordFailure(agent.id, now);
+        // Recusa que se repete no mesmo lead tira ele da frente: senao um unico numero
+        // problematico segura a base inteira, que foi o caso de 27/08.
+        if (attemptedLead) leftQueue = leadSendFailures.record(attemptedLead.id);
+      }
       await deps.jobLogRepository.create({
         jobName: 'initial-outreach',
         jobKey: `agent-${agent.id}`,
         sdrAgentId: agent.id,
-        leadId: null,
+        leadId: attemptedLead?.id ?? null,
         status: 'failed',
         attempt: 1,
-        payload: JSON.stringify({ agentId: agent.id }),
-        result: error instanceof UazapiSendError ? JSON.stringify({ uazapiStatus: error.status, uazapi: error.body }) : null,
+        payload: JSON.stringify({ agentId: agent.id, leadId: attemptedLead?.id ?? null }),
+        result:
+          error instanceof UazapiSendError
+            ? JSON.stringify({ uazapiStatus: error.status, uazapi: error.body, leadLeftQueue: leftQueue })
+            : null,
         error: message,
         startedAt,
         finishedAt: new Date(),
       });
-      details.push(`${agent.name}: erro ${message}`);
+      details.push(
+        leftQueue && attemptedLead
+          ? `${agent.name}: erro ${message} — ${attemptedLead.companyName} sai da fila depois de recusas seguidas.`
+          : `${agent.name}: erro ${message}`,
+      );
       return errorProcessResult();
     }
   }
