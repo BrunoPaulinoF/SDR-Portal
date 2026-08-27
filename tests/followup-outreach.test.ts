@@ -710,3 +710,71 @@ describe('o scheduler nunca inicia pareamento', () => {
     expect(log?.result).toContain('QR Code timeout');
   });
 });
+
+/**
+ * Todo o trabalho caro do disparo acontece ANTES do envio. Quando a UAZAPI recusa, nada e
+ * marcado no lead: ele continua primeiro da fila e o tick seguinte refaz pesquisa, avaliacao e
+ * geracao no mesmo lead. Em 27/08, com a instancia da Insumo Smart devolvendo HTTP 500 logo
+ * apos conectar, foram 12 avaliacoes de fit pagas no mesmo lead em 12 minutos.
+ */
+describe('envio recusado nao vira ciclo caro por minuto', () => {
+  function rejeitandoEnvio(): UazapiClient & { sent: SendTextInput[]; connects: number } {
+    const client = fakeUazapiClient();
+    return {
+      ...client,
+      async sendText() {
+        return { status: 500, ok: false, body: { error: 'internal' } };
+      },
+    } as UazapiClient & { sent: SendTextInput[]; connects: number };
+  }
+
+  async function harnessRecusando() {
+    const agent = await makeAgent({ id: 'sdr-1' });
+    const leads = createMemoryLeadRepository([makeLead()]);
+    const jobLogs = createMemoryJobLogRepository();
+    const ai = fakeAiClient(aiReply('Oi, posso retomar?'));
+    const service = createFollowupOutreachService({
+      aiClient: ai,
+      aiRunRepository: createMemoryAiRunRepository(),
+      conversationRepository: createMemoryConversationRepository(),
+      jobLogRepository: jobLogs,
+      leadRepository: leads,
+      sdrAgentRepository: createMemorySdrAgentRepository([agent]),
+      uazapiClient: rejeitandoEnvio(),
+    });
+    return { ai, jobLogs, service };
+  }
+
+  it('recua o SDR em vez de gerar a mensagem outra vez no minuto seguinte', async () => {
+    const { ai, service } = await harnessRecusando();
+
+    await service.runOnce(NOW);
+    expect(ai.calls).toHaveLength(1);
+
+    for (let tick = 1; tick < 5; tick += 1) {
+      await service.runOnce(new Date(NOW.getTime() + tick * 60 * 1000));
+    }
+
+    expect(ai.calls).toHaveLength(1);
+  });
+
+  it('volta a tentar depois do recuo', async () => {
+    const { ai, service } = await harnessRecusando();
+
+    await service.runOnce(NOW);
+    await service.runOnce(new Date(NOW.getTime() + 6 * 60 * 1000));
+
+    expect(ai.calls).toHaveLength(2);
+  });
+
+  // `UAZAPI returned HTTP 500` sozinho nao diz nada a quem for depurar depois.
+  it('guarda o que a UAZAPI respondeu na linha de falha', async () => {
+    const { jobLogs, service } = await harnessRecusando();
+
+    await service.runOnce(NOW);
+
+    const [log] = (await jobLogs.list()).filter((entry) => entry.status === 'failed');
+    expect(log?.result).toContain('"uazapiStatus":500');
+    expect(log?.result).toContain('internal');
+  });
+});

@@ -25,6 +25,7 @@ import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
 import { describeNowInTimeZone, startOfDayInTimeZone } from '../timezone.js';
 import type { UazapiClient } from '../uazapi/uazapi-client.js';
 import { createChannelGuard } from './channel-guard.js';
+import { createSendBackoff, UazapiSendError } from './send-backoff.js';
 
 /** Resolve o nivel salvo para a escala do provider deste SDR; `null` omite o parametro. */
 function reasoningEffortOf(agent: Pick<SdrAgent, 'aiProvider' | 'aiReasoningEffort'>): string | null {
@@ -629,6 +630,7 @@ async function checkWhatsappExists(
 export function createInitialOutreachService(deps: InitialOutreachDependencies) {
   // Vive no processo, nao no tick: e o que permite anunciar canal fora sem repetir a linha.
   const ensureChannel = createChannelGuard(deps.uazapiClient, deps.jobLogRepository);
+  const sendBackoff = createSendBackoff();
 
   async function createInitialConversation(
     lead: Lead,
@@ -708,6 +710,14 @@ export function createInitialOutreachService(deps: InitialOutreachDependencies) 
         return skippedProcessResult();
       }
 
+      // Envio recusado ha pouco: espera antes de pagar outra pesquisa e outra avaliacao de fit
+      // pela mesma resposta. A falha ja foi registrada quando aconteceu — aqui e so nao repetir.
+      const backoff = sendBackoff.remainingMinutes(agent.id, now);
+      if (backoff !== null) {
+        details.push(`${agent.name}: envio recusado ha pouco, tentando de novo em ${backoff}min.`);
+        return skippedProcessResult();
+      }
+
       let skipped = 0;
 
       while (true) {
@@ -776,7 +786,7 @@ export function createInitialOutreachService(deps: InitialOutreachDependencies) 
         });
 
         if (!result.ok) {
-          throw new Error(`UAZAPI returned HTTP ${result.status}`);
+          throw new UazapiSendError(result.status, result.body);
         }
 
         const sentAt = new Date();
@@ -805,11 +815,16 @@ export function createInitialOutreachService(deps: InitialOutreachDependencies) 
           startedAt,
           finishedAt: new Date(),
         });
+        sendBackoff.clear(agent.id);
         details.push(`${agent.name}: mensagem enviada para ${lead.companyName}.`);
         return sentProcessResult(skipped);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro desconhecido.';
+      // Recusa de envio e do canal, nao do lead da vez: recua o SDR para nao refazer o ciclo
+      // caro a cada minuto. E guarda o que a UAZAPI respondeu — `UAZAPI returned HTTP 500`
+      // sozinho nao diz nada a quem for depurar depois.
+      if (error instanceof UazapiSendError) sendBackoff.recordFailure(agent.id, now);
       await deps.jobLogRepository.create({
         jobName: 'initial-outreach',
         jobKey: `agent-${agent.id}`,
@@ -818,7 +833,7 @@ export function createInitialOutreachService(deps: InitialOutreachDependencies) 
         status: 'failed',
         attempt: 1,
         payload: JSON.stringify({ agentId: agent.id }),
-        result: null,
+        result: error instanceof UazapiSendError ? JSON.stringify({ uazapiStatus: error.status, uazapi: error.body }) : null,
         error: message,
         startedAt,
         finishedAt: new Date(),
