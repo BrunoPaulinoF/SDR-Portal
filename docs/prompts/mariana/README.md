@@ -207,6 +207,46 @@ autorresposta da loja grava `last_inbound_at` e faz o lead virar `in_conversatio
 follow-up entende "respondeu e esfriou" e manda `reengage` com o pitch inteiro para o robo —
 393 geracoes em `reengage` contra 11 em `bump`.
 
+## Revisao de 27/08: interesse sem handoff, e a despedida que nao acabava
+
+Uma conversa so, a da Divinos Chocolateria (5512982039286, 26/08 das 15:44 as 16:02),
+mostrou dois defeitos que nao sao dela: 17 chamadas de IA, `stage` travado em `solution` do
+comeco ao fim, `actions` vazio em todas menos uma, e nenhum handoff.
+
+**1. Interesse demonstrado nao acionava o Igor.** A lead recebeu o cartao da demonstracao,
+disse "que legal, fico curiosa pra ver como funciona", "vou dar uma olhada com calma e
+testar" e "depois converso com a equipe aqui pra ver se faz sentido pra gente". Nada disso
+estava na lista da ETAPA 3, que so previa **testar e gostar**, perguntar preco, duvida
+tecnica ou pedir para falar com uma pessoa — gatilhos todos reativos, que dependem de o lead
+pedir. A regra geral do `SDR_BASE_PROMPT` ("se o lead pedir atendimento humano... solicite
+handoff") e reativa pelo mesmo motivo, e a linha do funil consultivo ("quando houver
+interesse... oferecer contato humano") era generica demais para vencer a lista enumerada do
+prompt do SDR. A IA cumpriu o roteiro: ficou em `solution` esperando um pedido que nunca vem.
+
+Correcoes: a ETAPA 3 passou a separar **oferecer o Igor** (pergunta, sem acao) de **acionar o
+handoff** (depois do sim), com os sinais de interesse escritos — elogio, curiosidade, "vou
+testar", "vou ver com a equipe" — e a instrucao de fazer a pergunta **antes** da despedida.
+O bloco `consultivo` em `sdr-playbooks.ts` ganhou a secao "Como reconhecer o interesse",
+espelhando o que o playbook `convite` ja tinha ("Como reconhecer o sim") e o consultivo nao.
+
+**2. A IA se despediu 11 vezes seguidas.** Das 15:53 as 16:02, cada mensagem foi so cortesia
+dos dois lados ("ate mais" / "ate logo" / "foi um prazer"), com uma geracao de IA por turno.
+O outro lado quase certamente e um atendimento automatico: respondia em segundos, em varias
+linhas, espelhando o tom. O `SDR_BASE_PROMPT` tinha a regra de loop, mas ela exigia a **mesma
+mensagem** repetida — e os dois lados variavam a redacao a cada turno. Enquanto isso, as
+regras de cortesia empurravam para o lado oposto: "resposta curta de gente... sempre merece
+continuacao", "nunca fique calado depois de uma pergunta sua", "nada de frase cortada que soe
+como porta na cara". Faltava dizer que despedida se responde uma vez.
+
+Correcoes, todas no `SDR_BASE_PROMPT` (valem para qualquer SDR): bloco novo **"Despedida e
+encerramento"** — a despedida se responde UMA vez e o que vier depois so com cortesia recebe
+`nao_responder: true`; a regra de loop passou a falar em **ideia repetida**, nao texto
+identico; e a lista fechada de casos de silencio passou a incluir "despedida que voce ja
+respondeu", que era o que impedia a IA de calar sem quebrar outra regra.
+
+Custo do defeito nesta conversa: 11 geracoes desperdicadas, 10 minutos de conversa depois do
+assunto ter acabado, e o lead marcado `human_paused` na mao as 16:03.
+
 ## Playbook
 
 A Mariana usa o playbook **`consultivo`**, que é o padrão. O funil dela (permissão →
