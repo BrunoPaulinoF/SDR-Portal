@@ -300,8 +300,23 @@ export interface WhatsappChannelState {
   /** `false` so quando ha prova de que o canal esta fora — ver `checkWhatsappChannel`. */
   usable: boolean;
   status: string | null;
+  /** `lastDisconnectReason` cru da UAZAPI, quando ela conta. */
+  disconnectReason: string | null;
+  /** `true` quando a sessao foi invalidada: reconectar nao resolve, so um QR novo. */
+  needsQrScan: boolean;
   /** Motivo legivel para o log do job. Vazio quando o canal esta utilizavel. */
   reason: string;
+}
+
+/**
+ * A UAZAPI devolve `401` / `logged out` quando o WhatsApp invalidou o pareamento — foi o caso
+ * da Insumo Smart em 25 e 27/08 ("401: logged out from another device"). Aqui `/instance/connect`
+ * nao restaura nada: ele so publica um QR novo, verificado contra a instancia real. Queda por
+ * outro motivo (rede, `restartRequired`) volta sozinha com um connect, e e o que separa uma
+ * pausa de segundos de um SDR parado ate alguem aparecer com o celular.
+ */
+function sessionWasInvalidated(disconnectReason: string | null): boolean {
+  return disconnectReason !== null && /(^|\D)401(\D|$)|logged\s*out/i.test(disconnectReason);
 }
 
 /**
@@ -323,19 +338,35 @@ export async function checkWhatsappChannel(
   credentials: { baseUrl: string; token: string },
 ): Promise<WhatsappChannelState> {
   const result = await uazapiClient.getInstanceStatus(credentials);
-  const status = readString(instanceRecord(result.body), 'status');
+  const record = instanceRecord(result.body);
+  const status = readString(record, 'status');
+  const disconnectReason = readString(record, 'lastDisconnectReason');
+  const needsQrScan = sessionWasInvalidated(disconnectReason);
 
   if (!result.ok) {
-    return { usable: false, status, reason: `UAZAPI respondeu HTTP ${result.status} ao consultar a instancia.` };
-  }
-
-  if (status !== null && status !== 'connected') {
     return {
       usable: false,
       status,
-      reason: `WhatsApp desconectado (status ${status}) — releia o QR code na tela Conectar do SDR.`,
+      disconnectReason,
+      needsQrScan: false,
+      reason: `UAZAPI respondeu HTTP ${result.status} ao consultar a instancia.`,
     };
   }
 
-  return { usable: true, status, reason: '' };
+  if (status !== null && status !== 'connected') {
+    // O motivo entra no texto porque e ele que decide quem resolve: leitura de QR é trabalho
+    // de quem tem o celular, queda de rede o proprio scheduler refaz.
+    const detail = disconnectReason ? `, ultima queda: ${disconnectReason}` : '';
+    return {
+      usable: false,
+      status,
+      disconnectReason,
+      needsQrScan,
+      reason: needsQrScan
+        ? `WhatsApp deslogado (status ${status}${detail}) — so volta relendo o QR code na tela Conectar do SDR, com o celular que atende. Reconectar sozinho nao resolve.`
+        : `WhatsApp indisponivel (status ${status}${detail}) — o scheduler tenta reconectar sozinho.`,
+    };
+  }
+
+  return { usable: true, status, disconnectReason, needsQrScan: false, reason: '' };
 }

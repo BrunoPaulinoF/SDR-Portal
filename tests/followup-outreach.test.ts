@@ -22,11 +22,23 @@ function okResult(): UazapiResult {
   return { status: 200, ok: true, body: { messageid: 'msg-1' } };
 }
 
-function fakeUazapiClient(instanceStatus: UazapiResult = okResult()): UazapiClient & { sent: SendTextInput[] } {
+/**
+ * `instanceStatus` aceita uma lista para simular a instancia mudando entre leituras — e assim
+ * que se testa a reconexao: primeira leitura fora, leitura seguinte de pe.
+ */
+function fakeUazapiClient(
+  instanceStatus: UazapiResult | UazapiResult[] = okResult(),
+): UazapiClient & { sent: SendTextInput[]; connects: number } {
   const sent: SendTextInput[] = [];
-  return {
+  const statuses = Array.isArray(instanceStatus) ? [...instanceStatus] : [instanceStatus];
+  const client = {
     sent,
+    connects: 0,
     async checkChats() {
+      return okResult();
+    },
+    async connectInstance() {
+      client.connects += 1;
       return okResult();
     },
     async configureWebhook() {
@@ -36,7 +48,7 @@ function fakeUazapiClient(instanceStatus: UazapiResult = okResult()): UazapiClie
       return okResult();
     },
     async getInstanceStatus() {
-      return instanceStatus;
+      return statuses.length > 1 ? (statuses.shift() as UazapiResult) : (statuses[0] as UazapiResult);
     },
     async sendContact() {
       return okResult();
@@ -44,11 +56,13 @@ function fakeUazapiClient(instanceStatus: UazapiResult = okResult()): UazapiClie
     async sendPresence() {
       return okResult();
     },
-    async sendText(input) {
+    async sendText(input: SendTextInput) {
       sent.push(input);
       return okResult();
     },
   };
+
+  return client as unknown as UazapiClient & { sent: SendTextInput[]; connects: number };
 }
 
 function fakeAiClient(outputText: string): AiClient & { calls: AiGenerateInput[] } {
@@ -148,7 +162,7 @@ async function buildHarness(
   seedLeads: Lead[],
   aiClient: AiClient,
   agentOverrides: Partial<SdrAgent> = {},
-  instanceStatus?: UazapiResult,
+  instanceStatus?: UazapiResult | UazapiResult[],
 ): Promise<Harness> {
   const agent = await makeAgent({ id: 'sdr-1', ...agentOverrides });
   const leads = createMemoryLeadRepository(seedLeads);
@@ -529,11 +543,15 @@ describe('reset conversation', () => {
  * o mesmo lead voltava a cada tick — 168 geracoes pagas, 61 delas para um unico lead.
  */
 describe('canal do WhatsApp fora do ar', () => {
-  const disconnected: UazapiResult = { status: 200, ok: true, body: { instance: { status: 'disconnected' } } };
+  const loggedOut: UazapiResult = {
+    status: 200,
+    ok: true,
+    body: { instance: { status: 'disconnected', lastDisconnectReason: '401: logged out from another device' } },
+  };
 
   it('nao gasta geracao de IA quando a instancia esta deslogada', async () => {
     const ai = fakeAiClient(aiReply('Oi, posso retomar?'));
-    const { service, uazapi } = await buildHarness([makeLead()], ai, {}, disconnected);
+    const { service, uazapi } = await buildHarness([makeLead()], ai, {}, loggedOut);
 
     const result = await service.runOnce(NOW);
 
@@ -542,13 +560,13 @@ describe('canal do WhatsApp fora do ar', () => {
     expect(result.sent).toBe(0);
     expect(result.skipped).toBe(1);
     expect(result.errors).toBe(0);
-    expect(result.details.join('\n')).toContain('WhatsApp desconectado');
+    expect(result.details.join('\n')).toContain('WhatsApp deslogado');
   });
 
   it('nao queima tentativa nem desabilita o follow-up do lead', async () => {
     const lead = makeLead();
     const ai = fakeAiClient(aiReply('Oi, posso retomar?'));
-    const { service, leads } = await buildHarness([lead], ai, {}, disconnected);
+    const { service, leads } = await buildHarness([lead], ai, {}, loggedOut);
 
     await service.runOnce(NOW);
 
@@ -581,17 +599,75 @@ describe('canal do WhatsApp fora do ar', () => {
 });
 
 /**
+ * Nem toda queda precisa de gente. Verificado contra a instancia real da Insumo Smart em
+ * 27/08: com a sessao invalidada, `/instance/connect` nao restaura nada — devolve um QR novo.
+ * Queda por outro motivo volta com um connect, e ate aqui o portal esperava alguem clicar.
+ */
+describe('reconexao automatica', () => {
+  const loggedOut: UazapiResult = {
+    status: 200,
+    ok: true,
+    body: { instance: { status: 'disconnected', lastDisconnectReason: '401: logged out from another device' } },
+  };
+  const dropped: UazapiResult = {
+    status: 200,
+    ok: true,
+    body: { instance: { status: 'disconnected', lastDisconnectReason: 'restartRequired' } },
+  };
+  const connected: UazapiResult = { status: 200, ok: true, body: { instance: { status: 'connected' } } };
+
+  it('reconecta e envia no mesmo tick quando a queda nao invalidou a sessao', async () => {
+    const ai = fakeAiClient(aiReply('Oi, posso retomar?'));
+    const { service, uazapi } = await buildHarness([makeLead()], ai, {}, [dropped, connected]);
+
+    const result = await service.runOnce(NOW);
+
+    expect(uazapi.connects).toBe(1);
+    expect(uazapi.sent).toHaveLength(1);
+    expect(result.sent).toBe(1);
+  });
+
+  // Insistir num QR que ninguem esta olhando so queima codigo atras de codigo.
+  it('nao tenta reconectar quando a sessao foi invalidada', async () => {
+    const ai = fakeAiClient(aiReply('Oi, posso retomar?'));
+    const { service, uazapi } = await buildHarness([makeLead()], ai, {}, loggedOut);
+
+    await service.runOnce(NOW);
+    await service.runOnce(new Date(NOW.getTime() + 10 * 60 * 1000));
+
+    expect(uazapi.connects).toBe(0);
+  });
+
+  it('espaca as tentativas em vez de tentar a cada tick', async () => {
+    const ai = fakeAiClient(aiReply('Oi, posso retomar?'));
+    const { service, uazapi } = await buildHarness([makeLead()], ai, {}, dropped);
+
+    for (let tick = 0; tick < 4; tick += 1) {
+      await service.runOnce(new Date(NOW.getTime() + tick * 60 * 1000));
+    }
+    expect(uazapi.connects).toBe(1);
+
+    await service.runOnce(new Date(NOW.getTime() + 6 * 60 * 1000));
+    expect(uazapi.connects).toBe(2);
+  });
+});
+
+/**
  * A primeira versao da guarda calou `/job-logs` por completo: canal fora deixou de escrever
  * qualquer linha. Quem abriu a tela em 27/08 viu a tabela parada no ultimo envio e leu isso
  * como scheduler morto — os dois SDRs "pararam", sendo que um so estava fora da janela.
  */
 describe('canal fora aparece no job-logs sem inundar', () => {
-  const disconnected: UazapiResult = { status: 200, ok: true, body: { instance: { status: 'disconnected' } } };
+  const loggedOut: UazapiResult = {
+    status: 200,
+    ok: true,
+    body: { instance: { status: 'disconnected', lastDisconnectReason: '401: logged out from another device' } },
+  };
   const MINUTE = 60 * 1000;
 
   it('registra o motivo uma vez, e nao a cada tick', async () => {
     const ai = fakeAiClient(aiReply('Oi, posso retomar?'));
-    const { service, jobLogs } = await buildHarness([makeLead()], ai, {}, disconnected);
+    const { service, jobLogs } = await buildHarness([makeLead()], ai, {}, loggedOut);
 
     for (let tick = 0; tick < 6; tick += 1) {
       await service.runOnce(new Date(NOW.getTime() + tick * 5 * MINUTE));
@@ -600,13 +676,25 @@ describe('canal fora aparece no job-logs sem inundar', () => {
     const logs = await jobLogs.list();
     expect(logs).toHaveLength(1);
     expect(logs[0]?.status).toBe('skipped');
-    expect(logs[0]?.error).toContain('WhatsApp desconectado');
+    expect(logs[0]?.error).toContain('WhatsApp deslogado');
     expect(logs[0]?.leadId).toBeNull();
+  });
+
+  // O motivo da queda e o que diz quem resolve: QR e trabalho de gente, rede o job refaz.
+  it('guarda o motivo da queda junto, para nao ter de adivinhar depois', async () => {
+    const ai = fakeAiClient(aiReply('Oi, posso retomar?'));
+    const { service, jobLogs } = await buildHarness([makeLead()], ai, {}, loggedOut);
+
+    await service.runOnce(NOW);
+
+    const [log] = await jobLogs.list();
+    expect(log?.result).toContain('logged out from another device');
+    expect(log?.result).toContain('"needsQrScan":true');
   });
 
   it('volta a registrar depois da janela de silencio', async () => {
     const ai = fakeAiClient(aiReply('Oi, posso retomar?'));
-    const { service, jobLogs } = await buildHarness([makeLead()], ai, {}, disconnected);
+    const { service, jobLogs } = await buildHarness([makeLead()], ai, {}, loggedOut);
 
     await service.runOnce(NOW);
     await service.runOnce(new Date(NOW.getTime() + 31 * MINUTE));
