@@ -778,3 +778,67 @@ describe('envio recusado nao vira ciclo caro por minuto', () => {
     expect(log?.result).toContain('internal');
   });
 });
+
+/**
+ * O corpo do HTTP 500 da Insumo Smart, visivel so depois que passamos a grava-lo, nao era erro
+ * da UAZAPI: era o WhatsApp. `provider_code: 463`, `error_key: WHATSAPP_REACHOUT_TIMELOCK`, e um
+ * `until` explicito — a conta proibida de INICIAR novas conversas ate o dia seguinte, "por
+ * volume ou qualidade de envios". Insistir contra isso reforca o proprio motivo do bloqueio.
+ */
+describe('bloqueio do WhatsApp para novas conversas', () => {
+  const timelockAte = '2026-07-24T11:48:27.000Z';
+
+  function comTimelock(): UazapiClient & { sent: SendTextInput[]; connects: number } {
+    const client = fakeUazapiClient();
+    return {
+      ...client,
+      async sendText() {
+        return {
+          status: 500,
+          ok: false,
+          body: {
+            error_key: 'WHATSAPP_REACHOUT_TIMELOCK',
+            provider_code: 463,
+            details: { reachout_timelock: { active: true, enforcement_type: 'RESTRICT_ALL_COMPANIONS', until: timelockAte } },
+          },
+        };
+      },
+    } as UazapiClient & { sent: SendTextInput[]; connects: number };
+  }
+
+  async function harness() {
+    const agent = await makeAgent({ id: 'sdr-1' });
+    const ai = fakeAiClient(aiReply('Oi, posso retomar?'));
+    const service = createFollowupOutreachService({
+      aiClient: ai,
+      aiRunRepository: createMemoryAiRunRepository(),
+      conversationRepository: createMemoryConversationRepository(),
+      jobLogRepository: createMemoryJobLogRepository(),
+      leadRepository: createMemoryLeadRepository([makeLead()]),
+      sdrAgentRepository: createMemorySdrAgentRepository([agent]),
+      uazapiClient: comTimelock(),
+    });
+    return { ai, service };
+  }
+
+  it('respeita o prazo do WhatsApp em vez do recuo curto de 5min', async () => {
+    const { ai, service } = await harness();
+
+    await service.runOnce(NOW);
+    expect(ai.calls).toHaveLength(1);
+
+    // Passados 6min o recuo comum ja teria expirado; o prazo do WhatsApp nao.
+    await service.runOnce(new Date(NOW.getTime() + 6 * 60 * 1000));
+    await service.runOnce(new Date(NOW.getTime() + 60 * 60 * 1000));
+    expect(ai.calls).toHaveLength(1);
+  });
+
+  it('volta a tentar depois do prazo', async () => {
+    const { ai, service } = await harness();
+
+    await service.runOnce(NOW);
+    await service.runOnce(new Date(new Date(timelockAte).getTime() + 60 * 1000));
+
+    expect(ai.calls).toHaveLength(2);
+  });
+});
