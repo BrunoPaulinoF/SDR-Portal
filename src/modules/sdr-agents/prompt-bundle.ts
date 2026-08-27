@@ -163,3 +163,16 @@ export function planPromptUpdate(input: {
 
   return { changes, unchanged, firstMessage: firstMessageChanged ? bundle.firstMessage : null, warnings };
 }
+
+/**
+ * Nome do diretorio de prompts de um SDR: `Mariana` -> `mariana`, `Insumo Smart` ->
+ * `insumosmart`. Mora aqui, e nao no script, para poder ser testado sem abrir conexao com o
+ * banco — e porque e a regra que liga um SDR ao bundle dele.
+ */
+export function promptDirNameFor(agentName: string): string {
+  return agentName
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+}

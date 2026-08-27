@@ -8,6 +8,10 @@ import {
   readPromptBundle,
 } from '../src/modules/sdr-agents/prompt-bundle.js';
 import { createMemorySdrAgentRepository } from '../src/modules/sdr-agents/sdr-agent-repository.js';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { promptDirNameFor } from '../src/modules/sdr-agents/prompt-bundle.js';
 
 const INSUMOSMART_DIR = 'docs/prompts/insumosmart';
 
@@ -131,5 +135,31 @@ describe('bundle de prompts do repositorio', () => {
 
     expect(plan.changes.map((change) => change.field)).not.toContain('firstMessageMode');
     expect(plan.warnings.join(' ')).toContain(FIRST_MESSAGE_FILE);
+  });
+});
+
+/**
+ * O script tinha `DEFAULT_DIR = 'docs/prompts/insumosmart'`: rodar `--agent="Mariana" --apply`,
+ * que e a forma documentada no CLAUDE.md, gravava os prompts da Insumo Smart na Mariana e ainda
+ * trocava o playbook dela para `convite`. Em 27/08 ela passou a se apresentar como SDR da
+ * Insumo Smart para os leads da KyberFood.
+ */
+describe('diretorio de prompts sai do nome do SDR', () => {
+  it('deriva o diretorio de cada SDR', () => {
+    expect(promptDirNameFor('Mariana')).toBe('mariana');
+    expect(promptDirNameFor('Insumo Smart')).toBe('insumosmart');
+  });
+
+  it('ignora acento, caixa e pontuacao', () => {
+    expect(promptDirNameFor('Franciely')).toBe('franciely');
+    expect(promptDirNameFor('SDR Açaí-Express')).toBe('sdracaiexpress');
+  });
+
+  // O que existe no repositorio tem de casar com o que o script vai procurar sozinho.
+  it('casa com os bundles versionados', () => {
+    for (const sdr of ['mariana', 'insumosmart']) {
+      expect(existsSync(join('docs/prompts', sdr))).toBe(true);
+    }
+    expect(promptDirNameFor('Mariana')).toBe('mariana');
   });
 });

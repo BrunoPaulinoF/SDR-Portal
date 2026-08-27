@@ -46,7 +46,14 @@ node dist/src/db/apply-sdr-prompts.js --agent="Franc" --apply    # grava
 ```
 
 `--agent` aceita o id ou um pedaço do nome (com mais de um match ele lista os ids e não grava
-nada). Outras opções: `--dir=docs/prompts/<sdr>`, `--playbook=consultivo|convite`.
+nada). O **diretório sai do nome do SDR** (`Mariana` → `docs/prompts/mariana`), e o **playbook
+fica como está** — passe `--dir=` ou `--playbook=consultivo|convite` só para sair disso de
+propósito.
+
+> Até 27/08 o script tinha `docs/prompts/insumosmart` e `convite` como padrão, então
+> `--agent="Mariana" --apply` gravava os prompts da Insumo Smart na Mariana e trocava o funil
+> dela. Ela passou a se apresentar como SDR da Insumo Smart para os leads da KyberFood. Se um
+> SDR começar a falar como outro, é o primeiro lugar para olhar.
 
 ## Commands
 
