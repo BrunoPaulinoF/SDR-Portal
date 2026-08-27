@@ -15,33 +15,73 @@ const sendBackoffMs = 5 * 60 * 1000;
 export interface SendBackoff {
   /** Minutos restantes de recuo, ou `null` quando o SDR esta liberado. */
   remainingMinutes(agentId: string, now: Date): number | null;
-  recordFailure(agentId: string, now: Date): void;
+  /** `until` manda no recuo quando existe: e o proprio WhatsApp dizendo ate quando. */
+  recordFailure(agentId: string, now: Date, until?: Date | null): void;
   clear(agentId: string): void;
 }
 
+interface ReachoutTimelock {
+  until: Date;
+  enforcement: string | null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+/**
+ * Le a restricao que o WhatsApp — nao a UAZAPI — impoe a conta conectada.
+ *
+ * Em 27/08 todo envio da Insumo Smart voltava HTTP 500. O corpo, que so ficou visivel depois de
+ * passarmos a grava-lo, dizia `provider_code: 463`,
+ * `error_key: "WHATSAPP_REACHOUT_TIMELOCK"` e um `until` explicito: a conta estava proibida de
+ * INICIAR novas conversas ate o dia seguinte, "normalmente relacionada a volume ou qualidade de
+ * envios". Nada no portal conserta isso, e insistir contra um bloqueio de qualidade e a pior
+ * reacao possivel — cada tentativa reforca o motivo do bloqueio.
+ *
+ * Repare que enviar para uma conversa que ja existe continua funcionando: foi por isso que o
+ * envio de teste para o proprio numero da instancia respondeu 200 enquanto todo lead falhava.
+ */
+export function reachoutTimelockFrom(body: unknown): ReachoutTimelock | null {
+  const root = asRecord(body);
+  const timelock = asRecord(asRecord(root.details).reachout_timelock);
+  const until = typeof timelock.until === 'string' ? new Date(timelock.until) : null;
+  const ativo = timelock.active === true || root.error_key === 'WHATSAPP_REACHOUT_TIMELOCK';
+
+  if (!ativo || !until || Number.isNaN(until.getTime())) return null;
+
+  return {
+    until,
+    enforcement: typeof timelock.enforcement_type === 'string' ? timelock.enforcement_type : null,
+  };
+}
+
 export function createSendBackoff(): SendBackoff {
-  const failedAt = new Map<string, number>();
+  const liberadoEm = new Map<string, number>();
 
   return {
     remainingMinutes(agentId, now) {
-      const since = failedAt.get(agentId);
-      if (since === undefined) return null;
+      const until = liberadoEm.get(agentId);
+      if (until === undefined) return null;
 
-      const elapsed = now.getTime() - since;
-      if (elapsed >= sendBackoffMs) {
-        failedAt.delete(agentId);
+      const restante = until - now.getTime();
+      if (restante <= 0) {
+        liberadoEm.delete(agentId);
         return null;
       }
 
-      return Math.max(1, Math.ceil((sendBackoffMs - elapsed) / 60000));
+      return Math.max(1, Math.ceil(restante / 60000));
     },
 
-    recordFailure(agentId, now) {
-      failedAt.set(agentId, now.getTime());
+    recordFailure(agentId, now, until) {
+      // Prazo dito pelo WhatsApp vale mais que o nosso: tentar antes dele so gasta e insiste
+      // contra um bloqueio que tem hora para acabar.
+      const alvo = until && until.getTime() > now.getTime() ? until.getTime() : now.getTime() + sendBackoffMs;
+      liberadoEm.set(agentId, alvo);
     },
 
     clear(agentId) {
-      failedAt.delete(agentId);
+      liberadoEm.delete(agentId);
     },
   };
 }

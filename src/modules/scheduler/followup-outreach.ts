@@ -21,7 +21,7 @@ import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
 import { describeNowInTimeZone, startOfDayInTimeZone } from '../timezone.js';
 import type { UazapiClient } from '../uazapi/uazapi-client.js';
 import { createChannelGuard } from './channel-guard.js';
-import { createSendBackoff, UazapiSendError } from './send-backoff.js';
+import { createSendBackoff, reachoutTimelockFrom, UazapiSendError } from './send-backoff.js';
 
 /** Resolve o nivel salvo para a escala do provider deste SDR; `null` omite o parametro. */
 function reasoningEffortOf(agent: Pick<SdrAgent, 'aiProvider' | 'aiReasoningEffort'>): string | null {
@@ -586,7 +586,9 @@ export function createFollowupOutreachService(deps: FollowupOutreachDependencies
       return 'sent';
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro desconhecido.';
-      if (error instanceof UazapiSendError) sendBackoff.recordFailure(agent.id, now);
+      if (error instanceof UazapiSendError) {
+        sendBackoff.recordFailure(agent.id, now, reachoutTimelockFrom(error.body)?.until ?? null);
+      }
       await deps.jobLogRepository.create({
         jobName: 'followup-outreach',
         jobKey: `agent-${agent.id}`,

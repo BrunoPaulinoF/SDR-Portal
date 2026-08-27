@@ -25,7 +25,7 @@ import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
 import { describeNowInTimeZone, startOfDayInTimeZone } from '../timezone.js';
 import type { UazapiClient } from '../uazapi/uazapi-client.js';
 import { createChannelGuard } from './channel-guard.js';
-import { createLeadSendFailures, createSendBackoff, UazapiSendError } from './send-backoff.js';
+import { createLeadSendFailures, createSendBackoff, reachoutTimelockFrom, UazapiSendError } from './send-backoff.js';
 
 /** Resolve o nivel salvo para a escala do provider deste SDR; `null` omite o parametro. */
 function reasoningEffortOf(agent: Pick<SdrAgent, 'aiProvider' | 'aiReasoningEffort'>): string | null {
@@ -831,11 +831,13 @@ export function createInitialOutreachService(deps: InitialOutreachDependencies) 
       // caro a cada minuto. E guarda o que a UAZAPI respondeu — `UAZAPI returned HTTP 500`
       // sozinho nao diz nada a quem for depurar depois.
       let leftQueue = false;
+      let timelock: ReturnType<typeof reachoutTimelockFrom> = null;
       if (error instanceof UazapiSendError) {
-        sendBackoff.recordFailure(agent.id, now);
-        // Recusa que se repete no mesmo lead tira ele da frente: senao um unico numero
-        // problematico segura a base inteira, que foi o caso de 27/08.
-        if (attemptedLead) leftQueue = leadSendFailures.record(attemptedLead.id);
+        timelock = reachoutTimelockFrom(error.body);
+        sendBackoff.recordFailure(agent.id, now, timelock?.until ?? null);
+        // Bloqueio de conta nao e culpa do lead: contar a falha nele tiraria da fila leads
+        // perfeitos por um motivo que nao tem nada a ver com eles.
+        if (attemptedLead && !timelock) leftQueue = leadSendFailures.record(attemptedLead.id);
       }
       await deps.jobLogRepository.create({
         jobName: 'initial-outreach',
@@ -854,9 +856,11 @@ export function createInitialOutreachService(deps: InitialOutreachDependencies) 
         finishedAt: new Date(),
       });
       details.push(
-        leftQueue && attemptedLead
-          ? `${agent.name}: erro ${message} — ${attemptedLead.companyName} sai da fila depois de recusas seguidas.`
-          : `${agent.name}: erro ${message}`,
+        timelock
+          ? `${agent.name}: WhatsApp bloqueou novas conversas nesta conta ate ${timelock.until.toISOString()} — o disparo so volta depois disso.`
+          : leftQueue && attemptedLead
+            ? `${agent.name}: erro ${message} — ${attemptedLead.companyName} sai da fila depois de recusas seguidas.`
+            : `${agent.name}: erro ${message}`,
       );
       return errorProcessResult();
     }

@@ -164,3 +164,73 @@ describe('lead que a UAZAPI recusa nao trava a fila', () => {
     expect(uazapi.sent[0]?.number).toBe('5519996782890');
   });
 });
+
+/**
+ * Bloqueio de conta nao e culpa do lead. Sem esta distincao, um `RESTRICT_ALL_COMPANIONS` do
+ * WhatsApp — que recusa TODO envio — iria tirando da fila leads perfeitos, tres a tres, por um
+ * motivo que nao tem nada a ver com eles.
+ */
+describe('bloqueio de conta nao queima os leads', () => {
+  function comTimelock(): UazapiClient & { sent: SendTextInput[] } {
+    const client = fakeUazapi();
+    return {
+      ...client,
+      async sendText() {
+        return {
+          status: 500,
+          ok: false,
+          body: {
+            error_key: 'WHATSAPP_REACHOUT_TIMELOCK',
+            details: { reachout_timelock: { active: true, until: '2026-07-24T11:48:27.000Z' } },
+          },
+        };
+      },
+    } as UazapiClient & { sent: SendTextInput[] };
+  }
+
+  it('nao tira nenhum lead da fila enquanto o bloqueio dura', async () => {
+    const leads = createMemoryLeadRepository([
+      leadRow('lead-a', 'Divino Sabor', '5519996782890', new Date('2026-07-01T00:00:00.000Z')),
+      leadRow('lead-b', 'Marmitaria Delivery', '5512996808655', new Date('2026-07-02T00:00:00.000Z')),
+    ]);
+    const uazapi = comTimelock();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const agent = await sdrAgentRepository.create({
+      companyId: 'company-1',
+      name: 'Francielly',
+      displayName: 'Francielly',
+      isActive: true,
+      productName: 'Insumo Smart',
+      prompt: 'Aborde a empresa.',
+      deepseekApiKeyEncrypted: encryptSecret('sk-test'),
+      uazapiBaseUrl: 'https://uazapi.test',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+      timezone: 'America/Sao_Paulo',
+      sendWindowStart: '00:00',
+      sendWindowEnd: '23:59',
+      sendDaysOfWeek: '0,1,2,3,4,5,6',
+      initialCooldownMinMinutes: 0,
+      initialCooldownMaxMinutes: 0,
+      dailyInitialSendLimit: 40,
+    });
+    const service = createInitialOutreachService({
+      aiClient: fakeAi(),
+      aiRunRepository: createMemoryAiRunRepository(),
+      conversationRepository: createMemoryConversationRepository(),
+      firstMessageVariantRepository: createMemoryFirstMessageVariantRepository(),
+      jobLogRepository: createMemoryJobLogRepository(),
+      leadResearchService: { async researchLead() { return null; } },
+      leadRepository: leads,
+      sdrAgentRepository: createMemorySdrAgentRepository([{ ...agent, id: 'sdr-1' }]),
+      uazapiClient: uazapi,
+    });
+
+    for (let tick = 0; tick < 10; tick += 1) {
+      await service.runOnce(new Date(NOW.getTime() + tick * 10 * 60 * 1000));
+    }
+
+    // O lead mais antigo continua sendo o proximo da fila: ninguem foi marcado.
+    const proximo = await leads.findNextPendingForSdr('sdr-1');
+    expect(proximo?.id).toBe('lead-a');
+  });
+});
