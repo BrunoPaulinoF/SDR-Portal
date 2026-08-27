@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gt, gte, inArray, isNotNull, isNull, lte, ne, notExists, or, sql, type SQL } from 'drizzle-orm';
+import { and, count, desc, eq, gt, gte, inArray, isNotNull, isNull, lte, ne, notExists, notInArray, or, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 
 import { db } from '../../db/client.js';
@@ -151,11 +151,18 @@ export function createDbLeadRepository(): LeadRepository {
       return lead ?? null;
     },
 
-    async findNextPendingForSdr(sdrAgentId) {
+    async findNextPendingForSdr(sdrAgentId, options) {
+      const skipLeadIds = options?.skipLeadIds ?? [];
       const [lead] = await db
         .select()
         .from(leads)
-        .where(and(eq(leads.sdrAgentId, sdrAgentId), eq(leads.status, 'pending')))
+        .where(
+          and(
+            eq(leads.sdrAgentId, sdrAgentId),
+            eq(leads.status, 'pending'),
+            ...(skipLeadIds.length > 0 ? [notInArray(leads.id, [...skipLeadIds])] : []),
+          ),
+        )
         .orderBy(leads.createdAt)
         .limit(1);
       return lead ?? null;

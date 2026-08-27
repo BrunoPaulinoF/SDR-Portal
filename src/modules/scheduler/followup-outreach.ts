@@ -21,6 +21,7 @@ import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
 import { describeNowInTimeZone, startOfDayInTimeZone } from '../timezone.js';
 import type { UazapiClient } from '../uazapi/uazapi-client.js';
 import { createChannelGuard } from './channel-guard.js';
+import { createSendBackoff, UazapiSendError } from './send-backoff.js';
 
 /** Resolve o nivel salvo para a escala do provider deste SDR; `null` omite o parametro. */
 function reasoningEffortOf(agent: Pick<SdrAgent, 'aiProvider' | 'aiReasoningEffort'>): string | null {
@@ -390,6 +391,7 @@ function getCredentials(agent: SdrAgent): { baseUrl: string; token: string } | n
 export function createFollowupOutreachService(deps: FollowupOutreachDependencies) {
   // Vive no processo, nao no tick: e o que permite anunciar canal fora sem repetir a linha.
   const ensureChannel = createChannelGuard(deps.uazapiClient, deps.jobLogRepository);
+  const sendBackoff = createSendBackoff();
 
   async function loadHistory(lead: Lead): Promise<{ conversation: Conversation | null; history: Message[] }> {
     const conversation = await deps.conversationRepository.findByLeadId(lead.id);
@@ -503,6 +505,13 @@ export function createFollowupOutreachService(deps: FollowupOutreachDependencies
         return 'skipped';
       }
 
+      // Mesma razao do disparo inicial: envio recusado ha pouco nao merece outra geracao de IA.
+      const backoff = sendBackoff.remainingMinutes(agent.id, now);
+      if (backoff !== null) {
+        details.push(`${agent.name}: envio recusado ha pouco, tentando de novo em ${backoff}min.`);
+        return 'skipped';
+      }
+
       const { conversation, history } = await loadHistory(lead);
       // Sem inbound nenhum nao ha conversa para retomar: e um segundo toque na abordagem.
       // A thread entra na decisao junto com a coluna: o roteiro de bump afirma ao modelo que
@@ -555,7 +564,7 @@ export function createFollowupOutreachService(deps: FollowupOutreachDependencies
         trackId: `followup-${lead.id}`,
       });
 
-      if (!result.ok) throw new Error(`UAZAPI returned HTTP ${result.status}`);
+      if (!result.ok) throw new UazapiSendError(result.status, result.body);
 
       await recordFollowupMessage(agent, lead, conversation, text, result.body, now);
       await deps.leadRepository.markFollowupSent(lead.id, now);
@@ -572,10 +581,12 @@ export function createFollowupOutreachService(deps: FollowupOutreachDependencies
         startedAt,
         finishedAt: new Date(),
       });
+      sendBackoff.clear(agent.id);
       details.push(`${agent.name}: ${mode === 'bump' ? 'segundo toque' : 'follow-up'} enviado para ${lead.companyName}.`);
       return 'sent';
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro desconhecido.';
+      if (error instanceof UazapiSendError) sendBackoff.recordFailure(agent.id, now);
       await deps.jobLogRepository.create({
         jobName: 'followup-outreach',
         jobKey: `agent-${agent.id}`,
@@ -584,7 +595,7 @@ export function createFollowupOutreachService(deps: FollowupOutreachDependencies
         status: 'failed',
         attempt: 1,
         payload: JSON.stringify({ agentId: agent.id, leadId: lead.id }),
-        result: null,
+        result: error instanceof UazapiSendError ? JSON.stringify({ uazapiStatus: error.status, uazapi: error.body }) : null,
         error: message,
         startedAt,
         finishedAt: new Date(),

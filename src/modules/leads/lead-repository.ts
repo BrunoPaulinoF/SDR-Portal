@@ -46,7 +46,12 @@ export interface LeadRepository {
   findLastFollowupSentForSdr(sdrAgentId: string): Promise<Lead | null>;
   findLastInitialSentForSdr(sdrAgentId: string): Promise<Lead | null>;
   findNextFollowupDueForSdr(sdrAgentId: string, now: Date, options?: FollowupDueOptions): Promise<Lead | null>;
-  findNextPendingForSdr(sdrAgentId: string): Promise<Lead | null>;
+  /**
+   * Proximo lead a abordar. `skipLeadIds` tira da fila os leads cujo envio a UAZAPI recusou
+   * varias vezes seguidas: sem isso um unico numero problematico fica eternamente em primeiro
+   * lugar e o resto da base nunca e alcancado.
+   */
+  findNextPendingForSdr(sdrAgentId: string, options?: { skipLeadIds?: readonly string[] }): Promise<Lead | null>;
   findBySdrAndWhatsapp(sdrAgentId: string, whatsappNumber: string): Promise<Lead | null>;
   list(): Promise<Lead[]>;
   /** Leads de um conjunto conhecido de ids (ex.: os donos das conversas de um SDR). */
@@ -236,10 +241,11 @@ export function createMemoryLeadRepository(seedLeads: Lead[] = []): LeadReposito
       );
     },
 
-    async findNextPendingForSdr(sdrAgentId) {
+    async findNextPendingForSdr(sdrAgentId, options) {
+      const skip = new Set(options?.skipLeadIds ?? []);
       return (
         [...rows.values()]
-          .filter((lead) => lead.sdrAgentId === sdrAgentId && lead.status === 'pending')
+          .filter((lead) => lead.sdrAgentId === sdrAgentId && lead.status === 'pending' && !skip.has(lead.id))
           .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())[0] ?? null
       );
     },
