@@ -21,6 +21,7 @@ import type { LeadResearchResult, LeadResearchService } from '../leads/lead-rese
 import type { LeadRepository } from '../leads/lead-repository.js';
 import { normalizeWhatsappJid, whatsappIdentityFromUazapiSendResult, whatsappNumberFromUazapiSendResult } from '../phone/whatsapp-number.js';
 import { decryptSecret } from '../security/secrets.js';
+import { checkWhatsappChannel } from '../uazapi/instance-provisioning.js';
 import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
 import { describeNowInTimeZone, startOfDayInTimeZone } from '../timezone.js';
 import type { UazapiClient } from '../uazapi/uazapi-client.js';
@@ -693,6 +694,15 @@ export function createInitialOutreachService(deps: InitialOutreachDependencies) 
       const credentials = getCredentials(agent);
       if (!credentials) {
         throw new Error('SDR sem URL/token UAZAPI configurado.');
+      }
+
+      // Instancia deslogada devolve 503 em tudo. Sem essa guarda, cada tick virava uma linha
+      // `failed` identica em job_logs (720 num unico dia) que nao dizia o que fazer, e a
+      // pesquisa do lead so nao era paga por acidente da ordem das chamadas.
+      const channel = await checkWhatsappChannel(deps.uazapiClient, credentials);
+      if (!channel.usable) {
+        details.push(`${agent.name}: ${channel.reason}`);
+        return skippedProcessResult();
       }
 
       let skipped = 0;

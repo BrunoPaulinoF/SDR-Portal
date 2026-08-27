@@ -1030,6 +1030,7 @@ describe('initial outreach scheduler', () => {
     expect(updatedLead?.firstMessageSentAt).toBeInstanceOf(Date);
     expect(updatedLead?.followupDueAt).toBeInstanceOf(Date);
     expect(calls).toEqual([
+      'status:https://api.uazapi.com:instance-token',
       'check:5534999969911:instance-token',
       'presence:5534999969911:composing:instance-token',
       'text:5534999969911:Olá, tudo bem? Aqui é Franciely. Estava olhando empresas do setor de Gastronomia e encontrei a Restaurante A. Posso te fazer uma pergunta rápida sobre o dia a dia da Restaurante A?:instance-token',
@@ -1342,7 +1343,10 @@ describe('initial outreach scheduler', () => {
     expect(updatedLead?.status).toBe('discarded');
     expect(updatedLead?.conversationStage).toBe('discarded');
     expect(updatedLead?.followupDisabledAt).toBeInstanceOf(Date);
-    expect(calls).toEqual(['check:5511555555555:instance-token']);
+    expect(calls).toEqual([
+      'status:https://api.uazapi.com:instance-token',
+      'check:5511555555555:instance-token',
+    ]);
     expect(aiCalls).toHaveLength(1);
     expect(aiCalls[0]).toContain('web:low');
     expect(aiCalls[0]).toContain('lead deve receber a abordagem fria deste SDR');
@@ -1449,6 +1453,7 @@ describe('initial outreach scheduler', () => {
     expect(researchCalls.join('\n')).not.toContain('Contato Sem WhatsApp');
     expect(researchCalls.join('\n')).toContain('Restaurante Valido');
     expect(calls).toEqual([
+      'status:https://api.uazapi.com:instance-token',
       'check:5511444444444:instance-token',
       'check:5511333333333:instance-token',
       'presence:5511333333333:composing:instance-token',
@@ -1556,6 +1561,7 @@ describe('initial outreach scheduler', () => {
     expect(lowFitUpdated?.status).toBe('discarded');
     expect(qualifiedUpdated?.status).toBe('initial_sent');
     expect(calls).toEqual([
+      'status:https://api.uazapi.com:instance-token',
       'check:5511222222222:instance-token',
       'check:5511111111111:instance-token',
       'presence:5511111111111:composing:instance-token',
@@ -1797,6 +1803,7 @@ describe('follow-up scheduler', () => {
     expect(updatedLead?.followupSentAt).toBeInstanceOf(Date);
     expect(updatedLead?.followupDisabledAt).toBeInstanceOf(Date);
     expect(calls).toEqual([
+      'status:https://api.uazapi.com:instance-token',
       'presence:5511999999999:composing:instance-token',
       'text:5511999999999:Oi, tudo bem? Posso retomar nossa conversa rapidinho?:instance-token',
     ]);

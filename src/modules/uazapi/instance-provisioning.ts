@@ -295,3 +295,47 @@ export async function deleteInstance(
   const result = await uazapiClient.deleteInstance(credentials);
   return { removed: result.ok || result.status === 404, status: result.status };
 }
+
+export interface WhatsappChannelState {
+  /** `false` so quando ha prova de que o canal esta fora — ver `checkWhatsappChannel`. */
+  usable: boolean;
+  status: string | null;
+  /** Motivo legivel para o log do job. Vazio quando o canal esta utilizavel. */
+  reason: string;
+}
+
+/**
+ * Guarda de canal para os jobs do scheduler: diz se a instancia deste SDR consegue enviar
+ * agora, ANTES de gastar pesquisa, geracao de IA ou tentativa de follow-up.
+ *
+ * Existe porque instancia deslogada nao e problema de um lead, e do SDR inteiro. Em 25/08 a
+ * instancia da Insumo Smart caiu com `401: logged out from another device` e o portal passou
+ * dois dias assim: o follow-up gerava a mensagem no modelo e so entao levava HTTP 503 no
+ * envio, sem reagendar o lead — a mesma fila voltava a cada tick e queimou 168 geracoes de IA
+ * em mensagens que nunca sairiam (61 delas para um unico lead).
+ *
+ * A guarda so bloqueia com prova: HTTP recusado, ou um `status` presente e diferente de
+ * `connected`. Instancia que nao devolve `status` segue o caminho antigo — uma variacao de
+ * payload da UAZAPI nao pode calar o disparo inteiro em silencio.
+ */
+export async function checkWhatsappChannel(
+  uazapiClient: UazapiClient,
+  credentials: { baseUrl: string; token: string },
+): Promise<WhatsappChannelState> {
+  const result = await uazapiClient.getInstanceStatus(credentials);
+  const status = readString(instanceRecord(result.body), 'status');
+
+  if (!result.ok) {
+    return { usable: false, status, reason: `UAZAPI respondeu HTTP ${result.status} ao consultar a instancia.` };
+  }
+
+  if (status !== null && status !== 'connected') {
+    return {
+      usable: false,
+      status,
+      reason: `WhatsApp desconectado (status ${status}) — releia o QR code na tela Conectar do SDR.`,
+    };
+  }
+
+  return { usable: true, status, reason: '' };
+}

@@ -22,7 +22,7 @@ function okResult(): UazapiResult {
   return { status: 200, ok: true, body: { messageid: 'msg-1' } };
 }
 
-function fakeUazapiClient(): UazapiClient & { sent: SendTextInput[] } {
+function fakeUazapiClient(instanceStatus: UazapiResult = okResult()): UazapiClient & { sent: SendTextInput[] } {
   const sent: SendTextInput[] = [];
   return {
     sent,
@@ -36,7 +36,7 @@ function fakeUazapiClient(): UazapiClient & { sent: SendTextInput[] } {
       return okResult();
     },
     async getInstanceStatus() {
-      return okResult();
+      return instanceStatus;
     },
     async sendContact() {
       return okResult();
@@ -143,11 +143,16 @@ interface Harness {
   service: ReturnType<typeof createFollowupOutreachService>;
 }
 
-async function buildHarness(seedLeads: Lead[], aiClient: AiClient, agentOverrides: Partial<SdrAgent> = {}): Promise<Harness> {
+async function buildHarness(
+  seedLeads: Lead[],
+  aiClient: AiClient,
+  agentOverrides: Partial<SdrAgent> = {},
+  instanceStatus?: UazapiResult,
+): Promise<Harness> {
   const agent = await makeAgent({ id: 'sdr-1', ...agentOverrides });
   const leads = createMemoryLeadRepository(seedLeads);
   const conversations = createMemoryConversationRepository();
-  const uazapi = fakeUazapiClient();
+  const uazapi = fakeUazapiClient(instanceStatus);
   const service = createFollowupOutreachService({
     aiClient,
     aiRunRepository: createMemoryAiRunRepository(),
@@ -427,5 +432,63 @@ describe('reset conversation', () => {
 
     const all = await leads.list();
     expect(all).toHaveLength(2);
+  });
+});
+
+/**
+ * Em 25/08 a instancia da Insumo Smart deslogou do WhatsApp ("401: logged out from another
+ * device") e o follow-up passou dois dias assim: gerava a mensagem no modelo, levava HTTP 503
+ * no envio e devolvia o lead intacto para a fila. Como a falha de envio nunca reagendou nada,
+ * o mesmo lead voltava a cada tick — 168 geracoes pagas, 61 delas para um unico lead.
+ */
+describe('canal do WhatsApp fora do ar', () => {
+  const disconnected: UazapiResult = { status: 200, ok: true, body: { instance: { status: 'disconnected' } } };
+
+  it('nao gasta geracao de IA quando a instancia esta deslogada', async () => {
+    const ai = fakeAiClient(aiReply('Oi, posso retomar?'));
+    const { service, uazapi } = await buildHarness([makeLead()], ai, {}, disconnected);
+
+    const result = await service.runOnce(NOW);
+
+    expect(ai.calls).toHaveLength(0);
+    expect(uazapi.sent).toHaveLength(0);
+    expect(result.sent).toBe(0);
+    expect(result.skipped).toBe(1);
+    expect(result.errors).toBe(0);
+    expect(result.details.join('\n')).toContain('WhatsApp desconectado');
+  });
+
+  it('nao queima tentativa nem desabilita o follow-up do lead', async () => {
+    const lead = makeLead();
+    const ai = fakeAiClient(aiReply('Oi, posso retomar?'));
+    const { service, leads } = await buildHarness([lead], ai, {}, disconnected);
+
+    await service.runOnce(NOW);
+
+    const stored = await leads.findById(lead.id);
+    expect(stored?.followupAttempts).toBe(0);
+    expect(stored?.followupDisabledAt).toBeNull();
+    expect(stored?.followupDueAt).toEqual(lead.followupDueAt);
+  });
+
+  it('volta a enviar sozinho assim que a instancia reconecta', async () => {
+    const ai = fakeAiClient(aiReply('Oi, posso retomar?'));
+    const { service, uazapi } = await buildHarness([makeLead()], ai, {}, okResult());
+
+    await service.runOnce(NOW);
+
+    expect(uazapi.sent).toHaveLength(1);
+  });
+
+  // Payload sem `status` nao e prova de nada: a UAZAPI varia o corpo e um parse frustrado
+  // nao pode calar o disparo inteiro em silencio.
+  it('segue enviando quando a UAZAPI nao devolve status', async () => {
+    const ai = fakeAiClient(aiReply('Oi, posso retomar?'));
+    const semStatus: UazapiResult = { status: 200, ok: true, body: { instance: {} } };
+    const { service, uazapi } = await buildHarness([makeLead()], ai, {}, semStatus);
+
+    await service.runOnce(NOW);
+
+    expect(uazapi.sent).toHaveLength(1);
   });
 });
