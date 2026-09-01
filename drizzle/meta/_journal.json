@@ -127,6 +127,20 @@
       "when": 1787661535932,
       "tag": "0017_perfect_bruce_banner",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1788261107189,
+      "tag": "0018_legal_leader",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1788261117176,
+      "tag": "0019_daily_initial_limit_25",
+      "breakpoints": true
     }
   ]
 }
