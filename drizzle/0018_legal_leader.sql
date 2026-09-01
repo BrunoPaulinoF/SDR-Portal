@@ -1,0 +1,1 @@
+ALTER TABLE "sdr_agents" ALTER COLUMN "daily_initial_send_limit" SET DEFAULT 25;

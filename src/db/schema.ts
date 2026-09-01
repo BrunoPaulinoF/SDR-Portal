@@ -88,7 +88,7 @@ export const sdrAgents = pgTable('sdr_agents', {
   followupAfterHours: integer('followup_after_hours').default(24).notNull(),
   followupCooldownMinMinutes: integer('followup_cooldown_min_minutes').default(10).notNull(),
   followupCooldownMaxMinutes: integer('followup_cooldown_max_minutes').default(30).notNull(),
-  dailyInitialSendLimit: integer('daily_initial_send_limit').default(50).notNull(),
+  dailyInitialSendLimit: integer('daily_initial_send_limit').default(25).notNull(),
   dailyFollowupSendLimit: integer('daily_followup_send_limit').default(50).notNull(),
   responseDelayBaseMs: integer('response_delay_base_ms').default(1200).notNull(),
   responseDelayPerCharMs: integer('response_delay_per_char_ms').default(35).notNull(),
