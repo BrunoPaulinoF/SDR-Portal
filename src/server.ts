@@ -9,10 +9,13 @@ import { createDbJobLogRepository } from './modules/jobs/db-job-log-repository.j
 import { createDbLeadResearchRepository } from './modules/leads/db-lead-research-repository.js';
 import { createHttpLeadResearchProvider, createLeadResearchService } from './modules/leads/lead-research-service.js';
 import { createDbLeadRepository } from './modules/leads/db-lead-repository.js';
+import { createDbConnectionMonitorRepository } from './modules/monitoring/db-connection-monitor-repository.js';
+import { createConnectionMonitorService } from './modules/monitoring/connection-monitor-service.js';
 import { createFollowupOutreachService } from './modules/scheduler/followup-outreach.js';
 import { createInitialOutreachService } from './modules/scheduler/initial-outreach.js';
 import { createPendingReplyService } from './modules/scheduler/pending-reply.js';
 import {
+  startPgBossConnectionMonitorScheduler,
   startPgBossFollowupScheduler,
   startPgBossInitialOutreachScheduler,
   startPgBossPendingReplyScheduler,
@@ -76,9 +79,18 @@ async function start(): Promise<void> {
         windowHours: env.PENDING_REPLY_WINDOW_HOURS,
       }),
     );
+    const connectionMonitorBoss = await startPgBossConnectionMonitorScheduler(
+      createConnectionMonitorService({
+        connectionMonitorRepository: createDbConnectionMonitorRepository(),
+        jobLogRepository: createDbJobLogRepository(),
+        sdrAgentRepository: createDbSdrAgentRepository(),
+        uazapiClient: createHttpUazapiClient(),
+      }),
+    );
     if (initialBoss) bosses.push(initialBoss);
     if (followupBoss) bosses.push(followupBoss);
     if (pendingReplyBoss) bosses.push(pendingReplyBoss);
+    if (connectionMonitorBoss) bosses.push(connectionMonitorBoss);
   } catch (error) {
     app.log.error(error, 'Failed to start server');
     process.exit(1);

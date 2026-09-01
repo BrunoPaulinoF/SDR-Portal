@@ -4,6 +4,7 @@ import { env } from '../../config/env.js';
 import type { createFollowupOutreachService } from './followup-outreach.js';
 import type { createInitialOutreachService } from './initial-outreach.js';
 import type { createPendingReplyService } from './pending-reply.js';
+import type { ConnectionMonitorService } from '../monitoring/connection-monitor-service.js';
 
 type InitialOutreachService = ReturnType<typeof createInitialOutreachService>;
 type FollowupOutreachService = ReturnType<typeof createFollowupOutreachService>;
@@ -12,6 +13,7 @@ type PendingReplyService = ReturnType<typeof createPendingReplyService>;
 const initialQueueName = 'initial-outreach-tick';
 const followupQueueName = 'followup-outreach-tick';
 const pendingReplyQueueName = 'pending-reply-tick';
+const connectionMonitorQueueName = 'connection-monitor-tick';
 
 export async function startPgBossInitialOutreachScheduler(initialOutreachService: InitialOutreachService): Promise<PgBoss | null> {
   if (!env.SCHEDULER_ENABLED) {
@@ -81,6 +83,32 @@ export async function startPgBossPendingReplyScheduler(pendingReplyService: Pend
     await pendingReplyService.runOnce();
   });
   await boss.schedule(pendingReplyQueueName, env.PENDING_REPLY_CRON, {}, { tz: env.DEFAULT_TIMEZONE });
+
+  return boss;
+}
+
+export async function startPgBossConnectionMonitorScheduler(
+  connectionMonitorService: ConnectionMonitorService,
+): Promise<PgBoss | null> {
+  if (!env.SCHEDULER_ENABLED) {
+    return null;
+  }
+
+  if (!env.DATABASE_URL) {
+    throw new Error('DATABASE_URL is required to start scheduler');
+  }
+
+  const boss = new PgBoss({ connectionString: env.DATABASE_URL });
+  boss.on('error', (error) => {
+    process.stderr.write(`pg-boss error: ${error.message}\n`);
+  });
+
+  await boss.start();
+  await boss.createQueue(connectionMonitorQueueName);
+  await boss.work(connectionMonitorQueueName, async () => {
+    await connectionMonitorService.runOnce();
+  });
+  await boss.schedule(connectionMonitorQueueName, env.CONNECTION_MONITOR_CRON, {}, { tz: env.DEFAULT_TIMEZONE });
 
   return boss;
 }

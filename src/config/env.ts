@@ -35,6 +35,9 @@ const envSchema = z
     PENDING_REPLY_CRON: z.string().default('*/5 * * * *'),
     PENDING_REPLY_AFTER_MS: z.coerce.number().int().min(60000).default(180000),
     PENDING_REPLY_WINDOW_HOURS: z.coerce.number().int().positive().default(24),
+    // Vigia das instancias: le o status do WhatsApp de cada SDR e avisa quem caiu.
+    // O webhook `connection` faz o mesmo na hora; este tick e a rede de seguranca.
+    CONNECTION_MONITOR_CRON: z.string().default('*/5 * * * *'),
     AI_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(90000),
     UAZAPI_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
     // Servidor UAZAPI usado para criar a instancia de um SDR novo. Sem os dois, o portal
