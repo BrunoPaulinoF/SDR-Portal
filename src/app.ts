@@ -34,6 +34,12 @@ import {
 } from './modules/leads/lead-research-service.js';
 import { createMemoryLeadRepository, type LeadRepository } from './modules/leads/lead-repository.js';
 import { registerLeadRoutes } from './modules/leads/lead-routes.js';
+import {
+  createMemoryConnectionMonitorRepository,
+  type ConnectionMonitorRepository,
+} from './modules/monitoring/connection-monitor-repository.js';
+import { createConnectionMonitorService } from './modules/monitoring/connection-monitor-service.js';
+import { registerMonitorRoutes } from './modules/monitoring/monitor-routes.js';
 import { createInitialOutreachService } from './modules/scheduler/initial-outreach.js';
 import { createFollowupOutreachService } from './modules/scheduler/followup-outreach.js';
 import { createPendingReplyService } from './modules/scheduler/pending-reply.js';
@@ -67,6 +73,7 @@ export interface AppOptions extends FastifyServerOptions {
   leadResearchService?: LeadResearchService;
   leadResearchRepository?: LeadResearchRepository;
   leadRepository?: LeadRepository;
+  connectionMonitorRepository?: ConnectionMonitorRepository;
   inboundResponseBufferMs?: number;
   instanceShareLinkRepository?: InstanceShareLinkRepository;
   sdrAgentRepository?: SdrAgentRepository;
@@ -520,6 +527,31 @@ function createLazyDbInstanceShareLinkRepository(): InstanceShareLinkRepository 
   };
 }
 
+function createLazyDbConnectionMonitorRepository(): ConnectionMonitorRepository {
+  return {
+    async getSettings() {
+      const { createDbConnectionMonitorRepository } = await import('./modules/monitoring/db-connection-monitor-repository.js');
+      return createDbConnectionMonitorRepository().getSettings();
+    },
+    async saveSettings(input) {
+      const { createDbConnectionMonitorRepository } = await import('./modules/monitoring/db-connection-monitor-repository.js');
+      return createDbConnectionMonitorRepository().saveSettings(input);
+    },
+    async findState(sdrAgentId) {
+      const { createDbConnectionMonitorRepository } = await import('./modules/monitoring/db-connection-monitor-repository.js');
+      return createDbConnectionMonitorRepository().findState(sdrAgentId);
+    },
+    async listStates() {
+      const { createDbConnectionMonitorRepository } = await import('./modules/monitoring/db-connection-monitor-repository.js');
+      return createDbConnectionMonitorRepository().listStates();
+    },
+    async saveState(input) {
+      const { createDbConnectionMonitorRepository } = await import('./modules/monitoring/db-connection-monitor-repository.js');
+      return createDbConnectionMonitorRepository().saveState(input);
+    },
+  };
+}
+
 function createLazyDbLeadResearchRepository(): LeadResearchRepository {
   return {
     async findByLeadId(leadId) {
@@ -547,6 +579,7 @@ export function buildApp(options: AppOptions = {}): AppInstance {
     leadResearchService,
     leadResearchRepository,
     leadRepository,
+    connectionMonitorRepository,
     inboundResponseBufferMs,
     instanceShareLinkRepository,
     sdrAgentRepository,
@@ -574,6 +607,9 @@ export function buildApp(options: AppOptions = {}): AppInstance {
   const instanceShareLinks =
     instanceShareLinkRepository ??
     (env.NODE_ENV === 'test' ? createMemoryInstanceShareLinkRepository() : createLazyDbInstanceShareLinkRepository());
+  const connectionMonitors =
+    connectionMonitorRepository ??
+    (env.NODE_ENV === 'test' ? createMemoryConnectionMonitorRepository() : createLazyDbConnectionMonitorRepository());
   const ai = aiClient ?? createHttpAiClient();
   const aiRuns = aiRunRepository ?? (env.NODE_ENV === 'test' ? createMemoryAiRunRepository() : createLazyDbAiRunRepository());
   const leadResearchRepo =
@@ -633,6 +669,12 @@ export function buildApp(options: AppOptions = {}): AppInstance {
     sdrAgentRepository: sdrAgents,
   });
   const audioTranscriptionService = createAudioTranscriptionService({ uazapiClient: uazapi });
+  const connectionMonitorService = createConnectionMonitorService({
+    connectionMonitorRepository: connectionMonitors,
+    jobLogRepository: jobLogs,
+    sdrAgentRepository: sdrAgents,
+    uazapiClient: uazapi,
+  });
 
   void app.register(cookie, {
     secret: env.SESSION_SECRET ?? 'test_session_secret_for_sdr_portal',
@@ -661,6 +703,7 @@ export function buildApp(options: AppOptions = {}): AppInstance {
   registerUazapiRoutes(app, repository, sdrAgents, uazapi);
   registerInstanceConnectRoutes(app, repository, sdrAgents, instanceShareLinks, uazapi);
   registerSchedulerRoutes(app, repository, initialOutreach, followupOutreach, pendingReply);
+  registerMonitorRoutes(app, repository, sdrAgents, connectionMonitors, connectionMonitorService, uazapi);
   registerConversationRoutes(app, repository, conversations, leads, sdrAgents);
   registerWebhookEventRoutes(app, repository, webhookEvents);
   registerAiRunRoutes(app, repository, aiRuns);
@@ -677,6 +720,7 @@ export function buildApp(options: AppOptions = {}): AppInstance {
     bufferedAiResponseService,
     audioTranscriptionService,
     resetConversation,
+    connectionMonitorService,
   );
   registerPromptAssistantRoutes(app, repository, sdrAgents, ai, aiRuns);
 

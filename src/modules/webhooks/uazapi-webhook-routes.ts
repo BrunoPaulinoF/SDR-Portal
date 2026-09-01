@@ -11,6 +11,8 @@ import { followupDueAt } from '../scheduler/initial-outreach.js';
 import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
 import type { createAiResponseService } from '../ai/ai-response-service.js';
 import type { createAudioTranscriptionService } from '../audio/audio-transcription-service.js';
+import type { ConnectionMonitorService } from '../monitoring/connection-monitor-service.js';
+import { readConnectionEvent } from './connection-event.js';
 import type { ResetConversationService } from './reset-conversation-service.js';
 import { isAudioMessageType, isGroupWebhook, isImageMessageType, normalizeUazapiWebhook } from './uazapi-normalizer.js';
 import type { WebhookEventRepository } from './webhook-event-repository.js';
@@ -95,6 +97,7 @@ export function registerUazapiWebhookRoutes(
   aiResponseService: AiResponseService,
   audioTranscriptionService: AudioTranscriptionService,
   resetConversationService: ResetConversationService,
+  connectionMonitorService: ConnectionMonitorService,
 ): void {
   app.post('/webhooks/uazapi/:sdrAgentId', async (request, reply) => {
     const params = paramsSchema.safeParse(request.params);
@@ -118,6 +121,27 @@ export function registerUazapiWebhookRoutes(
     try {
       const agent = await sdrAgentRepository.findById(params.data.sdrAgentId);
       if (!agent) throw new Error('SDR not found');
+
+      // Queda/volta da instancia: nao tem mensagem, entao nao passa pelo normalizador.
+      // O status vem de uma leitura nova da instancia dentro do monitor, nao do payload.
+      const connectionEvent = readConnectionEvent(request.body);
+      if (connectionEvent) {
+        const monitorRun = await connectionMonitorService.checkAgent(agent.id);
+        await webhookEventRepository.updateProcessing(event.id, {
+          eventType: 'connection',
+          instanceId: connectionEvent.instanceId,
+          normalizedBody: JSON.stringify({
+            event: 'connection',
+            reportedStatus: connectionEvent.status,
+            monitor: monitorRun.skipped
+              ? { skipped: monitorRun.skipped }
+              : { checked: monitorRun.checked, disconnected: monitorRun.disconnected, recovered: monitorRun.recovered },
+          }),
+          processingStatus: 'processed',
+          processingError: null,
+        });
+        return reply.send({ ok: true, event: 'connection' });
+      }
 
       // Grupo nao e lead: ignorar antes de resolver lead, sem marcar o evento como falha.
       if (isGroupWebhook(request.body)) {

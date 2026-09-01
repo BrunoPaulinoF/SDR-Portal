@@ -138,6 +138,7 @@ Scheduler de mensagens iniciais:
 - `PENDING_REPLY_CRON`: cron da varredura de respostas pendentes, padrao `*/5 * * * *`.
 - `PENDING_REPLY_AFTER_MS`: silencio tolerado antes de considerar a resposta perdida, padrao `180000` (3 min).
 - `PENDING_REPLY_WINDOW_HOURS`: idade maxima da conversa que ainda recebe resposta atrasada, padrao `24`.
+- `CONNECTION_MONITOR_CRON`: cron do monitor de conexao dos SDRs, padrao `*/5 * * * *`.
 - `WEB_RESEARCH_ENDPOINT`: endpoint opcional para pesquisa/enriquecimento web antes da primeira mensagem.
 - `WEB_RESEARCH_API_KEY`: token opcional enviado como `Bearer` para o endpoint de pesquisa.
 - `WEB_RESEARCH_TIMEOUT_MS`: timeout da pesquisa web, padrao `8000`.
@@ -230,6 +231,25 @@ Buffer e divisao de resposta:
 - Antes de cada parte, o sistema envia presenca `composing` via UAZAPI com o delay calculado.
 - Cada parte enviada e salva separadamente no historico da conversa.
 
+Monitor de conexao dos SDRs:
+
+- `GET /monitoring`: tela do monitor com o estado de cada SDR e a configuracao dos alertas.
+- `POST /monitoring`: salva a configuracao (o token do monitor e gravado criptografado; campo vazio mantem o token atual).
+- `POST /monitoring/run`: roda uma verificacao na hora.
+- `POST /monitoring/test`: manda uma mensagem de teste para os numeros cadastrados.
+- `POST /monitoring/qr`: gera o QR code para parear o celular que envia os alertas (o codigo expira em segundos; clique de novo se perder).
+
+Como funciona:
+
+- Quem envia o alerta e uma **instancia UAZAPI separada** (outro numero de WhatsApp), cadastrada na propria tela. A instancia do SDR que caiu e justamente a que nao pode dar a noticia.
+- A cada tick (`CONNECTION_MONITOR_CRON`, padrao 5 minutos) o portal le `/instance/status` de cada SDR monitorado e compara com o ultimo estado salvo em `sdr_connection_states`.
+- O webhook `connection` da UAZAPI dispara a mesma verificacao daquele SDR na hora, sem esperar o tick. O status vem sempre de uma leitura nova da instancia, nunca do payload: um `connecting` de meio segundo nao vira alerta.
+- O alerta sai na **transicao** (estava de pe, caiu), com nome do SDR, numero, hora da queda e o `lastDisconnectReason` da UAZAPI. Enquanto o SDR segue fora, o lembrete volta a cada `repeat_alert_minutes` (0 desliga a repeticao).
+- Quando o SDR volta, sai um segundo aviso com quanto tempo ficou fora (desligavel).
+- Os textos aceitam os marcadores `{sdrs}`, `{total}`, `{data}`, `{hora}` e `{portal}`; em branco, usam o padrao do codigo.
+- `Vigiar apenas SDRs ligados no portal` evita que instancia de SDR desativado acorde alguem de madrugada.
+- Cada alerta enviado (e cada falha de envio) vira uma linha em `job_logs` com `job_name=connection-monitor`. Tick sem novidade nao escreve nada.
+
 IA auxiliar de prompt:
 
 - `GET /prompt-assistant`: tela com selecao de SDR, briefing e geracao de prompt com IA.
@@ -272,6 +292,7 @@ node -e "console.log(require('crypto').randomBytes(12).toString('hex'))"
 | `OPENROUTER_API_KEY` | — | Chave OpenRouter fallback |
 | `WEBHOOK_SHARED_SECRET` | — | Protege endpoint de webhook |
 | `SCHEDULER_ENABLED` | `false` | Ativa pg-boss em producao |
+| `CONNECTION_MONITOR_CRON` | `*/5 * * * *` | Cron do monitor de conexao dos SDRs |
 | `WEB_RESEARCH_ENDPOINT` | — | Endpoint de pesquisa web |
 | `ADMIN_NAME/EMAIL/PASSWORD` | — | Cria usuario admin na migracao |
 

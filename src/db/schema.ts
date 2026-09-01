@@ -348,3 +348,65 @@ export const instanceShareLinks = pgTable('instance_share_links', {
 
 export type InstanceShareLink = typeof instanceShareLinks.$inferSelect;
 export type NewInstanceShareLink = typeof instanceShareLinks.$inferInsert;
+
+/**
+ * Instancia UAZAPI separada, que so vigia: ela nao fala com lead nenhum, so avisa por
+ * WhatsApp quando o numero de um SDR cai. Linha unica (`singleton`), porque o portal
+ * inteiro usa um vigia so.
+ */
+export const monitorSettings = pgTable('monitor_settings', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  /** Sempre 'default': garante a linha unica sem depender de a aplicacao lembrar. */
+  singleton: text('singleton').default('default').notNull().unique(),
+  isEnabled: boolean('is_enabled').default(false).notNull(),
+  uazapiBaseUrl: text('uazapi_base_url'),
+  uazapiInstanceId: text('uazapi_instance_id'),
+  uazapiInstanceTokenEncrypted: text('uazapi_instance_token_encrypted'),
+  /** Numeros que recebem o alerta, um por linha ou separados por virgula. */
+  alertRecipients: text('alert_recipients'),
+  /** Texto pronto do alerta de queda. Vazio: usa o padrao do codigo. */
+  alertTemplate: text('alert_template'),
+  /** Texto pronto do aviso de volta. Vazio: usa o padrao do codigo. */
+  recoveryTemplate: text('recovery_template'),
+  notifyOnRecovery: boolean('notify_on_recovery').default(true).notNull(),
+  /** Minutos ate repetir o alerta enquanto o SDR continua fora. 0 = avisa so na queda. */
+  repeatAlertMinutes: integer('repeat_alert_minutes').default(60).notNull(),
+  /** SDR desligado no portal nao gera alerta: instancia velha nao acorda ninguem. */
+  onlyActiveAgents: boolean('only_active_agents').default(true).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+export type MonitorSettings = typeof monitorSettings.$inferSelect;
+export type NewMonitorSettings = typeof monitorSettings.$inferInsert;
+
+/**
+ * Ultimo estado conhecido do WhatsApp de cada SDR. E o que transforma "esta fora agora"
+ * em "acabou de cair": sem essa memoria, o tick de 5 minutos mandaria o mesmo alerta
+ * doze vezes por hora.
+ */
+export const sdrConnectionStates = pgTable(
+  'sdr_connection_states',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    sdrAgentId: uuid('sdr_agent_id')
+      .notNull()
+      .references(() => sdrAgents.id, { onDelete: 'cascade' }),
+    /** 'connected' ou 'disconnected': o que a UAZAPI respondeu, ja reduzido a dois estados. */
+    status: text('status').notNull(),
+    /** `status` cru da instancia (`connecting`, `close`, ...) para a tela e o log. */
+    instanceStatus: text('instance_status'),
+    /** `lastDisconnectReason` da UAZAPI: e ele que diz se precisa ler QR de novo. */
+    disconnectReason: text('disconnect_reason'),
+    lastCheckedAt: timestamp('last_checked_at', { withTimezone: true }).defaultNow().notNull(),
+    lastConnectedAt: timestamp('last_connected_at', { withTimezone: true }),
+    disconnectedAt: timestamp('disconnected_at', { withTimezone: true }),
+    lastAlertAt: timestamp('last_alert_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex('sdr_connection_states_agent_unique_idx').on(table.sdrAgentId)],
+);
+
+export type SdrConnectionState = typeof sdrConnectionStates.$inferSelect;
+export type NewSdrConnectionState = typeof sdrConnectionStates.$inferInsert;

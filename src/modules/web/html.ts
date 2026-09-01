@@ -41,6 +41,7 @@ function renderAppNavigation(title: string): string {
       </section>
       <section class="nav-group">
         <p>Diagnostico</p>
+        ${navItem('/monitoring', 'Monitor', title, ['monitor de conexao'])}
         ${navItem('/webhook-events', 'Webhook logs', title, ['webhook'])}
         ${navItem('/ai-runs', 'AI logs', title, ['ai runs', 'logs de ia'])}
         ${navItem('/job-logs', 'Job logs', title, ['job'])}
