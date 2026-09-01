@@ -131,8 +131,22 @@
     {
       "idx": 18,
       "version": "7",
-      "when": 1788261397703,
-      "tag": "0018_reflective_grey_gargoyle",
+      "when": 1788261107189,
+      "tag": "0018_legal_leader",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1788261117176,
+      "tag": "0019_daily_initial_limit_25",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1788261751442,
+      "tag": "0020_magenta_mole_man",
       "breakpoints": true
     }
   ]

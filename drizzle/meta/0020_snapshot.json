@@ -1,6 +1,6 @@
 {
-  "id": "92aeeec4-0fc2-4404-8ed2-fa8df393ae56",
-  "prevId": "0c5b7e95-d0ae-4b33-88aa-b7dc38d2a159",
+  "id": "0c440993-d815-4fb2-bcab-29d3e6d4bf7a",
+  "prevId": "92aeeec4-0fc2-4404-8ed2-fa8df393ae56",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1360,6 +1360,119 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.monitor_settings": {
+      "name": "monitor_settings",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "singleton": {
+          "name": "singleton",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'default'"
+        },
+        "is_enabled": {
+          "name": "is_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "uazapi_base_url": {
+          "name": "uazapi_base_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "uazapi_instance_id": {
+          "name": "uazapi_instance_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "uazapi_instance_token_encrypted": {
+          "name": "uazapi_instance_token_encrypted",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "alert_recipients": {
+          "name": "alert_recipients",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "alert_template": {
+          "name": "alert_template",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "recovery_template": {
+          "name": "recovery_template",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "notify_on_recovery": {
+          "name": "notify_on_recovery",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "repeat_alert_minutes": {
+          "name": "repeat_alert_minutes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 60
+        },
+        "only_active_agents": {
+          "name": "only_active_agents",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "monitor_settings_singleton_unique": {
+          "name": "monitor_settings_singleton_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "singleton"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.sdr_agents": {
       "name": "sdr_agents",
       "schema": "",
@@ -1713,6 +1826,119 @@
           "tableTo": "companies",
           "columnsFrom": [
             "company_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.sdr_connection_states": {
+      "name": "sdr_connection_states",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "sdr_agent_id": {
+          "name": "sdr_agent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "instance_status": {
+          "name": "instance_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "disconnect_reason": {
+          "name": "disconnect_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_checked_at": {
+          "name": "last_checked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "last_connected_at": {
+          "name": "last_connected_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "disconnected_at": {
+          "name": "disconnected_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_alert_at": {
+          "name": "last_alert_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "sdr_connection_states_agent_unique_idx": {
+          "name": "sdr_connection_states_agent_unique_idx",
+          "columns": [
+            {
+              "expression": "sdr_agent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "sdr_connection_states_sdr_agent_id_sdr_agents_id_fk": {
+          "name": "sdr_connection_states_sdr_agent_id_sdr_agents_id_fk",
+          "tableFrom": "sdr_connection_states",
+          "tableTo": "sdr_agents",
+          "columnsFrom": [
+            "sdr_agent_id"
           ],
           "columnsTo": [
             "id"
