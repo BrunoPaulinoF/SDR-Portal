@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Varre o Google Maps via Apify (compass/crawler-google-places) atras de operacoes
-// de gastronomia com delivery na praca de Sao Paulo (capital, ABC e interior).
+// de gastronomia com delivery no estado de Sao Paulo (capital, Grande SP/ABC,
+// interior e litoral).
 //
 // O actor cobra por lugar entregue (US$ 0.004 no free tier) e mais US$ 0.001 por
 // filtro aplicado do lado deles. Por isso nao usamos filtro nenhum na Apify:
@@ -8,15 +9,24 @@
 // rank-leads-gastro.mjs. O gasto e conferido entre um municipio e outro e a
 // varredura aborta sozinha se encostar no teto.
 //
-//   node scripts/apify-leads-gastro.mjs [--budget=4.20] [--dry-run]
+// O plano de gasto sai da propria conta (/users/me/limits): o teto padrao e 98%
+// do limite mensal MENOS o que ja foi gasto no ciclo, e a cota por busca encolhe
+// sozinha para caber nesse saldo. Numa conta free que ja gastou US$ 4 dos US$ 5,
+// isso significa varrer ~240 lugares em vez de estourar o limite no meio.
+//
+//   node scripts/apify-leads-gastro.mjs --dry-run          # so o plano e o custo
+//   node scripts/apify-leads-gastro.mjs                    # varre cidades novas
+//   node scripts/apify-leads-gastro.mjs --todas-cidades    # inclui as ja varridas
+//   node scripts/apify-leads-gastro.mjs --cidades=Santos,Osasco --per-search=10
 //
 // Token: local-secrets/apify-token ou a variavel APIFY_TOKEN.
 
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 
 const API = 'https://api.apify.com/v2';
 const ACTOR = 'compass~crawler-google-places';
 const OUT = 'local-secrets/raw-places.json';
+const USD_POR_LUGAR = 0.004;
 
 // 8 categorias que casam com a oferta da KyberFood: delivery de pequeno e medio
 // porte que vende por WhatsApp. Sao tambem as categorias mais franqueadas do pais.
@@ -31,15 +41,44 @@ const TERMS = [
   'pastelaria delivery',
 ];
 
-// Cota por municipio = lugares por termo de busca. Capital pesa mais.
+// Municipios do estado de SP, do mais para o menos denso em delivery.
+// `varridoEm` marca o que ja entrou numa varredura anterior: por padrao o script
+// pula essas cidades, porque uma segunda passada rasa nelas devolve quase os
+// mesmos lugares e o pedido aqui e lead NOVO. `--todas-cidades` reabre.
 const CITIES = [
-  { location: 'Sao Paulo, Sao Paulo, Brazil', perSearch: 30 },
-  { location: 'Campinas, Sao Paulo, Brazil', perSearch: 20 },
-  { location: 'Guarulhos, Sao Paulo, Brazil', perSearch: 15 },
-  { location: 'Santo Andre, Sao Paulo, Brazil', perSearch: 15 },
-  { location: 'Ribeirao Preto, Sao Paulo, Brazil', perSearch: 15 },
-  { location: 'Sorocaba, Sao Paulo, Brazil', perSearch: 15 },
-  { location: 'Sao Jose dos Campos, Sao Paulo, Brazil', perSearch: 15 },
+  // Ja varridas em 26/08/2026 (viraram os 500 de docs/leads/leads-gastro-delivery-sp.xlsx)
+  { nome: 'Sao Paulo', perSearch: 30, varridoEm: '2026-08-26' },
+  { nome: 'Campinas', perSearch: 20, varridoEm: '2026-08-26' },
+  { nome: 'Guarulhos', perSearch: 15, varridoEm: '2026-08-26' },
+  { nome: 'Santo Andre', perSearch: 15, varridoEm: '2026-08-26' },
+  { nome: 'Ribeirao Preto', perSearch: 15, varridoEm: '2026-08-26' },
+  { nome: 'Sorocaba', perSearch: 15, varridoEm: '2026-08-26' },
+  { nome: 'Sao Jose dos Campos', perSearch: 15, varridoEm: '2026-08-26' },
+  // Ainda nao varridas: e daqui que sai lead novo.
+  { nome: 'Sao Bernardo do Campo', perSearch: 15 },
+  { nome: 'Osasco', perSearch: 15 },
+  { nome: 'Santos', perSearch: 15 },
+  { nome: 'Jundiai', perSearch: 12 },
+  { nome: 'Piracicaba', perSearch: 12 },
+  { nome: 'Sao Jose do Rio Preto', perSearch: 12 },
+  { nome: 'Bauru', perSearch: 12 },
+  { nome: 'Mogi das Cruzes', perSearch: 12 },
+  { nome: 'Diadema', perSearch: 10 },
+  { nome: 'Barueri', perSearch: 10 },
+  { nome: 'Sao Vicente', perSearch: 10 },
+  { nome: 'Praia Grande', perSearch: 10 },
+  { nome: 'Taubate', perSearch: 10 },
+  { nome: 'Limeira', perSearch: 10 },
+  { nome: 'Americana', perSearch: 10 },
+  { nome: 'Indaiatuba', perSearch: 10 },
+  { nome: 'Franca', perSearch: 10 },
+  { nome: 'Maua', perSearch: 10 },
+  { nome: 'Suzano', perSearch: 10 },
+  { nome: 'Carapicuiba', perSearch: 10 },
+  { nome: 'Araraquara', perSearch: 10 },
+  { nome: 'Marilia', perSearch: 10 },
+  { nome: 'Presidente Prudente', perSearch: 10 },
+  { nome: 'Sao Caetano do Sul', perSearch: 10 },
 ];
 
 const args = new Map(
@@ -48,8 +87,10 @@ const args = new Map(
     return [k, v];
   }),
 );
-const BUDGET_USD = Number(args.get('budget') ?? 4.2);
 const DRY_RUN = args.get('dry-run') === 'true';
+const TODAS = args.get('todas-cidades') === 'true';
+const APENAS = (args.get('cidades') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+const PER_SEARCH = args.has('per-search') ? Number(args.get('per-search')) : null;
 
 function token() {
   if (process.env.APIFY_TOKEN) return process.env.APIFY_TOKEN.trim();
@@ -63,6 +104,7 @@ const TOKEN = token();
 
 const log = (...m) => process.stdout.write(`${m.join(' ')}\n`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const deaccent = (s) => (s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
 async function api(path, init = {}) {
   const url = `${API}${path}${path.includes('?') ? '&' : '?'}token=${TOKEN}`;
@@ -74,12 +116,50 @@ async function api(path, init = {}) {
   return res.json();
 }
 
-async function spentUsd() {
+/** Saldo do ciclo corrente: quanto ja foi gasto, o teto do plano e o que sobra. */
+async function saldo() {
   const { data } = await api('/users/me/limits');
-  return Number(data?.current?.monthlyUsageUsd ?? 0);
+  const gasto = Number(data?.current?.monthlyUsageUsd ?? 0);
+  const teto = Number(data?.limits?.maxMonthlyUsageUsd ?? 5);
+  const fim = data?.monthlyUsageCycle?.endAt ?? '';
+  return { gasto, teto, restante: Math.max(0, teto - gasto), fim };
 }
 
-async function scrapeCity({ location, perSearch }) {
+function cidadesAlvo() {
+  if (APENAS.length) {
+    const querido = APENAS.map(deaccent);
+    return CITIES.filter((c) => querido.some((q) => deaccent(c.nome).includes(q)));
+  }
+  return TODAS ? CITIES : CITIES.filter((c) => !c.varridoEm);
+}
+
+/**
+ * Ajusta o plano ao saldo. A ordem importa: primeiro encolhe a cota por busca ate
+ * um piso, e so depois corta municipio do fim da fila. Espalhar 1 lugar por busca
+ * em 24 cidades caberia no orcamento e nao serviria para nada — com uma amostra
+ * dessas nenhuma marca aparece duas vezes, entao rede/franquia nunca e detectada
+ * e o ranking perde o fator que mais pesa depois do celular. Melhor menos cidades
+ * com profundidade do que o estado inteiro de raspao.
+ */
+const PISO_POR_BUSCA = 8;
+
+function planejar(cidades, orcamento) {
+  const cap = Math.floor(orcamento / USD_POR_LUGAR);
+  let plano = cidades.map((c) => ({ ...c, perSearch: PER_SEARCH ?? c.perSearch }));
+  const total = () => plano.reduce((n, c) => n + c.perSearch * TERMS.length, 0);
+
+  const piso = PER_SEARCH ?? PISO_POR_BUSCA;
+  while (total() > cap && plano.some((c) => c.perSearch > piso)) {
+    const maior = plano.reduce((a, b) => (b.perSearch > a.perSearch ? b : a));
+    maior.perSearch -= 1;
+  }
+  while (total() > cap && plano.length > 1) plano = plano.slice(0, -1);
+  if (total() > cap) plano = [];
+  return { plano, cap };
+}
+
+async function scrapeCity({ nome, perSearch }) {
+  const location = `${nome}, Sao Paulo, Brazil`;
   const input = {
     searchStringsArray: TERMS,
     locationQuery: location,
@@ -117,34 +197,51 @@ async function scrapeCity({ location, perSearch }) {
 }
 
 async function main() {
-  const planned = CITIES.reduce((n, c) => n + c.perSearch * TERMS.length, 0);
-  log(`Plano: ${CITIES.length} municipios x ${TERMS.length} termos = ate ${planned} lugares`);
-  log(`Custo maximo estimado: US$ ${(planned * 0.004).toFixed(2)} | teto de aborto: US$ ${BUDGET_USD}`);
+  const conta = await saldo();
+  const orcamento = args.has('budget')
+    ? Number(args.get('budget'))
+    : Math.max(0, conta.restante - conta.teto * 0.02);
+
+  const alvo = cidadesAlvo();
+  if (!alvo.length) throw new Error('Nenhuma cidade selecionada. Veja --cidades= e --todas-cidades.');
+  const { plano } = planejar(alvo, orcamento);
+  const previstos = plano.reduce((n, c) => n + c.perSearch * TERMS.length, 0);
+
+  log(`Ciclo da conta termina em ${conta.fim.slice(0, 10)}`);
+  log(`Gasto no ciclo: US$ ${conta.gasto.toFixed(2)} de US$ ${conta.teto} -> sobra US$ ${conta.restante.toFixed(2)}`);
+  log(`Orcamento desta varredura: US$ ${orcamento.toFixed(2)}`);
+  log(`Plano: ${plano.length} de ${alvo.length} municipios x ${TERMS.length} termos = ate ${previstos} lugares`);
+  for (const c of plano) log(`  ${c.nome}: ${c.perSearch} por busca (ate ${c.perSearch * TERMS.length})`);
+  log(`Custo maximo estimado: US$ ${(previstos * USD_POR_LUGAR).toFixed(2)}`);
+  if (plano.length < alvo.length) {
+    log(`AVISO: ${alvo.length - plano.length} municipios ficaram de fora por falta de saldo.`);
+  }
   if (DRY_RUN) return;
+  if (previstos === 0) throw new Error('Saldo insuficiente para varrer qualquer coisa.');
 
-  const start = await spentUsd();
-  log(`Gasto atual na conta: US$ ${start.toFixed(4)}\n`);
+  // Sempre acumula: o dump anterior continua valendo e o rank dedupe por placeId.
+  const all = existsSync(OUT) ? JSON.parse(readFileSync(OUT, 'utf8')) : [];
+  const antes = all.length;
 
-  const all = [];
-  for (const city of CITIES) {
-    const spent = await spentUsd();
-    if (spent >= BUDGET_USD) {
-      log(`ABORTANDO antes de ${city.location}: gasto US$ ${spent.toFixed(2)} >= teto US$ ${BUDGET_USD}`);
+  for (const city of plano) {
+    const agora = await saldo();
+    if (agora.gasto >= conta.gasto + orcamento) {
+      log(`ABORTANDO antes de ${city.nome}: gasto US$ ${agora.gasto.toFixed(2)} encostou no orcamento`);
       break;
     }
-    log(`${city.location} (gasto ate aqui US$ ${spent.toFixed(2)})`);
+    log(`${city.nome} (gasto ate aqui US$ ${agora.gasto.toFixed(2)})`);
     try {
       all.push(...(await scrapeCity(city)));
     } catch (err) {
-      log(`  ERRO em ${city.location}: ${err.message}`);
+      log(`  ERRO em ${city.nome}: ${err.message}`);
     }
     mkdirSync('local-secrets', { recursive: true });
     writeFileSync(OUT, JSON.stringify(all, null, 1));
   }
 
-  const end = await spentUsd();
-  log(`\n${all.length} lugares brutos -> ${OUT}`);
-  log(`Gasto na varredura: US$ ${(end - start).toFixed(3)} (total do mes: US$ ${end.toFixed(3)})`);
+  const fim = await saldo();
+  log(`\n${all.length - antes} lugares novos (${all.length} no total) -> ${OUT}`);
+  log(`Gasto na varredura: US$ ${(fim.gasto - conta.gasto).toFixed(3)} (total do ciclo: US$ ${fim.gasto.toFixed(3)})`);
 }
 
 main().catch((err) => {
