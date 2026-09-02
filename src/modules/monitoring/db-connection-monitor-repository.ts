@@ -36,6 +36,10 @@ export function createDbConnectionMonitorRepository(): ConnectionMonitorReposito
       return db.select().from(sdrConnectionStates);
     },
 
+    async markDailyReportSent(dayKey) {
+      await db.update(monitorSettings).set({ lastDailyReportOn: dayKey, updatedAt: new Date() }).where(eq(monitorSettings.singleton, SINGLETON));
+    },
+
     async saveState(input) {
       const [row] = await db
         .insert(sdrConnectionStates)

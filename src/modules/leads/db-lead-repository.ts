@@ -1,5 +1,5 @@
 import { and, count, desc, eq, gt, gte, inArray, isNotNull, isNull, lte, ne, notExists, notInArray, or, sql, type SQL } from 'drizzle-orm';
-import { alias } from 'drizzle-orm/pg-core';
+import { alias, type PgColumn } from 'drizzle-orm/pg-core';
 
 import { db } from '../../db/client.js';
 import { leadImports, leads } from '../../db/schema.js';
@@ -18,6 +18,24 @@ function quietSinceCondition(table: LeadActivityColumns, since: Date): SQL {
 
 export function createDbLeadRepository(): LeadRepository {
   return {
+    async countDailyActivityForSdr(sdrAgentId, start, end) {
+      const contar = async (coluna: PgColumn): Promise<number> => {
+        const [row] = await db
+          .select({ value: count() })
+          .from(leads)
+          .where(and(eq(leads.sdrAgentId, sdrAgentId), gte(coluna, start), lte(coluna, end)));
+        return row?.value ?? 0;
+      };
+
+      const [prospected, responded, handoffs] = await Promise.all([
+        contar(leads.firstMessageSentAt),
+        contar(leads.lastInboundAt),
+        contar(leads.handoffRequestedAt),
+      ]);
+
+      return { prospected, responded, handoffs };
+    },
+
     async countFollowupSentForSdrSince(sdrAgentId, since) {
       const [row] = await db
         .select({ value: count() })

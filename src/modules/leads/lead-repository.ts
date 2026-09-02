@@ -34,7 +34,21 @@ export interface FollowupDueOptions {
   quietSince?: Date | null;
 }
 
+/**
+ * Numeros do dia de um SDR, nas mesmas definicoes que o dashboard usa — se o relatorio do
+ * WhatsApp contasse diferente da tela, um dos dois estaria mentindo.
+ */
+export interface SdrDailyActivity {
+  /** Leads que receberam a primeira mensagem no periodo. */
+  prospected: number;
+  /** Leads que responderam no periodo (qualquer inbound), mesmo se abordados antes. */
+  responded: number;
+  /** Leads passados para humano no periodo — o "possivel cliente". */
+  handoffs: number;
+}
+
 export interface LeadRepository {
+  countDailyActivityForSdr(sdrAgentId: string, start: Date, end: Date): Promise<SdrDailyActivity>;
   countFollowupSentForSdrSince(sdrAgentId: string, since: Date): Promise<number>;
   countInitialSentForSdrSince(sdrAgentId: string, since: Date): Promise<number>;
   create(input: LeadInput): Promise<Lead>;
@@ -133,7 +147,19 @@ export function createMemoryLeadRepository(seedLeads: Lead[] = []): LeadReposito
     rows.set(lead.id, lead);
   }
 
+  const inPeriod = (value: Date | null, start: Date, end: Date): boolean => value !== null && value >= start && value <= end;
+
   return {
+    async countDailyActivityForSdr(sdrAgentId, start, end) {
+      const agentLeads = [...rows.values()].filter((lead) => lead.sdrAgentId === sdrAgentId);
+
+      return {
+        prospected: agentLeads.filter((lead) => inPeriod(lead.firstMessageSentAt, start, end)).length,
+        responded: agentLeads.filter((lead) => inPeriod(lead.lastInboundAt, start, end)).length,
+        handoffs: agentLeads.filter((lead) => inPeriod(lead.handoffRequestedAt, start, end)).length,
+      };
+    },
+
     async countFollowupSentForSdrSince(sdrAgentId, since) {
       return [...rows.values()].filter(
         (lead) => lead.sdrAgentId === sdrAgentId && lead.followupSentAt !== null && lead.followupSentAt >= since,

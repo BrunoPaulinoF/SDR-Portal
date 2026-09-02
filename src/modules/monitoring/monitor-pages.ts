@@ -5,8 +5,10 @@ import type { InstanceConnectionState } from '../uazapi/instance-provisioning.js
 import { escapeHtml, renderLayout } from '../web/html.js';
 import { defaultAlertTemplate, defaultRecoveryTemplate } from './alert-message.js';
 import { parseAlertRecipients } from './alert-recipients.js';
-import { DEFAULT_REPEAT_ALERT_MINUTES } from './connection-monitor-repository.js';
+import { DEFAULT_DAILY_REPORT_TIME, DEFAULT_REPEAT_ALERT_MINUTES } from './connection-monitor-repository.js';
 import type { MonitorRunResult } from './connection-monitor-service.js';
+import type { DailyReportResult } from './daily-report-service.js';
+import { defaultDailyReportTemplate } from './daily-report-message.js';
 
 export interface MonitorPageData {
   settings: MonitorSettings | null;
@@ -15,11 +17,15 @@ export interface MonitorPageData {
   timeZone: string;
   portalUrl: string | null;
   webhookUrlHint: string | null;
+  /** Dia do ultimo relatorio enviado, so para a tela. */
+  lastDailyReportOn?: string | null;
   error?: string;
   notice?: string;
   runResult?: MonitorRunResult;
   /** Preenchido so depois de alguem pedir o QR do numero do monitor. */
   qr?: InstanceConnectionState;
+  /** Preenchido so depois de alguem pedir o relatorio na mao. */
+  reportResult?: DailyReportResult;
 }
 
 function pill(status: string | null, label: string): string {
@@ -111,6 +117,18 @@ function renderMonitorQr(qr: InstanceConnectionState | undefined): string {
   return `<section class="panel"><h2>Numero do monitor</h2>${body}</section>`;
 }
 
+function renderReportResult(result: DailyReportResult | undefined): string {
+  if (!result) return '';
+
+  if (result.skipped) return `<div class="alert-error">${escapeHtml(result.skipped)}</div>`;
+
+  return `<section class="panel">
+    <h2>Relatorio enviado</h2>
+    <p>${escapeHtml(`Entregue para ${result.sent} de ${result.recipients} numero(s).`)}</p>
+    ${result.message ? `<pre>${escapeHtml(result.message)}</pre>` : ''}
+  </section>`;
+}
+
 export function renderMonitorPage(data: MonitorPageData): string {
   const settings = data.settings;
   const recipients = settings?.alertRecipients ?? '';
@@ -137,6 +155,9 @@ export function renderMonitorPage(data: MonitorPageData): string {
       <form method="post" action="/monitoring/test" data-inline>
         <button class="button button-secondary" type="submit">Enviar teste</button>
       </form>
+      <form method="post" action="/monitoring/report" data-inline>
+        <button class="button button-secondary" type="submit">Enviar relatorio agora</button>
+      </form>
       <form method="post" action="/monitoring/qr" data-inline>
         <button class="button button-secondary" type="submit">Conectar numero do monitor</button>
       </form>
@@ -146,6 +167,7 @@ export function renderMonitorPage(data: MonitorPageData): string {
   ${noticeHtml}
   ${renderRunResult(data.runResult)}
   ${renderMonitorQr(data.qr)}
+  ${renderReportResult(data.reportResult)}
   <section class="panel">
     <h2>Estado dos SDRs</h2>
     ${renderStatesTable(data)}
@@ -182,6 +204,17 @@ export function renderMonitorPage(data: MonitorPageData): string {
         <label for="alertTemplate">Mensagem de queda (vazio usa o padrao)</label>
         <textarea id="alertTemplate" name="alertTemplate" rows="7" placeholder="${escapeHtml(defaultAlertTemplate(data.portalUrl))}">${escapeHtml(settings?.alertTemplate ?? '')}</textarea>
         <p class="muted">Marcadores: <code>{sdrs}</code> (lista com nome, hora e motivo), <code>{total}</code>, <code>{data}</code>, <code>{hora}</code>, <code>{portal}</code>.</p>
+      </div>
+      <label class="checkbox-field field-full"><input type="checkbox" name="dailyReportEnabled" ${settings?.dailyReportEnabled ? 'checked' : ''}> Enviar relatorio no fim do dia (SDRs ativos: prospectados, responderam e possiveis clientes)</label>
+      <div class="field">
+        <label for="dailyReportTime">Hora do relatorio</label>
+        <input id="dailyReportTime" name="dailyReportTime" type="time" value="${escapeHtml(settings?.dailyReportTime ?? DEFAULT_DAILY_REPORT_TIME)}">
+        <p class="muted">Fuso do portal (${escapeHtml(data.timeZone)}). Sai na primeira verificacao depois dessa hora, uma vez por dia.${data.lastDailyReportOn ? ` Ultimo envio: ${escapeHtml(data.lastDailyReportOn)}.` : ''}</p>
+      </div>
+      <div class="field field-full">
+        <label for="dailyReportTemplate">Texto do relatorio (vazio usa o padrao)</label>
+        <textarea id="dailyReportTemplate" name="dailyReportTemplate" rows="6" placeholder="${escapeHtml(defaultDailyReportTemplate())}">${escapeHtml(settings?.dailyReportTemplate ?? '')}</textarea>
+        <p class="muted">Marcadores: <code>{sdrs}</code> (um bloco por SDR ativo), <code>{totais}</code>, <code>{data}</code>, <code>{hora}</code>, <code>{portal}</code>.</p>
       </div>
       <div class="field field-full">
         <label for="recoveryTemplate">Mensagem de volta (vazio usa o padrao)</label>
