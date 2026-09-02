@@ -11,6 +11,7 @@ import type { UazapiClient } from '../uazapi/uazapi-client.js';
 import type { ConnectionMonitorRepository } from './connection-monitor-repository.js';
 import { defaultMonitorSettings } from './connection-monitor-repository.js';
 import { monitorCredentials, type ConnectionMonitorService, type MonitorRunResult } from './connection-monitor-service.js';
+import type { DailyReportResult, DailyReportService } from './daily-report-service.js';
 import { renderMonitorPage } from './monitor-pages.js';
 
 const checkbox = z.preprocess((value) => value === 'on' || value === 'true', z.boolean());
@@ -26,6 +27,9 @@ const settingsFormSchema = z.object({
   notifyOnRecovery: checkbox.default(false),
   onlyActiveAgents: checkbox.default(false),
   repeatAlertMinutes: z.coerce.number().int().nonnegative().default(0),
+  dailyReportEnabled: checkbox.default(false),
+  dailyReportTime: z.string().trim().regex(/^\d{1,2}:\d{2}$/).optional().default('18:30'),
+  dailyReportTemplate: z.string().optional().default(''),
 });
 
 function emptyToNull(value: string): string | null {
@@ -44,10 +48,17 @@ export function registerMonitorRoutes(
   sdrAgentRepository: SdrAgentRepository,
   connectionMonitorRepository: ConnectionMonitorRepository,
   connectionMonitorService: ConnectionMonitorService,
+  dailyReportService: DailyReportService,
   uazapiClient: UazapiClient,
 ): void {
   async function renderPage(
-    extra: { error?: string; notice?: string; runResult?: MonitorRunResult; qr?: InstanceConnectionState } = {},
+    extra: {
+      error?: string;
+      notice?: string;
+      runResult?: MonitorRunResult;
+      qr?: InstanceConnectionState;
+      reportResult?: DailyReportResult;
+    } = {},
   ): Promise<string> {
     const [settings, agents, states] = await Promise.all([
       connectionMonitorRepository.getSettings(),
@@ -62,6 +73,7 @@ export function registerMonitorRoutes(
       timeZone: env.DEFAULT_TIMEZONE,
       portalUrl: env.APP_URL ?? null,
       webhookUrlHint: webhookUrlHint(),
+      lastDailyReportOn: settings?.lastDailyReportOn ?? null,
       ...extra,
     });
   }
@@ -101,6 +113,9 @@ export function registerMonitorRoutes(
       notifyOnRecovery: data.notifyOnRecovery,
       onlyActiveAgents: data.onlyActiveAgents,
       repeatAlertMinutes: data.repeatAlertMinutes,
+      dailyReportEnabled: data.dailyReportEnabled,
+      dailyReportTime: data.dailyReportTime,
+      dailyReportTemplate: emptyToNull(data.dailyReportTemplate),
     });
 
     return reply.type('text/html').send(await renderPage({ notice: 'Configuracao do monitor salva.' }));
@@ -131,6 +146,16 @@ export function registerMonitorRoutes(
       const message = error instanceof Error ? error.message : 'Erro desconhecido ao falar com a UAZAPI.';
       return reply.type('text/html').send(await renderPage({ error: message }));
     }
+  });
+
+  app.post('/monitoring/report', async (request, reply) => {
+    const user = await requireUser(request, reply, authRepository);
+    if (!user) return undefined;
+
+    const reportResult = await dailyReportService.sendNow();
+    return reply
+      .type('text/html')
+      .send(await renderPage(reportResult.errors.length > 0 ? { reportResult, error: reportResult.errors.join(' | ') } : { reportResult }));
   });
 
   app.post('/monitoring/test', async (request, reply) => {

@@ -373,6 +373,16 @@ export const monitorSettings = pgTable('monitor_settings', {
   repeatAlertMinutes: integer('repeat_alert_minutes').default(60).notNull(),
   /** SDR desligado no portal nao gera alerta: instancia velha nao acorda ninguem. */
   onlyActiveAgents: boolean('only_active_agents').default(true).notNull(),
+  dailyReportEnabled: boolean('daily_report_enabled').default(false).notNull(),
+  /** Hora do relatorio no fuso do portal, `HH:MM`. */
+  dailyReportTime: text('daily_report_time').default('18:30').notNull(),
+  dailyReportTemplate: text('daily_report_template'),
+  /**
+   * Dia (`AAAA-MM-DD`, fuso do portal) do ultimo relatorio enviado. E o que impede o tick de
+   * repetir o relatorio a cada passada depois da hora marcada — e o que faz o relatorio ainda
+   * sair quando o container estava fora justamente as 18:30.
+   */
+  lastDailyReportOn: text('last_daily_report_on'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });

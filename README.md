@@ -139,6 +139,7 @@ Scheduler de mensagens iniciais:
 - `PENDING_REPLY_AFTER_MS`: silencio tolerado antes de considerar a resposta perdida, padrao `180000` (3 min).
 - `PENDING_REPLY_WINDOW_HOURS`: idade maxima da conversa que ainda recebe resposta atrasada, padrao `24`.
 - `CONNECTION_MONITOR_CRON`: cron do monitor de conexao dos SDRs, padrao `*/5 * * * *`.
+- `DAILY_REPORT_CRON`: cron que verifica se ja passou da hora do relatorio diario, padrao `*/15 * * * *`.
 - `WEB_RESEARCH_ENDPOINT`: endpoint opcional para pesquisa/enriquecimento web antes da primeira mensagem.
 - `WEB_RESEARCH_API_KEY`: token opcional enviado como `Bearer` para o endpoint de pesquisa.
 - `WEB_RESEARCH_TIMEOUT_MS`: timeout da pesquisa web, padrao `8000`.
@@ -238,6 +239,7 @@ Monitor de conexao dos SDRs:
 - `POST /monitoring/run`: roda uma verificacao na hora.
 - `POST /monitoring/test`: manda uma mensagem de teste para os numeros cadastrados.
 - `POST /monitoring/qr`: gera o QR code para parear o celular que envia os alertas (o codigo expira em segundos; clique de novo se perder).
+- `POST /monitoring/report`: envia o relatorio do dia na hora, sem esperar o horario e sem gastar o envio automatico do dia.
 
 Como funciona:
 
@@ -249,6 +251,19 @@ Como funciona:
 - Os textos aceitam os marcadores `{sdrs}`, `{total}`, `{data}`, `{hora}` e `{portal}`; em branco, usam o padrao do codigo.
 - `Vigiar apenas SDRs ligados no portal` evita que instancia de SDR desativado acorde alguem de madrugada.
 - Cada alerta enviado (e cada falha de envio) vira uma linha em `job_logs` com `job_name=connection-monitor`. Tick sem novidade nao escreve nada.
+
+Relatorio diario dos SDRs:
+
+- Sai pela **mesma instancia** e para os **mesmos numeros** do monitor de conexao — quem ja recebe alerta de queda recebe o fechamento do dia.
+- Ligado por `Enviar relatorio no fim do dia` em `/monitoring`, com a hora configuravel (`daily_report_time`, padrao `18:30`, no fuso do portal).
+- Um bloco por **SDR ativo**, com tres numeros do dia:
+  - **Prospectados**: leads cuja primeira mensagem saiu hoje (`first_message_sent_at`).
+  - **Responderam**: leads com resposta recebida hoje (`last_inbound_at`), mesmo que abordados antes.
+  - **Possiveis clientes**: leads passados para humano hoje (`handoff_requested_at`).
+- As tres definicoes sao as mesmas do dashboard, entao os numeros do WhatsApp batem com os da tela.
+- O tick (`DAILY_REPORT_CRON`) so pergunta "ja passou da hora e ainda nao saiu hoje?". Quem garante o envio unico e a coluna `last_daily_report_on`; e ela tambem que faz o relatorio ainda sair quando o container estava fora justamente na hora marcada. Se nenhum envio der certo, o dia **nao** e marcado e o proximo tick tenta de novo.
+- O texto aceita `{sdrs}`, `{totais}`, `{data}`, `{hora}` e `{portal}`; em branco, usa o padrao.
+- Cada envio vira uma linha em `job_logs` com `job_name=daily-report`.
 
 IA auxiliar de prompt:
 

@@ -16,6 +16,10 @@ export interface MonitorSettingsInput {
   notifyOnRecovery: boolean;
   repeatAlertMinutes: number;
   onlyActiveAgents: boolean;
+  dailyReportEnabled: boolean;
+  /** `HH:MM` no fuso do portal. */
+  dailyReportTime: string;
+  dailyReportTemplate: string | null;
 }
 
 export interface ConnectionStateInput {
@@ -36,9 +40,16 @@ export interface ConnectionMonitorRepository {
   listStates(): Promise<SdrConnectionState[]>;
   /** Uma linha por SDR: grava o estado novo por cima do anterior. */
   saveState(input: ConnectionStateInput): Promise<SdrConnectionState>;
+  /**
+   * Anota que o relatorio do dia `dayKey` (`AAAA-MM-DD`) ja saiu. Fica fora de
+   * `saveSettings` de proposito: e estado do job, nao configuracao — salvar a tela nao pode
+   * fazer o relatorio sair duas vezes.
+   */
+  markDailyReportSent(dayKey: string): Promise<void>;
 }
 
 export const DEFAULT_REPEAT_ALERT_MINUTES = 60;
+export const DEFAULT_DAILY_REPORT_TIME = '18:30';
 
 /** Padrao usado enquanto ninguem salvou a tela: monitor desligado e sem instancia. */
 export function defaultMonitorSettings(): MonitorSettingsInput {
@@ -53,6 +64,9 @@ export function defaultMonitorSettings(): MonitorSettingsInput {
     notifyOnRecovery: true,
     repeatAlertMinutes: DEFAULT_REPEAT_ALERT_MINUTES,
     onlyActiveAgents: true,
+    dailyReportEnabled: false,
+    dailyReportTime: DEFAULT_DAILY_REPORT_TIME,
+    dailyReportTemplate: null,
   };
 }
 
@@ -78,6 +92,8 @@ export function createMemoryConnectionMonitorRepository(
         id: settings?.id ?? randomUUID(),
         singleton: 'default',
         ...input,
+        // Estado do job, nao do formulario: salvar a tela nao pode reabrir o envio de hoje.
+        lastDailyReportOn: settings?.lastDailyReportOn ?? null,
         createdAt: settings?.createdAt ?? now,
         updatedAt: now,
       };
@@ -104,6 +120,10 @@ export function createMemoryConnectionMonitorRepository(
 
       states.set(input.sdrAgentId, state);
       return state;
+    },
+
+    async markDailyReportSent(dayKey) {
+      if (settings) settings = { ...settings, lastDailyReportOn: dayKey, updatedAt: new Date() };
     },
   };
 }

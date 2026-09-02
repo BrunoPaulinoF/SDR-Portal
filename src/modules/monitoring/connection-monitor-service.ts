@@ -6,6 +6,7 @@ import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
 import { checkWhatsappChannel } from '../uazapi/instance-provisioning.js';
 import type { UazapiClient } from '../uazapi/uazapi-client.js';
 import { buildDisconnectAlert, buildRecoveryAlert, type AlertAgentLine } from './alert-message.js';
+import { sendToRecipients } from './monitor-sender.js';
 import { parseAlertRecipients } from './alert-recipients.js';
 import type { ConnectionMonitorRepository, ConnectionStatus } from './connection-monitor-repository.js';
 
@@ -88,33 +89,12 @@ function shouldRepeatAlert(state: SdrConnectionState | null, repeatAlertMinutes:
 export function createConnectionMonitorService(deps: ConnectionMonitorDeps) {
   const { connectionMonitorRepository, jobLogRepository, sdrAgentRepository, uazapiClient } = deps;
 
-  async function sendAlert(
+  const sendAlert = (
     credentials: { baseUrl: string; token: string },
     recipients: string[],
     text: string,
     errors: string[],
-  ): Promise<number> {
-    let sent = 0;
-
-    for (const number of recipients) {
-      try {
-        const result = await uazapiClient.sendText({
-          ...credentials,
-          number,
-          text,
-          trackSource: 'sdr-portal-monitor',
-          trackId: `monitor-${Date.now()}`,
-        });
-
-        if (result.ok) sent += 1;
-        else errors.push(`Falha ao avisar ${number}: a UAZAPI respondeu HTTP ${result.status}.`);
-      } catch (error) {
-        errors.push(`Falha ao avisar ${number}: ${error instanceof Error ? error.message : 'erro desconhecido'}`);
-      }
-    }
-
-    return sent;
-  }
+  ): Promise<number> => sendToRecipients(uazapiClient, credentials, recipients, text, errors);
 
   async function run(agents: SdrAgent[], trigger: string, now: Date): Promise<MonitorRunResult> {
     const settings = await connectionMonitorRepository.getSettings();
