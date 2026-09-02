@@ -173,7 +173,10 @@ export function describeMessage(message: Message): { body: string; kindLabel: st
     return transcription ? { body: transcription, kindLabel: 'Audio transcrito' } : { body: '', kindLabel: 'Audio sem transcricao' };
   }
 
-  const kindLabel = MESSAGE_KIND_LABELS[normalizeText(message.messageType).replace(/message$/, '')] ?? '';
+  // A etiqueta explica na tela por que o SDR nao respondeu esta mensagem.
+  const kindLabel = message.autoReply
+    ? 'Automatica da loja'
+    : (MESSAGE_KIND_LABELS[normalizeText(message.messageType).replace(/message$/, '')] ?? '');
   const body = text || transcription;
   if (body) return { body, kindLabel };
 

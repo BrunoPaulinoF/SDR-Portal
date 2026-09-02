@@ -20,6 +20,7 @@ interface MessageOverrides {
   messageType?: string;
   text?: string | null;
   transcription?: string | null;
+  autoReply?: boolean;
 }
 
 function message(overrides: MessageOverrides): Message {
@@ -38,6 +39,7 @@ function message(overrides: MessageOverrides): Message {
     rawPayload: null,
     sentByApi: false,
     fromMe: overrides.direction === 'outbound',
+    autoReply: overrides.autoReply ?? false,
     createdAt: overrides.createdAt,
   };
 }
@@ -206,6 +208,26 @@ describe('thread da conversa', () => {
     expect(thread.statusLabel).toBe('Em conversa');
     expect(thread.stageLabel).toBe('Permissao');
     expect(thread.hiddenMessages).toBe(0);
+  });
+
+  it('marca a automatica da loja no balao, para a tela explicar por que o SDR nao respondeu', async () => {
+    const cenario = await buildScenario();
+    const thread = buildInboxThread({
+      conversation: cenario.chatPadaria,
+      lead: cenario.leads[0] ?? null,
+      messages: [
+        message({
+          conversationId: cenario.chatPadaria.id,
+          createdAt: new Date('2026-08-20T13:10:00Z'),
+          text: 'Seja bem-vindo! Confira nosso cardapio: https://exemplo.app',
+          autoReply: true,
+        }),
+      ],
+      now,
+      timeZone,
+    });
+
+    expect(thread.days[0]?.messages[0]?.kindLabel).toBe('Automatica da loja');
   });
 
   it('corta o historico antigo e avisa quantas mensagens ficaram de fora', async () => {

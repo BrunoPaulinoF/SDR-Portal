@@ -14,6 +14,7 @@ import type { createAudioTranscriptionService } from '../audio/audio-transcripti
 import type { ConnectionMonitorService } from '../monitoring/connection-monitor-service.js';
 import { readConnectionEvent } from './connection-event.js';
 import type { ResetConversationService } from './reset-conversation-service.js';
+import { isStoreAutoReply } from '../conversations/store-auto-reply.js';
 import { isAudioMessageType, isGroupWebhook, isImageMessageType, normalizeUazapiWebhook } from './uazapi-normalizer.js';
 import type { WebhookEventRepository } from './webhook-event-repository.js';
 
@@ -234,6 +235,11 @@ export function registerUazapiWebhookRoutes(
         mediaUrl = mediaUrl ?? audio.mediaUrl;
       }
 
+      // Resposta automatica da loja nao e o lead falando: nao chama a IA, nao move o funil e
+      // nao conta como conversa. Quando a pessoa assumir o WhatsApp, a proxima mensagem cai no
+      // caminho normal e a IA responde ali — que e o unico momento em que ha alguem lendo.
+      const autoReply = !normalized.fromMe && isStoreAutoReply({ messageType: normalized.messageType, text: normalized.text, transcription });
+
       await conversationRepository.createMessage({
         conversationId: conversation.id,
         leadId: lead.id,
@@ -248,18 +254,26 @@ export function registerUazapiWebhookRoutes(
         rawPayload: JSON.stringify(normalized.rawMessage),
         sentByApi: normalized.sentByApi,
         fromMe: normalized.fromMe,
+        autoReply,
       });
       await conversationRepository.touch(conversation.id, now);
 
       if (!normalized.fromMe) {
         await leadRepository.updateWhatsappIdentity(lead.id, { jid: normalized.whatsappJid, lid: normalized.whatsappLid }, now);
-        // o follow-up conta a partir desta resposta, nao da primeira mensagem enviada ao lead
-        await leadRepository.markInboundReceived(lead.id, now, followupDueAt(agent, now));
-        if (isImageMessageType(normalized.messageType)) {
-          // a IA nao ve a foto: responder as cegas e pior do que chamar um humano
-          if (!isAiPaused(lead, now)) await leadRepository.pauseAi(lead.id, now, AI_PAUSE_REASONS.leadImage);
-        } else if (hasReplyableContent(normalized.text, transcription)) {
-          await aiResponseService.respondToInbound({ agent, conversation, lead });
+        if (autoReply) {
+          // Sem markInboundReceived e sem IA: o robo da loja nao pode empurrar o lead para
+          // `in_conversation` nem reancorar o follow-up. Loja que dispara cardapio todo dia
+          // deixava o chat eternamente "quente", e o lead nunca mais era tocado.
+          request.log.info({ leadId: lead.id, conversationId: conversation.id }, 'Store auto-reply ignored');
+        } else {
+          // o follow-up conta a partir desta resposta, nao da primeira mensagem enviada ao lead
+          await leadRepository.markInboundReceived(lead.id, now, followupDueAt(agent, now));
+          if (isImageMessageType(normalized.messageType)) {
+            // a IA nao ve a foto: responder as cegas e pior do que chamar um humano
+            if (!isAiPaused(lead, now)) await leadRepository.pauseAi(lead.id, now, AI_PAUSE_REASONS.leadImage);
+          } else if (hasReplyableContent(normalized.text, transcription)) {
+            await aiResponseService.respondToInbound({ agent, conversation, lead });
+          }
         }
       } else if (!normalized.sentByApi) {
         // mensagem digitada no celular do SDR: a IA so volta quando alguem liberar no portal

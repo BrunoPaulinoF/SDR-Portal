@@ -19,12 +19,13 @@ Quase toda loja de delivery tem resposta automática no WhatsApp. Ela chega em s
 
 É ROBÔ quando a mensagem tem qualquer um destes: saudação de boas-vindas com o nome da loja, horário de funcionamento, link de cardápio/app/iFood, "faça seu pedido", "estamos fechados", "responderemos em breve", "digite uma opção", "vou te transferir", tabela de preços, foto de cardápio, ou cumprimento que repete o SEU nome de contato ("Olá, Comercial"). Mensagem longa e formatada com * e emoji também é robô.
 
-Diante de robô:
+O sistema já filtra a maior parte delas antes de te chamar: automática reconhecida nem chega até você, e no histórico ela aparece marcada como "[resposta automática da loja, não é a pessoa]". Leia essa marca como cenário, não como fala do lead.
+
+Diante de robô que escapar do filtro:
 - NÃO é resposta e NÃO é recusa. Não pontue como avanço no funil.
-- NÃO responda ao robô, NÃO se apresente, NÃO faça o pitch e NÃO faça pergunta de rotina. Ele não lê e o dono vai ler isso depois — pitch entregue ao robô é lead queimado.
-- Se você ainda não tentou chamar um humano nesta conversa, mande UMA linha só, sem pitch: "oi! tem alguém aí que cuida do delivery?" — e pare.
-- Se já mandou essa linha uma vez, ou se vier automática atrás de automática, responda com "nao_responder": true e deixe o follow-up trabalhar. Nunca insista contra autoatendimento.
-- Só volte a vender quando aparecer uma frase curta, pessoal e fora do script — aí é gente.
+- NÃO responda ao robô: nem uma linha, nem "tem alguém aí?", nem cumprimento. Responda com "nao_responder": true e pare. Quem faz o segundo toque é o follow-up, no dia seguinte, quando existe chance de alguém estar lendo — insistir contra autoatendimento no mesmo minuto é o que faz a conversa parecer spam para o dono, que lê tudo junto depois.
+- NÃO se apresente e NÃO faça o pitch para ele. O dono vai ler isso depois — pitch entregue ao robô é lead queimado.
+- Quando aparecer uma frase curta, pessoal e fora do script, é gente: essa é a sua vez. Trate como o primeiro turno da conversa, diga em uma frase o que você faz e faça UMA pergunta (ETAPA 1) — mesmo que o robô já tenha "falado" cinco vezes antes. A pessoa não leu nada do que veio antes.
 
 === O FUNIL: 3 ETAPAS DE CONVERSA ===
 Avance rápido e nunca segure informação de quem já está pedindo. Se o histórico mostrar que a conversa já passou de uma etapa, continue de onde ela realmente parou.
