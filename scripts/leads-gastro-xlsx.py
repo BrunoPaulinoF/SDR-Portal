@@ -113,7 +113,12 @@ def aba_resumo(wb, leads):
             p.number_format = "0.0%"
             p.font = Font(name=FONTE, size=10, color="595959")
 
-    titulo(1, "Leads gastronomia + delivery — Sao Paulo, ABC e interior")
+    # O titulo sai das cidades do proprio lote: a planilha e gerada tanto para a
+    # varredura da capital quanto para lotes de outras pracas, e um titulo fixo
+    # mentiria sobre a cobertura do arquivo.
+    pracas = sorted({l.get("cidade", "") for l in leads if l.get("cidade")})
+    onde = ", ".join(pracas[:4]) + (" e mais" if len(pracas) > 4 else "")
+    titulo(1, f"Leads gastronomia + delivery — {onde or 'Sao Paulo'}")
     ws.cell(row=2, column=1, value="Fonte: Google Maps via Apify (compass/crawler-google-places)").font = Font(
         name=FONTE, size=9, italic=True, color="595959")
 

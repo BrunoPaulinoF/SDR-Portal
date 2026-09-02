@@ -3,6 +3,7 @@
 // ranqueada de leads. Roda offline, quantas vezes for preciso, sem custo.
 //
 //   node scripts/rank-leads-gastro.mjs [--top=500] [--in=...] [--out=...]
+//                                      [--exclude=docs/leads/telefones-ja-entregues.json]
 //
 // O criterio sai do que a analise da Mariana (docs/analises/mariana-2026-08.md)
 // mostrou queimar a base: 18 dos 82 leads dela morreram como `invalid_phone`, e
@@ -21,6 +22,10 @@ const args = new Map(
 const IN = args.get('in') ?? 'local-secrets/raw-places.json';
 const OUT = args.get('out') ?? 'local-secrets/leads-ranked.json';
 const TOP = Number(args.get('top') ?? 500);
+// Lista de telefones ja entregues em varredura anterior. Sem isso uma segunda
+// rodada devolve as mesmas casas de sempre no topo (elas continuam sendo as
+// melhores do criterio) e o SDR dispara duas vezes para o mesmo numero.
+const EXCLUDE = args.get('exclude') ?? '';
 
 const log = (...m) => process.stdout.write(`${m.join(' ')}\n`);
 
@@ -209,9 +214,19 @@ function pontuar(p, redes) {
   return { score: Math.min(100, Math.max(0, Math.round(score))), pontos, ressalvas, tel, del, tipo, marca, unidades };
 }
 
+/** Telefones a pular, em E.164. Aceita {telefones:[...]} ou um array cru. */
+function carregarExclusao(caminho) {
+  if (!caminho) return new Set();
+  const dados = JSON.parse(readFileSync(caminho, 'utf8'));
+  const lista = Array.isArray(dados) ? dados : (dados.telefones ?? []);
+  return new Set(lista.map((t) => String(t).trim()).filter(Boolean));
+}
+
 function main() {
   const brutos = JSON.parse(readFileSync(IN, 'utf8'));
   log(`${brutos.length} lugares brutos`);
+  const jaEntregues = carregarExclusao(EXCLUDE);
+  if (jaEntregues.size) log(`${jaEntregues.size} telefones ja entregues serao pulados (${EXCLUDE})`);
 
   // Dedupe por placeId e depois por telefone (a mesma casa aparece em varias buscas).
   const porId = new Map();
@@ -230,7 +245,7 @@ function main() {
     redes.get(m).add(p.placeId ?? p.url);
   }
 
-  const descartes = { fechado: 0, semTelefone: 0, foraDoRamo: 0, telDuplicado: 0 };
+  const descartes = { fechado: 0, semTelefone: 0, foraDoRamo: 0, telDuplicado: 0, jaEntregue: 0 };
   const vistos = new Set();
   const leads = [];
 
@@ -244,6 +259,7 @@ function main() {
 
     const r = pontuar(p, redes);
     if (!r.tel) { descartes.semTelefone += 1; continue; }
+    if (jaEntregues.has(r.tel.e164)) { descartes.jaEntregue += 1; continue; }
     if (vistos.has(r.tel.e164)) { descartes.telDuplicado += 1; continue; }
     vistos.add(r.tel.e164);
 
