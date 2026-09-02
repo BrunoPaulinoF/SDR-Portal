@@ -19,7 +19,24 @@ Quando alterar um prompt no portal, atualize o arquivo aqui no mesmo commit.
 `Descrição do produto` (`productDescription`) **não** alimenta nenhum prompt — é
 documentação interna da tela. Só `productName` e `offerDescription` chegam à IA.
 
-## O que mudou nesta revisão
+## Revisão de 02/09: robô da loja e primeira mensagem
+
+1. **A Mariana não responde mais à resposta automática da loja.** O filtro saiu do prompt e foi
+   para o código (`src/modules/conversations/store-auto-reply.ts`): automática reconhecida não
+   chega à IA, não move o lead no funil e aparece no histórico marcada como
+   `[resposta automática da loja, não é a pessoa]`. A frase pronta
+   `"oi! tem alguém aí que cuida do delivery?"` **saiu do `prompt.txt`** — ela estava entre
+   aspas, o modelo copiava, e virou 15% de tudo que a Mariana escrevia. O segundo toque agora é
+   do follow-up, no dia seguinte.
+2. **A primeira mensagem passou a abrir curiosidade sem parecer anúncio.** Ver
+   `first-message-variants.md`. Pergunta retórica de vendedor sobre a rotina do lead está
+   proibida por escrito no `first-message-prompt.txt`: ela é o formato que o dono reconhece
+   como robô. Isso **não** reabre a fórmula vaga banida na revisão anterior ("tenho uma solução,
+   tem interesse?"): aquela é da ETAPA 1, depois que a pessoa falou, e continua proibida. Na
+   primeira mensagem o assunto fica em aberto; assim que vier qualquer resposta de gente, a
+   ETAPA 1 diz na hora, de forma concreta, o que é a KyberFood.
+
+## O que mudou na revisão anterior
 
 Diagnóstico a partir das 743 conversas da Mariana em produção: 44% dos leads respondiam,
 mas 168 dos 219 que ouviam a segunda mensagem paravam ali. A segunda mensagem pedia que o

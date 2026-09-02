@@ -1,0 +1,1 @@
+ALTER TABLE "messages" ADD COLUMN "auto_reply" boolean DEFAULT false NOT NULL;

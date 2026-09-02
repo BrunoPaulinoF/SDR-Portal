@@ -18,6 +18,7 @@ export type MessageInput = Pick<
   | 'rawPayload'
   | 'sentByApi'
   | 'fromMe'
+  | 'autoReply'
 >;
 
 export interface ConversationRepository {
@@ -79,6 +80,7 @@ export function createMemoryConversationRepository(seedConversations: Conversati
         rawPayload: input.rawPayload ?? null,
         sentByApi: input.sentByApi ?? false,
         fromMe: input.fromMe ?? false,
+        autoReply: input.autoReply ?? false,
         createdAt: new Date(),
       };
       messages.set(message.id, message);

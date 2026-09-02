@@ -155,6 +155,13 @@
       "when": 1788346948375,
       "tag": "0021_slimy_micromax",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1788350407740,
+      "tag": "0022_medical_ego",
+      "breakpoints": true
     }
   ]
 }

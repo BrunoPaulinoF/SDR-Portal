@@ -281,6 +281,8 @@ export const messages = pgTable('messages', {
   rawPayload: text('raw_payload'),
   sentByApi: boolean('sent_by_api').default(false).notNull(),
   fromMe: boolean('from_me').default(false).notNull(),
+  /** Entrada que e a resposta automatica da loja (menu, saudacao, horario), nao uma pessoa. */
+  autoReply: boolean('auto_reply').default(false).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 

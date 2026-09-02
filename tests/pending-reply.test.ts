@@ -68,6 +68,7 @@ async function buildScenario(options: ScenarioOptions = {}) {
     rawPayload: null,
     sentByApi: false,
     fromMe: false,
+    autoReply: false,
     createdAt: messageAt,
     ...options.lastMessage,
   };
