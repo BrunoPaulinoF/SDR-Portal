@@ -12,12 +12,14 @@ import { createDbLeadRepository } from './modules/leads/db-lead-repository.js';
 import { createDbConnectionMonitorRepository } from './modules/monitoring/db-connection-monitor-repository.js';
 import { createConnectionMonitorService } from './modules/monitoring/connection-monitor-service.js';
 import { createDailyReportService } from './modules/monitoring/daily-report-service.js';
+import { createLeadQueueMonitorService } from './modules/monitoring/lead-queue-monitor-service.js';
 import { createFollowupOutreachService } from './modules/scheduler/followup-outreach.js';
 import { createInitialOutreachService } from './modules/scheduler/initial-outreach.js';
 import { createPendingReplyService } from './modules/scheduler/pending-reply.js';
 import {
   startPgBossConnectionMonitorScheduler,
   startPgBossDailyReportScheduler,
+  startPgBossLeadQueueMonitorScheduler,
   startPgBossFollowupScheduler,
   startPgBossInitialOutreachScheduler,
   startPgBossPendingReplyScheduler,
@@ -98,11 +100,21 @@ async function start(): Promise<void> {
         uazapiClient: createHttpUazapiClient(),
       }),
     );
+    const leadQueueBoss = await startPgBossLeadQueueMonitorScheduler(
+      createLeadQueueMonitorService({
+        connectionMonitorRepository: createDbConnectionMonitorRepository(),
+        jobLogRepository: createDbJobLogRepository(),
+        leadRepository: createDbLeadRepository(),
+        sdrAgentRepository: createDbSdrAgentRepository(),
+        uazapiClient: createHttpUazapiClient(),
+      }),
+    );
     if (initialBoss) bosses.push(initialBoss);
     if (followupBoss) bosses.push(followupBoss);
     if (pendingReplyBoss) bosses.push(pendingReplyBoss);
     if (connectionMonitorBoss) bosses.push(connectionMonitorBoss);
     if (dailyReportBoss) bosses.push(dailyReportBoss);
+    if (leadQueueBoss) bosses.push(leadQueueBoss);
   } catch (error) {
     app.log.error(error, 'Failed to start server');
     process.exit(1);

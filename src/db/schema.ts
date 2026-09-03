@@ -375,6 +375,10 @@ export const monitorSettings = pgTable('monitor_settings', {
   repeatAlertMinutes: integer('repeat_alert_minutes').default(60).notNull(),
   /** SDR desligado no portal nao gera alerta: instancia velha nao acorda ninguem. */
   onlyActiveAgents: boolean('only_active_agents').default(true).notNull(),
+  leadsAlertEnabled: boolean('leads_alert_enabled').default(false).notNull(),
+  /** Avisa quando a fila do SDR chega a este tamanho. 0 = so quando zerar. */
+  leadsAlertThreshold: integer('leads_alert_threshold').default(0).notNull(),
+  leadsAlertTemplate: text('leads_alert_template'),
   dailyReportEnabled: boolean('daily_report_enabled').default(false).notNull(),
   /** Hora do relatorio no fuso do portal, `HH:MM`. */
   dailyReportTime: text('daily_report_time').default('18:30').notNull(),
@@ -414,6 +418,14 @@ export const sdrConnectionStates = pgTable(
     lastConnectedAt: timestamp('last_connected_at', { withTimezone: true }),
     disconnectedAt: timestamp('disconnected_at', { withTimezone: true }),
     lastAlertAt: timestamp('last_alert_at', { withTimezone: true }),
+    /** Leads em `pending` na ultima leitura da fila. */
+    pendingLeads: integer('pending_leads'),
+    /**
+     * Quando saiu o aviso de fila no fim. Volta a `null` assim que a fila enche de novo — e
+     * esse zeramento que rearma o proximo aviso, do mesmo jeito que a reconexao rearma o
+     * alerta de queda.
+     */
+    leadsAlertAt: timestamp('leads_alert_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },

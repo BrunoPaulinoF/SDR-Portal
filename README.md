@@ -140,6 +140,7 @@ Scheduler de mensagens iniciais:
 - `PENDING_REPLY_WINDOW_HOURS`: idade maxima da conversa que ainda recebe resposta atrasada, padrao `24`.
 - `CONNECTION_MONITOR_CRON`: cron do monitor de conexao dos SDRs, padrao `*/5 * * * *`.
 - `DAILY_REPORT_CRON`: cron que verifica se ja passou da hora do relatorio diario, padrao `*/15 * * * *`.
+- `LEAD_QUEUE_MONITOR_CRON`: cron do aviso de fila de leads no fim, padrao `*/15 * * * *`.
 - `WEB_RESEARCH_ENDPOINT`: endpoint opcional para pesquisa/enriquecimento web antes da primeira mensagem.
 - `WEB_RESEARCH_API_KEY`: token opcional enviado como `Bearer` para o endpoint de pesquisa.
 - `WEB_RESEARCH_TIMEOUT_MS`: timeout da pesquisa web, padrao `8000`.
@@ -240,6 +241,7 @@ Monitor de conexao dos SDRs:
 - `POST /monitoring/test`: manda uma mensagem de teste para os numeros cadastrados.
 - `POST /monitoring/qr`: gera o QR code para parear o celular que envia os alertas (o codigo expira em segundos; clique de novo se perder).
 - `POST /monitoring/report`: envia o relatorio do dia na hora, sem esperar o horario e sem gastar o envio automatico do dia.
+- `POST /monitoring/leads`: conta a fila de cada SDR agora e avisa se alguma acabou de esvaziar.
 
 Como funciona:
 
@@ -251,6 +253,15 @@ Como funciona:
 - Os textos aceitam os marcadores `{sdrs}`, `{total}`, `{data}`, `{hora}` e `{portal}`; em branco, usam o padrao do codigo.
 - `Vigiar apenas SDRs ligados no portal` evita que instancia de SDR desativado acorde alguem de madrugada.
 - Cada alerta enviado (e cada falha de envio) vira uma linha em `job_logs` com `job_name=connection-monitor`. Tick sem novidade nao escreve nada.
+
+Aviso de fila de leads:
+
+- Mesma instancia e mesmos numeros do monitor de conexao.
+- Ligado por `Avisar quando a fila de leads de um SDR acabar` em `/monitoring`. O limite (`leads_alert_threshold`, padrao `0`) permite avisar **antes** de zerar: com `50`, o aviso sai quando a fila chega a 50.
+- Conta so os leads em `pending` — lead ja abordado nao e fila.
+- **Um aviso por esvaziamento.** `sdr_connection_states.leads_alert_at` guarda que ja avisamos e volta a `null` quando a fila enche de novo; e esse zeramento que rearma o proximo aviso, igual a reconexao no alerta de queda.
+- As colunas da fila e as da conexao vivem na mesma linha mas sao gravadas por caminhos separados (`saveLeadQueueState` x `saveState`), para um job nao apagar a memoria do outro.
+- Cada aviso vira uma linha em `job_logs` com `job_name=lead-queue-monitor`. Tick sem novidade nao escreve nada.
 
 Relatorio diario dos SDRs:
 

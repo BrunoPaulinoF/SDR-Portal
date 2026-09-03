@@ -36,6 +36,14 @@ export function createDbLeadRepository(): LeadRepository {
       return { prospected, responded, handoffs };
     },
 
+    async countPendingForSdr(sdrAgentId) {
+      const [row] = await db
+        .select({ value: count() })
+        .from(leads)
+        .where(and(eq(leads.sdrAgentId, sdrAgentId), eq(leads.status, 'pending')));
+      return row?.value ?? 0;
+    },
+
     async countFollowupSentForSdrSince(sdrAgentId, since) {
       const [row] = await db
         .select({ value: count() })

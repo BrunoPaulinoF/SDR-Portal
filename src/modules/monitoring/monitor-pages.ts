@@ -9,6 +9,8 @@ import { DEFAULT_DAILY_REPORT_TIME, DEFAULT_REPEAT_ALERT_MINUTES } from './conne
 import type { MonitorRunResult } from './connection-monitor-service.js';
 import type { DailyReportResult } from './daily-report-service.js';
 import { defaultDailyReportTemplate } from './daily-report-message.js';
+import { defaultLeadQueueTemplate } from './lead-queue-message.js';
+import type { LeadQueueResult } from './lead-queue-monitor-service.js';
 
 export interface MonitorPageData {
   settings: MonitorSettings | null;
@@ -26,6 +28,8 @@ export interface MonitorPageData {
   qr?: InstanceConnectionState;
   /** Preenchido so depois de alguem pedir o relatorio na mao. */
   reportResult?: DailyReportResult;
+  /** Preenchido so depois de alguem conferir a fila na mao. */
+  leadQueueResult?: LeadQueueResult;
 }
 
 function pill(status: string | null, label: string): string {
@@ -44,7 +48,7 @@ function renderStatesTable(data: MonitorPageData): string {
   const rows = monitored
     .map((agent) => {
       const state = byAgent.get(agent.id) ?? null;
-      const label = state ? (state.status === 'connected' ? 'conectado' : 'desconectado') : 'sem leitura';
+      const label = state?.status === 'connected' ? 'conectado' : state?.status === 'disconnected' ? 'desconectado' : 'sem leitura';
       const since = state?.status === 'disconnected' ? state.disconnectedAt : state?.lastConnectedAt;
 
       return `<tr>
@@ -53,6 +57,7 @@ function renderStatesTable(data: MonitorPageData): string {
         <td>${pill(state?.status ?? null, label)}${state?.instanceStatus ? `<br><span class="muted">${escapeHtml(state.instanceStatus)}</span>` : ''}</td>
         <td>${escapeHtml(formatDateTimeInTimeZone(since ?? null, data.timeZone))}</td>
         <td>${escapeHtml(formatDateTimeInTimeZone(state?.lastCheckedAt ?? null, data.timeZone))}</td>
+        <td>${state?.pendingLeads === null || state?.pendingLeads === undefined ? '-' : String(state.pendingLeads)}</td>
         <td>${escapeHtml(state?.disconnectReason ?? '-')}</td>
       </tr>`;
     })
@@ -66,6 +71,7 @@ function renderStatesTable(data: MonitorPageData): string {
         <th>Estado</th>
         <th>Desde</th>
         <th>Ultima leitura</th>
+        <th>Fila</th>
         <th>Motivo da queda</th>
       </tr>
     </thead>
@@ -129,6 +135,23 @@ function renderReportResult(result: DailyReportResult | undefined): string {
   </section>`;
 }
 
+function renderLeadQueueResult(result: LeadQueueResult | undefined): string {
+  if (!result) return '';
+  if (result.skipped) return `<div class="alert-error">${escapeHtml(result.skipped)}</div>`;
+
+  const filas = result.queues.map((fila) => `${fila.name}: ${fila.pendingLeads} lead(s)`).join('<br>');
+
+  return `<section class="panel">
+    <h2>Fila de leads</h2>
+    <p>${filas || 'Nenhum SDR vigiado.'}</p>
+    <p class="muted">${escapeHtml(
+      `Acabou agora: ${result.emptied.length ? result.emptied.map((sdr) => sdr.name).join(', ') : 'nenhum'} · ` +
+        `Voltou a encher: ${result.refilled.length ? result.refilled.join(', ') : 'nenhum'} · ` +
+        `Avisos entregues: ${result.alertsSent} de ${result.recipients} numero(s)`,
+    )}</p>
+  </section>`;
+}
+
 export function renderMonitorPage(data: MonitorPageData): string {
   const settings = data.settings;
   const recipients = settings?.alertRecipients ?? '';
@@ -158,6 +181,9 @@ export function renderMonitorPage(data: MonitorPageData): string {
       <form method="post" action="/monitoring/report" data-inline>
         <button class="button button-secondary" type="submit">Enviar relatorio agora</button>
       </form>
+      <form method="post" action="/monitoring/leads" data-inline>
+        <button class="button button-secondary" type="submit">Conferir fila de leads</button>
+      </form>
       <form method="post" action="/monitoring/qr" data-inline>
         <button class="button button-secondary" type="submit">Conectar numero do monitor</button>
       </form>
@@ -168,6 +194,7 @@ export function renderMonitorPage(data: MonitorPageData): string {
   ${renderRunResult(data.runResult)}
   ${renderMonitorQr(data.qr)}
   ${renderReportResult(data.reportResult)}
+  ${renderLeadQueueResult(data.leadQueueResult)}
   <section class="panel">
     <h2>Estado dos SDRs</h2>
     ${renderStatesTable(data)}
@@ -204,6 +231,17 @@ export function renderMonitorPage(data: MonitorPageData): string {
         <label for="alertTemplate">Mensagem de queda (vazio usa o padrao)</label>
         <textarea id="alertTemplate" name="alertTemplate" rows="7" placeholder="${escapeHtml(defaultAlertTemplate(data.portalUrl))}">${escapeHtml(settings?.alertTemplate ?? '')}</textarea>
         <p class="muted">Marcadores: <code>{sdrs}</code> (lista com nome, hora e motivo), <code>{total}</code>, <code>{data}</code>, <code>{hora}</code>, <code>{portal}</code>.</p>
+      </div>
+      <label class="checkbox-field field-full"><input type="checkbox" name="leadsAlertEnabled" ${settings?.leadsAlertEnabled ? 'checked' : ''}> Avisar quando a fila de leads de um SDR acabar</label>
+      <div class="field">
+        <label for="leadsAlertThreshold">Avisar quando a fila chegar a (leads)</label>
+        <input id="leadsAlertThreshold" name="leadsAlertThreshold" type="number" min="0" value="${settings?.leadsAlertThreshold ?? 0}">
+        <p class="muted">0 avisa so quando zerar. Um numero maior avisa antes de acabar, dando tempo de importar.</p>
+      </div>
+      <div class="field field-full">
+        <label for="leadsAlertTemplate">Mensagem da fila (vazio usa o padrao)</label>
+        <textarea id="leadsAlertTemplate" name="leadsAlertTemplate" rows="5" placeholder="${escapeHtml(defaultLeadQueueTemplate(data.portalUrl))}">${escapeHtml(settings?.leadsAlertTemplate ?? '')}</textarea>
+        <p class="muted">Marcadores: <code>{sdrs}</code>, <code>{data}</code>, <code>{hora}</code>, <code>{portal}</code>.</p>
       </div>
       <label class="checkbox-field field-full"><input type="checkbox" name="dailyReportEnabled" ${settings?.dailyReportEnabled ? 'checked' : ''}> Enviar relatorio no fim do dia (SDRs ativos: prospectados, responderam e possiveis clientes)</label>
       <div class="field">

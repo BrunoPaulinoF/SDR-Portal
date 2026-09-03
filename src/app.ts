@@ -40,6 +40,7 @@ import {
 } from './modules/monitoring/connection-monitor-repository.js';
 import { createConnectionMonitorService } from './modules/monitoring/connection-monitor-service.js';
 import { createDailyReportService } from './modules/monitoring/daily-report-service.js';
+import { createLeadQueueMonitorService } from './modules/monitoring/lead-queue-monitor-service.js';
 import { registerMonitorRoutes } from './modules/monitoring/monitor-routes.js';
 import { createInitialOutreachService } from './modules/scheduler/initial-outreach.js';
 import { createFollowupOutreachService } from './modules/scheduler/followup-outreach.js';
@@ -355,6 +356,11 @@ function createLazyDbLeadRepository(): LeadRepository {
       return createDbLeadRepository().countFollowupSentForSdrSince(sdrAgentId, since);
     },
 
+    async countPendingForSdr(sdrAgentId) {
+      const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
+      return createDbLeadRepository().countPendingForSdr(sdrAgentId);
+    },
+
     async countInitialSentForSdrSince(sdrAgentId, since) {
       const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
       return createDbLeadRepository().countInitialSentForSdrSince(sdrAgentId, since);
@@ -559,6 +565,10 @@ function createLazyDbConnectionMonitorRepository(): ConnectionMonitorRepository 
       const { createDbConnectionMonitorRepository } = await import('./modules/monitoring/db-connection-monitor-repository.js');
       return createDbConnectionMonitorRepository().markDailyReportSent(dayKey);
     },
+    async saveLeadQueueState(input) {
+      const { createDbConnectionMonitorRepository } = await import('./modules/monitoring/db-connection-monitor-repository.js');
+      return createDbConnectionMonitorRepository().saveLeadQueueState(input);
+    },
   };
 }
 
@@ -685,6 +695,13 @@ export function buildApp(options: AppOptions = {}): AppInstance {
     sdrAgentRepository: sdrAgents,
     uazapiClient: uazapi,
   });
+  const leadQueueMonitorService = createLeadQueueMonitorService({
+    connectionMonitorRepository: connectionMonitors,
+    jobLogRepository: jobLogs,
+    leadRepository: leads,
+    sdrAgentRepository: sdrAgents,
+    uazapiClient: uazapi,
+  });
   const dailyReportService = createDailyReportService({
     connectionMonitorRepository: connectionMonitors,
     jobLogRepository: jobLogs,
@@ -720,7 +737,16 @@ export function buildApp(options: AppOptions = {}): AppInstance {
   registerUazapiRoutes(app, repository, sdrAgents, uazapi);
   registerInstanceConnectRoutes(app, repository, sdrAgents, instanceShareLinks, uazapi);
   registerSchedulerRoutes(app, repository, initialOutreach, followupOutreach, pendingReply);
-  registerMonitorRoutes(app, repository, sdrAgents, connectionMonitors, connectionMonitorService, dailyReportService, uazapi);
+  registerMonitorRoutes(
+    app,
+    repository,
+    sdrAgents,
+    connectionMonitors,
+    connectionMonitorService,
+    dailyReportService,
+    leadQueueMonitorService,
+    uazapi,
+  );
   registerConversationRoutes(app, repository, conversations, leads, sdrAgents);
   registerWebhookEventRoutes(app, repository, webhookEvents);
   registerAiRunRoutes(app, repository, aiRuns);
