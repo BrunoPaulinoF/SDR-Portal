@@ -16,6 +16,10 @@ export interface MonitorSettingsInput {
   notifyOnRecovery: boolean;
   repeatAlertMinutes: number;
   onlyActiveAgents: boolean;
+  leadsAlertEnabled: boolean;
+  /** Tamanho de fila que dispara o aviso. 0 = so quando zerar. */
+  leadsAlertThreshold: number;
+  leadsAlertTemplate: string | null;
   dailyReportEnabled: boolean;
   /** `HH:MM` no fuso do portal. */
   dailyReportTime: string;
@@ -33,6 +37,13 @@ export interface ConnectionStateInput {
   lastAlertAt: Date | null;
 }
 
+export interface LeadQueueStateInput {
+  sdrAgentId: string;
+  pendingLeads: number;
+  /** `null` rearma o aviso: a fila voltou a ter lead. */
+  leadsAlertAt: Date | null;
+}
+
 export interface ConnectionMonitorRepository {
   getSettings(): Promise<MonitorSettings | null>;
   saveSettings(input: MonitorSettingsInput): Promise<MonitorSettings>;
@@ -46,6 +57,11 @@ export interface ConnectionMonitorRepository {
    * fazer o relatorio sair duas vezes.
    */
   markDailyReportSent(dayKey: string): Promise<void>;
+  /**
+   * Grava so as colunas da fila de leads, sem tocar no estado de conexao — os dois vivem na
+   * mesma linha e um job nao pode apagar a memoria do outro.
+   */
+  saveLeadQueueState(input: LeadQueueStateInput): Promise<void>;
 }
 
 export const DEFAULT_REPEAT_ALERT_MINUTES = 60;
@@ -64,6 +80,9 @@ export function defaultMonitorSettings(): MonitorSettingsInput {
     notifyOnRecovery: true,
     repeatAlertMinutes: DEFAULT_REPEAT_ALERT_MINUTES,
     onlyActiveAgents: true,
+    leadsAlertEnabled: false,
+    leadsAlertThreshold: 0,
+    leadsAlertTemplate: null,
     dailyReportEnabled: false,
     dailyReportTime: DEFAULT_DAILY_REPORT_TIME,
     dailyReportTemplate: null,
@@ -113,6 +132,9 @@ export function createMemoryConnectionMonitorRepository(
       const now = new Date();
       const state: SdrConnectionState = {
         id: current?.id ?? randomUUID(),
+        // As colunas da fila ficam como estao: quem cuida delas e `saveLeadQueueState`.
+        pendingLeads: current?.pendingLeads ?? null,
+        leadsAlertAt: current?.leadsAlertAt ?? null,
         ...input,
         createdAt: current?.createdAt ?? now,
         updatedAt: now,
@@ -120,6 +142,26 @@ export function createMemoryConnectionMonitorRepository(
 
       states.set(input.sdrAgentId, state);
       return state;
+    },
+
+    async saveLeadQueueState(input) {
+      const now = new Date();
+      const current = states.get(input.sdrAgentId);
+      states.set(input.sdrAgentId, {
+        id: current?.id ?? randomUUID(),
+        sdrAgentId: input.sdrAgentId,
+        status: current?.status ?? 'unknown',
+        instanceStatus: current?.instanceStatus ?? null,
+        disconnectReason: current?.disconnectReason ?? null,
+        lastCheckedAt: current?.lastCheckedAt ?? now,
+        lastConnectedAt: current?.lastConnectedAt ?? null,
+        disconnectedAt: current?.disconnectedAt ?? null,
+        lastAlertAt: current?.lastAlertAt ?? null,
+        pendingLeads: input.pendingLeads,
+        leadsAlertAt: input.leadsAlertAt,
+        createdAt: current?.createdAt ?? now,
+        updatedAt: now,
+      });
     },
 
     async markDailyReportSent(dayKey) {

@@ -12,6 +12,7 @@ import type { ConnectionMonitorRepository } from './connection-monitor-repositor
 import { defaultMonitorSettings } from './connection-monitor-repository.js';
 import { monitorCredentials, type ConnectionMonitorService, type MonitorRunResult } from './connection-monitor-service.js';
 import type { DailyReportResult, DailyReportService } from './daily-report-service.js';
+import type { LeadQueueMonitorService, LeadQueueResult } from './lead-queue-monitor-service.js';
 import { renderMonitorPage } from './monitor-pages.js';
 
 const checkbox = z.preprocess((value) => value === 'on' || value === 'true', z.boolean());
@@ -30,6 +31,9 @@ const settingsFormSchema = z.object({
   dailyReportEnabled: checkbox.default(false),
   dailyReportTime: z.string().trim().regex(/^\d{1,2}:\d{2}$/).optional().default('18:30'),
   dailyReportTemplate: z.string().optional().default(''),
+  leadsAlertEnabled: checkbox.default(false),
+  leadsAlertThreshold: z.coerce.number().int().nonnegative().default(0),
+  leadsAlertTemplate: z.string().optional().default(''),
 });
 
 function emptyToNull(value: string): string | null {
@@ -49,6 +53,7 @@ export function registerMonitorRoutes(
   connectionMonitorRepository: ConnectionMonitorRepository,
   connectionMonitorService: ConnectionMonitorService,
   dailyReportService: DailyReportService,
+  leadQueueMonitorService: LeadQueueMonitorService,
   uazapiClient: UazapiClient,
 ): void {
   async function renderPage(
@@ -58,6 +63,7 @@ export function registerMonitorRoutes(
       runResult?: MonitorRunResult;
       qr?: InstanceConnectionState;
       reportResult?: DailyReportResult;
+      leadQueueResult?: LeadQueueResult;
     } = {},
   ): Promise<string> {
     const [settings, agents, states] = await Promise.all([
@@ -116,6 +122,9 @@ export function registerMonitorRoutes(
       dailyReportEnabled: data.dailyReportEnabled,
       dailyReportTime: data.dailyReportTime,
       dailyReportTemplate: emptyToNull(data.dailyReportTemplate),
+      leadsAlertEnabled: data.leadsAlertEnabled,
+      leadsAlertThreshold: data.leadsAlertThreshold,
+      leadsAlertTemplate: emptyToNull(data.leadsAlertTemplate),
     });
 
     return reply.type('text/html').send(await renderPage({ notice: 'Configuracao do monitor salva.' }));
@@ -156,6 +165,20 @@ export function registerMonitorRoutes(
     return reply
       .type('text/html')
       .send(await renderPage(reportResult.errors.length > 0 ? { reportResult, error: reportResult.errors.join(' | ') } : { reportResult }));
+  });
+
+  app.post('/monitoring/leads', async (request, reply) => {
+    const user = await requireUser(request, reply, authRepository);
+    if (!user) return undefined;
+
+    const leadQueueResult = await leadQueueMonitorService.checkNow();
+    return reply
+      .type('text/html')
+      .send(
+        await renderPage(
+          leadQueueResult.errors.length > 0 ? { leadQueueResult, error: leadQueueResult.errors.join(' | ') } : { leadQueueResult },
+        ),
+      );
   });
 
   app.post('/monitoring/test', async (request, reply) => {

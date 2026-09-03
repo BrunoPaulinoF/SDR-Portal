@@ -36,6 +36,22 @@ export function createDbConnectionMonitorRepository(): ConnectionMonitorReposito
       return db.select().from(sdrConnectionStates);
     },
 
+    async saveLeadQueueState(input) {
+      await db
+        .insert(sdrConnectionStates)
+        .values({
+          sdrAgentId: input.sdrAgentId,
+          // Linha nova criada pela fila: o estado da conexao ainda nao foi lido.
+          status: 'unknown',
+          pendingLeads: input.pendingLeads,
+          leadsAlertAt: input.leadsAlertAt,
+        })
+        .onConflictDoUpdate({
+          target: sdrConnectionStates.sdrAgentId,
+          set: { pendingLeads: input.pendingLeads, leadsAlertAt: input.leadsAlertAt, updatedAt: new Date() },
+        });
+    },
+
     async markDailyReportSent(dayKey) {
       await db.update(monitorSettings).set({ lastDailyReportOn: dayKey, updatedAt: new Date() }).where(eq(monitorSettings.singleton, SINGLETON));
     },

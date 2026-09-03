@@ -50,6 +50,8 @@ export interface SdrDailyActivity {
 export interface LeadRepository {
   countDailyActivityForSdr(sdrAgentId: string, start: Date, end: Date): Promise<SdrDailyActivity>;
   countFollowupSentForSdrSince(sdrAgentId: string, since: Date): Promise<number>;
+  /** Leads ainda por abordar (`pending`) de um SDR: o tamanho da fila dele. */
+  countPendingForSdr(sdrAgentId: string): Promise<number>;
   countInitialSentForSdrSince(sdrAgentId: string, since: Date): Promise<number>;
   create(input: LeadInput): Promise<Lead>;
   createImport(input: LeadImportInput): Promise<LeadImport>;
@@ -158,6 +160,10 @@ export function createMemoryLeadRepository(seedLeads: Lead[] = []): LeadReposito
         responded: agentLeads.filter((lead) => inPeriod(lead.lastInboundAt, start, end)).length,
         handoffs: agentLeads.filter((lead) => inPeriod(lead.handoffRequestedAt, start, end)).length,
       };
+    },
+
+    async countPendingForSdr(sdrAgentId) {
+      return [...rows.values()].filter((lead) => lead.sdrAgentId === sdrAgentId && lead.status === 'pending').length;
     },
 
     async countFollowupSentForSdrSince(sdrAgentId, since) {
