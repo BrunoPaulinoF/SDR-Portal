@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "admin:create": "node dist/src/db/create-admin.js",
+    "backfill:auto-replies": "node dist/src/db/backfill-auto-replies.js",
     "build": "tsc -p tsconfig.json",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node dist/src/db/migrate.js",

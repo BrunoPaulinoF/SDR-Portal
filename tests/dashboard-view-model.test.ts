@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { buildDashboardViewModel } from '../src/modules/dashboard/dashboard-view-model.js';
 import { createMemoryCompanyRepository } from '../src/modules/companies/company-repository.js';
+import { createMemoryConversationRepository } from '../src/modules/conversations/conversation-repository.js';
 import { createMemoryLeadRepository, type LeadInput } from '../src/modules/leads/lead-repository.js';
 import { createMemorySdrAgentRepository } from '../src/modules/sdr-agents/sdr-agent-repository.js';
 
@@ -150,5 +151,125 @@ describe('dashboard stall detection', () => {
 
     const travado = await buildModel(600, 240);
     expect(travado.dispatchRows[0]?.statusLabel).toBe('Parado');
+  });
+});
+
+describe('dashboard: resposta de gente e capacidade do dia', () => {
+  async function buildScenario(agentOverrides: Record<string, unknown> = {}) {
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const conversationRepository = createMemoryConversationRepository();
+    const now = new Date('2026-09-08T18:00:00.000Z');
+    const company = await companyRepository.create({
+      name: 'KyberFood',
+      legalName: null,
+      cnpj: null,
+      segment: null,
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({
+      companyId: company.id,
+      name: 'mariana',
+      displayName: 'Mariana',
+      isActive: true,
+      timezone: 'America/Sao_Paulo',
+      sendWindowStart: '08:00',
+      sendWindowEnd: '20:00',
+      sendDaysOfWeek: '0,1,2,3,4,5,6',
+      dailyInitialSendLimit: 40,
+      initialCooldownMinMinutes: 5,
+      initialCooldownMaxMinutes: 15,
+      uazapiBaseUrl: 'https://kybernan.uazapi.com',
+      uazapiInstanceTokenEncrypted: 'v1:token-falso',
+      ...agentOverrides,
+    });
+
+    return { agent, company, companyRepository, conversationRepository, leadRepository, now, sdrAgentRepository };
+  }
+
+  async function inboundLead(
+    scenario: Awaited<ReturnType<typeof buildScenario>>,
+    companyName: string,
+    whatsappNumber: string,
+    autoReply: boolean,
+  ) {
+    const lead = await scenario.leadRepository.create(leadInput(scenario.company.id, scenario.agent.id, companyName, whatsappNumber));
+    await scenario.leadRepository.markInitialSent(lead.id, new Date(scenario.now.getTime() - 60 * 60 * 1000), null);
+    const conversation = await scenario.conversationRepository.create({
+      companyId: scenario.company.id,
+      sdrAgentId: scenario.agent.id,
+      leadId: lead.id,
+      whatsappNumber,
+      status: 'open',
+      lastMessageAt: scenario.now,
+    });
+    await scenario.conversationRepository.createMessage({
+      conversationId: conversation.id,
+      leadId: lead.id,
+      sdrAgentId: scenario.agent.id,
+      direction: 'inbound',
+      senderType: 'lead',
+      messageType: 'conversation',
+      text: autoReply ? 'Seja bem-vindo! Confira o cardapio: https://loja.app' : 'sou eu mesmo, sobre o que seria?',
+      autoReply,
+    });
+    return lead;
+  }
+
+  /**
+   * A tela dizia 60% de resposta numa caixa em que gente respondeu 27%: o robo da loja entrava
+   * na conta e escondia o resultado real de qualquer mudanca de abordagem.
+   */
+  it('conta so a resposta de gente na taxa de resposta', async () => {
+    const scenario = await buildScenario();
+    await inboundLead(scenario, 'Pizzaria Robo', '5511999999999', true);
+    await inboundLead(scenario, 'Hamburgueria Gente', '5511888888888', false);
+
+    const model = buildDashboardViewModel({
+      aiRuns: [],
+      companies: await scenario.companyRepository.list(),
+      conversations: await scenario.conversationRepository.list(),
+      filters: { activeOnly: true, companyId: '', period: 'all', sdrAgentId: '', stage: '', status: '' },
+      jobLogs: [],
+      leads: await scenario.leadRepository.list(),
+      messages: await scenario.conversationRepository.listAllMessages(),
+      now: scenario.now,
+      sdrAgents: await scenario.sdrAgentRepository.list(),
+      userLabel: 'Admin',
+    });
+
+    expect(model.metrics.find((metric) => metric.label === 'Responderam')?.value).toBe('1');
+    expect(model.metrics.find((metric) => metric.label === 'Taxa de resposta')?.value).toBe('50%');
+    expect(model.companyRows[0]?.responded).toBe(1);
+  });
+
+  async function alertsFor(agentOverrides: Record<string, unknown>) {
+    const scenario = await buildScenario(agentOverrides);
+    const model = buildDashboardViewModel({
+      aiRuns: [],
+      companies: await scenario.companyRepository.list(),
+      conversations: [],
+      filters: { activeOnly: true, companyId: '', period: 'all', sdrAgentId: '', stage: '', status: '' },
+      jobLogs: [],
+      leads: await scenario.leadRepository.list(),
+      messages: [],
+      now: scenario.now,
+      sdrAgents: await scenario.sdrAgentRepository.list(),
+      userLabel: 'Admin',
+    });
+    return model.alerts;
+  }
+
+  // Janela curta com cooldown longo nunca chega ao limite: sem o aviso, o SDR parece "sem fila".
+  it('avisa quando a janela nao comporta o limite diario', async () => {
+    const apertado = await alertsFor({ sendWindowStart: '15:00', sendWindowEnd: '21:00' });
+    expect(apertado.some((alert) => alert.includes('Limite diario acima do que a janela permite'))).toBe(true);
+
+    const folgado = await alertsFor({ sendWindowStart: '08:00', sendWindowEnd: '20:00' });
+    expect(folgado.some((alert) => alert.includes('Limite diario acima do que a janela permite'))).toBe(false);
   });
 });

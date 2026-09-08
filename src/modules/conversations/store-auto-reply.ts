@@ -63,6 +63,41 @@ const LINK = /(https?:\/\/|www\.[a-z0-9-]+\.|wa\.me\/|\b[a-z0-9-]+\.(com|com\.br
 /** Cardapio colado: muito negrito de WhatsApp junto, coisa que ninguem faz respondendo "oi". */
 const HEAVY_MARKUP = /\*[^*\n]{2,60}\*(?:[\s\S]{0,200}?\*[^*\n]{2,60}\*){2,}/;
 
+/**
+ * Perguntas que so fazem sentido dirigidas a quem escreveu: quem pergunta isso quer saber com
+ * quem esta falando, e espera resposta.
+ */
+const IDENTITY_QUESTION =
+  /(com quem (eu\s+)?(falo|estou falando)|quem (fala|est[áa] falando|[ée] voc[êe])|qual (o |[ée] o )?seu nome|me diz seu nome|poderia (me )?informar( o)? seu nome)/i;
+
+/**
+ * Sinais que nenhuma pessoa produz: menu numerado, link, bloco gigante. So eles derrubam o
+ * desempate da pergunta de identidade.
+ */
+const MENU_ONLY: RegExp[] = [
+  LINK,
+  /\bdigite\b/i,
+  /escolha uma op[çc][ãa]o/i,
+  /op[çc][ãa]o\s+inv[áa]lida/i,
+  /(atendente|assistente)\s+virtual/i,
+  /autoatendimento/i,
+];
+
+/**
+ * `true` quando a mensagem termina perguntando quem esta do outro lado.
+ *
+ * Isso desempata para gente mesmo quando a saudacao parece automatica ("Seja bem-vindo ao X!
+ * Tudo bem? Com quem falo?"). O criterio veio do Retro House, que ficou tres dias sem resposta
+ * por cair no filtro (docs/analises/francielly-2026-08-28.md): o custo de calar com uma pessoa
+ * esperando e maior que o de gastar uma mensagem com um robo.
+ */
+function endsWithIdentityQuestion(text: string): boolean {
+  if (text.length >= 220) return false;
+  if (MENU_ONLY.some((pattern) => pattern.test(text))) return false;
+  if (!/\?[\s\p{Extended_Pictographic}]*$/u.test(text)) return false;
+  return IDENTITY_QUESTION.test(text.slice(-80));
+}
+
 function countEmoji(text: string): number {
   return (text.match(/\p{Extended_Pictographic}/gu) ?? []).length;
 }
@@ -83,6 +118,10 @@ export function isStoreAutoReply(input: {
 
   const text = input.text?.trim();
   if (!text) return false;
+
+  // Vem antes de tudo: a saudacao da loja e a da pessoa que assumiu o balcao sao iguais ate a
+  // ultima frase, e e a pergunta no fim que separa as duas.
+  if (endsWithIdentityQuestion(text)) return false;
 
   if (LINK.test(text)) return true;
   if (AUTO_PHRASES.some((pattern) => pattern.test(text))) return true;

@@ -70,7 +70,10 @@ describe('bundle de prompts do repositorio', () => {
     const prompt = bundle.fields.prompt ?? '';
 
     // A curiosidade preservada e a aplicacao na casa do lead, nao o que a empresa faz.
-    expect(prompt).toContain('acompanhar de perto os números da operação e transformá-los em decisões práticas para a gestão financeira');
+    expect(prompt).toContain('acompanhar de perto os números da operação');
+    // Sem as tres palavras concretas a pessoa ouve "acompanhar os números" e nao entende nada:
+    // foi a frase sem elas que a Casa & Comida ouviu antes de responder "nao temos interesse".
+    expect(prompt).toContain('custo de insumo, margem por prato e preço de cardápio');
     expect(prompt).toContain('Como cada casa tem uma realidade');
     // O que soava despreparo nos prints.
     expect(prompt).toContain('Nunca diga "só o Fernando sabe explicar"');

@@ -73,6 +73,12 @@ const sdrAgentFormSchema = z.object({
   handoffMessageTemplate: z.string().trim().optional().default(''),
   demoContactName: z.string().trim().optional().default(''),
   demoContactPhone: z.string().trim().optional().default(''),
+}).refine((data) => data.responseDelayMaxMs >= data.responseDelayBaseMs, {
+  // Teto abaixo do piso nao e detalhe: com base 15000 e maximo 12000 toda parte da resposta
+  // esperava exatamente 12s e os campos base e por caractere paravam de fazer efeito, sem
+  // nenhum aviso na tela (docs/analises/francielly-2026-08-28.md).
+  message: 'O delay maximo por parte precisa ser maior ou igual ao delay base.',
+  path: ['responseDelayMaxMs'],
 });
 
 function emptyToNull(value: string): string | null {
@@ -83,65 +89,75 @@ function secretOrCurrent(value: string, currentValue?: string | null): string | 
   return value.length > 0 ? encryptSecret(value) : (currentValue ?? null);
 }
 
-function parseSdrAgentInput(body: unknown, current?: SdrAgentInput): SdrAgentInput | null {
+/** Erro mostrado quando o formulario nao passa: o especifico primeiro, o generico como piso. */
+const GENERIC_FORM_ERROR = 'Confira os campos obrigatorios do SDR.';
+
+function formErrorMessage(error: z.ZodError): string {
+  const specific = error.issues.find((issue) => issue.code === 'custom')?.message;
+  return specific ?? GENERIC_FORM_ERROR;
+}
+
+function parseSdrAgentInput(body: unknown, current?: SdrAgentInput): { input: SdrAgentInput } | { message: string } {
   const parsedBody = sdrAgentFormSchema.safeParse(body);
 
   if (!parsedBody.success) {
-    return null;
+    return { message: formErrorMessage(parsedBody.error) };
   }
 
   const data = parsedBody.data;
 
   return {
-    companyId: data.companyId,
-    name: data.name,
-    displayName: data.displayName,
-    isActive: data.isActive,
-    productName: emptyToNull(data.productName),
-    productDescription: emptyToNull(data.productDescription),
-    offerDescription: emptyToNull(data.offerDescription),
-    prompt: emptyToNull(data.prompt),
-    firstMessagePrompt: data.firstMessagePrompt === undefined ? (current?.firstMessagePrompt ?? null) : emptyToNull(data.firstMessagePrompt),
-    leadQualificationPrompt: emptyToNull(data.leadQualificationPrompt),
-    followupPrompt: emptyToNull(data.followupPrompt),
-    bumpPrompt: emptyToNull(data.bumpPrompt),
-    playbook: data.playbook,
-    aiProvider: data.aiProvider,
-    aiModel: data.aiModel,
-    aiTemperature: data.aiTemperature,
-    aiMaxOutputTokens: data.aiMaxOutputTokens,
-    aiReasoningEffort: data.aiReasoningEffort,
-    openaiApiKeyEncrypted: secretOrCurrent(data.openaiApiKeyEncrypted, current?.openaiApiKeyEncrypted),
-    openrouterApiKeyEncrypted: secretOrCurrent(data.openrouterApiKeyEncrypted, current?.openrouterApiKeyEncrypted),
-    deepseekApiKeyEncrypted: secretOrCurrent(data.deepseekApiKeyEncrypted, current?.deepseekApiKeyEncrypted),
-    uazapiBaseUrl: emptyToNull(data.uazapiBaseUrl),
-    uazapiInstanceId: emptyToNull(data.uazapiInstanceId),
-    uazapiInstanceTokenEncrypted: secretOrCurrent(data.uazapiInstanceTokenEncrypted, current?.uazapiInstanceTokenEncrypted),
-    uazapiAdminTokenEncrypted: secretOrCurrent(data.uazapiAdminTokenEncrypted, current?.uazapiAdminTokenEncrypted),
-    whatsappNumber: emptyToNull(data.whatsappNumber),
-    timezone: data.timezone,
-    sendWindowStart: data.sendWindowStart,
-    sendWindowEnd: data.sendWindowEnd,
-    sendDaysOfWeek: data.sendDaysOfWeek,
-    initialCooldownMinMinutes: data.initialCooldownMinMinutes,
-    initialCooldownMaxMinutes: data.initialCooldownMaxMinutes,
-    followupEnabled: data.followupEnabled,
-    followupAfterHours: data.followupAfterHours,
-    followupCooldownMinMinutes: data.followupCooldownMinMinutes,
-    followupCooldownMaxMinutes: data.followupCooldownMaxMinutes,
-    dailyInitialSendLimit: data.dailyInitialSendLimit,
-    dailyFollowupSendLimit: data.dailyFollowupSendLimit,
-    responseDelayBaseMs: data.responseDelayBaseMs,
-    responseDelayPerCharMs: data.responseDelayPerCharMs,
-    responseDelayMaxMs: data.responseDelayMaxMs,
-    messageSplitMaxChars: data.messageSplitMaxChars,
-    // coluna legada: a pausa da IA deixou de expirar por tempo, so o portal libera
-    humanPauseHours: current?.humanPauseHours,
-    handoffName: emptyToNull(data.handoffName),
-    handoffPhone: emptyToNull(data.handoffPhone),
-    handoffMessageTemplate: emptyToNull(data.handoffMessageTemplate),
-    demoContactName: emptyToNull(data.demoContactName),
-    demoContactPhone: emptyToNull(data.demoContactPhone),
+    input: {
+      companyId: data.companyId,
+      name: data.name,
+      displayName: data.displayName,
+      isActive: data.isActive,
+      productName: emptyToNull(data.productName),
+      productDescription: emptyToNull(data.productDescription),
+      offerDescription: emptyToNull(data.offerDescription),
+      prompt: emptyToNull(data.prompt),
+      firstMessagePrompt: data.firstMessagePrompt === undefined ? (current?.firstMessagePrompt ?? null) : emptyToNull(data.firstMessagePrompt),
+      leadQualificationPrompt: emptyToNull(data.leadQualificationPrompt),
+      followupPrompt: emptyToNull(data.followupPrompt),
+      bumpPrompt: emptyToNull(data.bumpPrompt),
+      playbook: data.playbook,
+      aiProvider: data.aiProvider,
+      aiModel: data.aiModel,
+      aiTemperature: data.aiTemperature,
+      aiMaxOutputTokens: data.aiMaxOutputTokens,
+      aiReasoningEffort: data.aiReasoningEffort,
+      openaiApiKeyEncrypted: secretOrCurrent(data.openaiApiKeyEncrypted, current?.openaiApiKeyEncrypted),
+      openrouterApiKeyEncrypted: secretOrCurrent(data.openrouterApiKeyEncrypted, current?.openrouterApiKeyEncrypted),
+      deepseekApiKeyEncrypted: secretOrCurrent(data.deepseekApiKeyEncrypted, current?.deepseekApiKeyEncrypted),
+      uazapiBaseUrl: emptyToNull(data.uazapiBaseUrl),
+      uazapiInstanceId: emptyToNull(data.uazapiInstanceId),
+      uazapiInstanceTokenEncrypted: secretOrCurrent(data.uazapiInstanceTokenEncrypted, current?.uazapiInstanceTokenEncrypted),
+      uazapiAdminTokenEncrypted: secretOrCurrent(data.uazapiAdminTokenEncrypted, current?.uazapiAdminTokenEncrypted),
+      whatsappNumber: emptyToNull(data.whatsappNumber),
+      timezone: data.timezone,
+      sendWindowStart: data.sendWindowStart,
+      sendWindowEnd: data.sendWindowEnd,
+      sendDaysOfWeek: data.sendDaysOfWeek,
+      initialCooldownMinMinutes: data.initialCooldownMinMinutes,
+      initialCooldownMaxMinutes: data.initialCooldownMaxMinutes,
+      followupEnabled: data.followupEnabled,
+      followupAfterHours: data.followupAfterHours,
+      followupCooldownMinMinutes: data.followupCooldownMinMinutes,
+      followupCooldownMaxMinutes: data.followupCooldownMaxMinutes,
+      dailyInitialSendLimit: data.dailyInitialSendLimit,
+      dailyFollowupSendLimit: data.dailyFollowupSendLimit,
+      responseDelayBaseMs: data.responseDelayBaseMs,
+      responseDelayPerCharMs: data.responseDelayPerCharMs,
+      responseDelayMaxMs: data.responseDelayMaxMs,
+      messageSplitMaxChars: data.messageSplitMaxChars,
+      // coluna legada: a pausa da IA deixou de expirar por tempo, so o portal libera
+      humanPauseHours: current?.humanPauseHours,
+      handoffName: emptyToNull(data.handoffName),
+      handoffPhone: emptyToNull(data.handoffPhone),
+      handoffMessageTemplate: emptyToNull(data.handoffMessageTemplate),
+      demoContactName: emptyToNull(data.demoContactName),
+      demoContactPhone: emptyToNull(data.demoContactPhone),
+    },
   };
 }
 
@@ -182,11 +198,13 @@ export function registerSdrAgentRoutes(
     }
 
     const companies = await companyRepository.list();
-    const input = parseSdrAgentInput(request.body);
+    const parsed = parseSdrAgentInput(request.body);
+    const input = 'input' in parsed ? parsed.input : null;
     const companyExists = input ? await companyRepository.findById(input.companyId) : null;
 
     if (!input || !companyExists) {
-      return reply.status(400).type('text/html').send(renderNewSdrAgentPage(companies, 'Confira os campos obrigatorios do SDR.'));
+      const message = 'message' in parsed ? parsed.message : GENERIC_FORM_ERROR;
+      return reply.status(400).type('text/html').send(renderNewSdrAgentPage(companies, message));
     }
 
     // Sem instancia informada na mao e com servidor UAZAPI configurado, provisiona uma
@@ -271,11 +289,13 @@ export function registerSdrAgentRoutes(
       return reply.status(404).type('text/html').send(renderSdrAgentNotFoundPage());
     }
 
-    const input = parseSdrAgentInput(request.body, agent);
+    const parsed = parseSdrAgentInput(request.body, agent);
+    const input = 'input' in parsed ? parsed.input : null;
     const companyExists = input ? await companyRepository.findById(input.companyId) : null;
 
     if (!input || !companyExists) {
-      return reply.status(400).type('text/html').send(renderEditSdrAgentPage(agent, companies, 'Confira os campos obrigatorios do SDR.'));
+      const message = 'message' in parsed ? parsed.message : GENERIC_FORM_ERROR;
+      return reply.status(400).type('text/html').send(renderEditSdrAgentPage(agent, companies, message));
     }
 
     await sdrAgentRepository.update(params.data.id, input);

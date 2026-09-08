@@ -66,7 +66,7 @@ function withDefaults(input: SdrAgentInput): Omit<SdrAgent, 'id' | 'createdAt' |
     followupAfterHours: input.followupAfterHours ?? 24,
     followupCooldownMinMinutes: input.followupCooldownMinMinutes ?? 10,
     followupCooldownMaxMinutes: input.followupCooldownMaxMinutes ?? 30,
-    dailyInitialSendLimit: input.dailyInitialSendLimit ?? 25,
+    dailyInitialSendLimit: input.dailyInitialSendLimit ?? 40,
     dailyFollowupSendLimit: input.dailyFollowupSendLimit ?? 50,
     responseDelayBaseMs: input.responseDelayBaseMs ?? 1200,
     responseDelayPerCharMs: input.responseDelayPerCharMs ?? 35,
