@@ -145,6 +145,8 @@ describe('resposta automatica da loja', () => {
       'Opção inválida. Digite um número do menu.',
       'Vou transferir você para o nosso atendente! Só um momentinho 😊',
       'Horário de funcionamento: Sexta-feira: das 18h30 às 23h',
+      // menu numerado continua robo mesmo terminando em pergunta sobre o nome
+      'Seja bem-vindo! Digite 1 para pedidos ou 2 para falar com atendente. Qual o seu nome?',
     ];
     for (const text of auto) {
       expect(isStoreAutoReply({ messageType: 'conversation', text, transcription: null }), text).toBe(true);
@@ -160,6 +162,9 @@ describe('resposta automatica da loja', () => {
       'Como funciona a atendente de IA ?',
       'Estamos abertos.',
       'Sim',
+      // saudacao que termina perguntando quem fala: pode ser robo, mas quem espera pode ser gente
+      'Olá, ótima tarde! Seja bem-vindo(a) ao Retrô House🧡 Tudo bem? Com quem falo?',
+      'Oi, bom dia! Qual o seu nome?',
     ];
     for (const text of gente) {
       expect(isStoreAutoReply({ messageType: 'conversation', text, transcription: null }), text).toBe(false);

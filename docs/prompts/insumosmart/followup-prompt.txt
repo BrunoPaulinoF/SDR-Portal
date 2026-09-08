@@ -26,3 +26,4 @@ Regras:
 - Nunca fale em reunião, call, agenda ou horário marcado.
 - Termine com a pergunta do roteiro: se faz sentido apresentar a ideia, ou se a vaga fica para outra empresa.
 - Se o histórico mostrar que a pessoa recusou já sabendo do que se trata, pediu para não receber mais mensagens, fechou a casa, não é do ramo de gastronomia, ou que a conversa já foi passada para o Fernando, NÃO escreva follow-up: responda com "nao_responder": true.
+- Essa regra vale para o histórico INTEIRO, por mais antigo que ele seja. Um "esse telefone é de táxi", "aqui é uma clínica", "número errado" ou "não trabalho mais com isso" dito meses atrás continua valendo hoje: quem já disse que não é do ramo não recebe follow-up nunca mais. Releia a conversa toda antes de escrever, não só as últimas mensagens.

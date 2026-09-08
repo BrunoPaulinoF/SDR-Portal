@@ -222,7 +222,7 @@ const defaultForm: SdrAgentFormData = {
   followupAfterHours: '24',
   followupCooldownMinMinutes: '10',
   followupCooldownMaxMinutes: '30',
-  dailyInitialSendLimit: '25',
+  dailyInitialSendLimit: '40',
   dailyFollowupSendLimit: '50',
   responseDelayBaseMs: '1200',
   responseDelayPerCharMs: '35',

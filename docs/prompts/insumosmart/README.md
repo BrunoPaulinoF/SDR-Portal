@@ -20,6 +20,24 @@ Quando alterar um prompt no portal, atualize o arquivo aqui no mesmo commit.
 `Descrição do produto` (`productDescription`) **não** alimenta nenhum prompt — é
 documentação interna da tela. Só `productName` e `offerDescription` chegam à IA.
 
+## Revisão de 08/09: o que mudou nos prompts
+
+Fechando os itens abertos de `docs/analises/francielly-2026-08-28.md`
+(detalhe em `docs/analises/revisao-2026-09-08.md`):
+
+1. **A proposta ganhou as três palavras concretas** — custo de insumo, margem por prato e preço
+   de cardápio — nos três lugares em que ela aparece no `prompt.txt`.
+2. **O exemplo RUIM não está mais escrito por extenso.** Texto errado entre aspas é candidato a
+   ser copiado pelo modelo; ficou a descrição do erro.
+3. **A seção do robô da loja virou a mesma regra do código.** Automática reconhecida não chega
+   mais à IA (`src/modules/conversations/store-auto-reply.ts`), então a SDR não chama por
+   ninguém nem manda a linha "tem alguém aí" — o segundo toque é do follow-up, no dia seguinte.
+4. **Contato de outra pessoa da casa não vira "já pedi".** Quem vai receber a mensagem do
+   Fernando nunca ouviu falar dele: a SDR confirma com quem passou o contato e avisa que ele vai
+   se apresentar.
+5. **Recusa antiga bloqueia follow-up para sempre**, mesmo que esteja a meses de distância no
+   histórico ("esse telefone é de táxi").
+
 ## A estratégia: um sim, e sai da frente
 
 A abordagem do Fernando no Instagram já funciona por motivos que valem a pena nomear, porque
@@ -87,7 +105,10 @@ despreparo e transforma o encaminhamento em fuga da pergunta.
 A regra agora tem duas metades:
 
 - **A proposta central é dela**, e ela diz com segurança sempre que perguntarem: *acompanhar de
-  perto os números da operação e transformá-los em decisões práticas para a gestão financeira.*
+  perto os números da operação — custo de insumo, margem por prato e preço de cardápio — e
+  transformar isso em decisão prática de gestão.* As três palavras concretas fazem parte da
+  frase: sem elas sobra "acompanhar os números", que é vago do mesmo jeito que a versão banida
+  (a Casa & Comida ouviu exatamente isso e respondeu "não temos interesse" no minuto seguinte).
 - **A aplicação é do Fernando** — como isso entraria naquela casa, o que muda no caso dela, o
   desenho do acompanhamento. E o motivo é dito ao lead: cada operação tem uma realidade
   diferente. Não é "eu não sei", é "isso depende de conhecer a sua casa".

@@ -169,6 +169,27 @@
       "when": 1788460115067,
       "tag": "0023_noisy_speed",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1788884048800,
+      "tag": "0024_outstanding_colleen_wing",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1788884049800,
+      "tag": "0025_daily_initial_limit_40",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1788884050800,
+      "tag": "0026_response_delay_floor",
+      "breakpoints": true
     }
   ]
 }

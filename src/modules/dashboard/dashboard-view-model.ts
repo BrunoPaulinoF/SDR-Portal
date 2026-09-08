@@ -222,6 +222,24 @@ function minutesUntilSendWindow(agent: SdrAgent, now: Date): number | null {
   return null;
 }
 
+/**
+ * Quantas abordagens a janela e o cooldown deixam sair num dia, no melhor caso.
+ *
+ * O limite diario nao manda sozinho: entre um envio e o proximo o disparo espera um cooldown
+ * sorteado, entao a janela e quem decide o teto real. Janela de 15h as 21h com cooldown medio de
+ * 10min cabe ~37 envios — configurar 40 nao aumenta nada e esconde o gargalo verdadeiro.
+ */
+function dailySendCapacity(agent: SdrAgent): number {
+  const start = timeToMinutes(agent.sendWindowStart);
+  const end = timeToMinutes(agent.sendWindowEnd);
+  const windowMinutes = start <= end ? end - start : 24 * 60 - start + end;
+  const minCooldown = Math.min(agent.initialCooldownMinMinutes, agent.initialCooldownMaxMinutes);
+  const maxCooldown = Math.max(agent.initialCooldownMinMinutes, agent.initialCooldownMaxMinutes);
+  const averageCooldown = (minCooldown + maxCooldown) / 2;
+  if (averageCooldown <= 0) return agent.dailyInitialSendLimit;
+  return Math.floor(windowMinutes / averageCooldown) + 1;
+}
+
 function hasUazapiCredentials(agent: SdrAgent): boolean {
   return Boolean(agent.uazapiBaseUrl?.trim() && agent.uazapiInstanceTokenEncrypted?.trim());
 }
@@ -403,9 +421,13 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
   const created = scopedLeads.filter((lead) => isDateInPeriod(lead.createdAt, start, now)).length;
   const outboundMessages = messagesInPeriod.filter((message) => message.direction === 'outbound').length;
   const inboundMessages = messagesInPeriod.filter((message) => message.direction === 'inbound').length;
+  // Resposta automatica da loja nao e resposta: contar o robo dava 60% de taxa numa caixa em que
+  // gente respondeu 27% (docs/analises/mariana-2026-09-02.md), e era isso que impedia comparar
+  // qualquer mudanca de abordagem.
+  const autoReplyMessages = messagesInPeriod.filter((message) => message.direction === 'inbound' && message.autoReply).length;
   const respondedLeadIds = new Set<string>();
   for (const message of messagesInPeriod) {
-    if (message.direction === 'inbound') respondedLeadIds.add(message.leadId);
+    if (message.direction === 'inbound' && !message.autoReply) respondedLeadIds.add(message.leadId);
   }
   for (const lead of scopedLeads) {
     if (isDateInPeriod(lead.lastInboundAt, start, now)) respondedLeadIds.add(lead.id);
@@ -466,7 +488,7 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
       const companyMessages = messagesInPeriod.filter((message) => companyLeadIds.has(message.leadId));
       const companyResponded = new Set<string>();
       for (const message of companyMessages) {
-        if (message.direction === 'inbound') companyResponded.add(message.leadId);
+        if (message.direction === 'inbound' && !message.autoReply) companyResponded.add(message.leadId);
       }
       for (const lead of companyLeads) {
         if (isDateInPeriod(lead.lastInboundAt, start, now)) companyResponded.add(lead.id);
@@ -491,6 +513,11 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
     .filter((row) => row.totalSdrs > 0 || row.leadsTotal > 0)
     .sort((a, b) => b.leadsTotal - a.leadsTotal || a.companyName.localeCompare(b.companyName));
   const stalledSdrs = dispatchRows.filter((row) => row.statusLabel === 'Parado').map((row) => row.sdrName);
+  // Limite diario acima do que a janela comporta e limite que nunca chega: quem segura o volume
+  // passa a ser o cooldown, e a tela mostraria "0/40" para sempre sem dizer por que.
+  const overCapacitySdrs = scopedAgents
+    .filter((agent) => agent.isActive && dailySendCapacity(agent) < agent.dailyInitialSendLimit)
+    .map((agent) => `${agent.displayName || agent.name} (~${dailySendCapacity(agent)}/${agent.dailyInitialSendLimit})`);
   const alerts = [
     stalledSdrs.length > 0
       ? `SDR parado sem enviar: ${stalledSdrs.join(', ')}. Confira a conexao do WhatsApp na tela Conectar.`
@@ -499,6 +526,9 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
     lowPendingCount > 0 ? `${lowPendingCount} SDR(s) com menos de ${pendingLeadLowThreshold} leads pendentes. Importe mais leads para evitar fila vazia.` : null,
     followupsDue > 0 ? `${followupsDue} follow-up(s) vencido(s) aguardando envio.` : null,
     blockedCount > 0 ? `${blockedCount} SDR(s) bloqueado(s) por limite, janela ou configuracao.` : null,
+    overCapacitySdrs.length > 0
+      ? `Limite diario acima do que a janela permite: ${overCapacitySdrs.join(', ')}. Aumente a janela de envio ou baixe o cooldown para o limite valer.`
+      : null,
     jobErrors > 0 ? `${jobErrors} erro(s) de job no periodo selecionado.` : null,
     aiErrors > 0 ? `${aiErrors} erro(s) de IA no periodo selecionado.` : null,
     initialSent >= 10 && responseRate !== '-' && respondedLeadIds.size / initialSent < 0.1
@@ -515,10 +545,10 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
     funnelRows: funnelItems.map((item) => ({ count: funnelValues.get(item.value) ?? 0, label: item.label, percent: Math.round(((funnelValues.get(item.value) ?? 0) / funnelBase) * 100) })),
     metrics: [
       { label: 'Mensagens enviadas', value: String(totalKnownSends), help: 'Abordagens + follow-ups + mensagens outbound registradas.' },
-      { label: 'Responderam', value: String(respondedLeadIds.size), help: `${inboundMessages} mensagem(ns) inbound no periodo.` },
+      { label: 'Responderam', value: String(respondedLeadIds.size), help: `Leads com resposta de gente. ${inboundMessages} inbound no periodo, ${autoReplyMessages} automatica(s) da loja fora da conta.` },
       { label: 'Handoffs', value: String(handoffs), help: `Taxa sobre abordagens: ${formatPercent(handoffs, initialSent)}.` },
       { label: 'Follow-ups feitos', value: String(followupsSent), help: `${followupsDue} follow-up(s) vencido(s) agora.` },
-      { label: 'Taxa de resposta', value: responseRate, help: 'Leads que responderam / abordagens iniciais.' },
+      { label: 'Taxa de resposta', value: responseRate, help: 'Leads com resposta de gente / abordagens iniciais. Robo da loja nao conta.' },
       { label: 'Descartados', value: String(discarded), help: 'Leads bloqueados antes do primeiro contato por baixo fit.' },
       { label: 'Telefone inexistente', value: String(invalidPhone), help: 'Leads descartados porque o numero nao existe no WhatsApp.' },
       { label: 'Fila pendente', value: String(pending), help: `${readyCount} SDR(s) pronto(s), ${blockedCount} bloqueado(s).` },

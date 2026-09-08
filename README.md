@@ -75,6 +75,7 @@ curl http://localhost:3000/health
 - `npm run db:migrate`: aplica migrations compiladas.
 - `npm run admin:create`: cria o usuario admin inicial usando `ADMIN_NAME`, `ADMIN_EMAIL` e `ADMIN_PASSWORD`.
 - `npm run sdr:prompts -- --agent="<id ou nome>"`: mostra o que os prompts versionados em `docs/prompts/<sdr>/` mudariam no SDR; com `--apply` grava (prompts, playbook e mensagem inicial fixa). Opcoes: `--dir`, `--playbook`.
+- `npm run backfill:auto-replies`: marca como automatica da loja as mensagens recebidas antes de o filtro existir e devolve a `initial_sent` os leads "Em conversa" que so ouviram robo; sem `--apply` so mostra o plano. Opcao: `--agent=<id|nome>`.
 
 ## Portal
 
@@ -149,8 +150,10 @@ Regras atuais do disparo inicial:
 
 - Processa apenas SDR ativo.
 - Respeita timezone, dias da semana e janela de envio do SDR.
-- Respeita limite diario de mensagens iniciais.
-- Respeita cooldown minimo/maximo configurado.
+- Respeita limite diario de mensagens iniciais (padrao 40 por SDR).
+- Respeita cooldown minimo/maximo configurado. Ele e o teto real do dia: janela dividida pelo
+  cooldown medio precisa caber no limite diario, senao o limite nunca e alcancado — o painel
+  avisa quando a conta nao fecha.
 - Seleciona apenas leads `pending`.
 - Antes do envio, tenta pesquisar/enriquecer o lead e salva resultado em `lead_research`.
 - Se houver resumo de pesquisa, `{{researchSummary}}` e `{{researchSources}}` ficam disponiveis no template da primeira mensagem.
