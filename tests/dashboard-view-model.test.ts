@@ -272,4 +272,17 @@ describe('dashboard: resposta de gente e capacidade do dia', () => {
     const folgado = await alertsFor({ sendWindowStart: '08:00', sendWindowEnd: '20:00' });
     expect(folgado.some((alert) => alert.includes('Limite diario acima do que a janela permite'))).toBe(false);
   });
+
+  // A conta que a migracao 0027 usa para escolher quem recebe o cooldown de 4-14min: na mesma
+  // janela de 360min em que 5-15 parava em ~37, a media de 9 passa dos 40 configurados. Se esta
+  // aritmetica mudar, a migracao passa a apertar o espacamento sem entregar o limite.
+  it('4-14min de cooldown fazem a janela de 15h as 21h comportar os 40 do limite', async () => {
+    const alerts = await alertsFor({
+      sendWindowStart: '15:00',
+      sendWindowEnd: '21:00',
+      initialCooldownMinMinutes: 4,
+      initialCooldownMaxMinutes: 14,
+    });
+    expect(alerts.some((alert) => alert.includes('Limite diario acima do que a janela permite'))).toBe(false);
+  });
 });
