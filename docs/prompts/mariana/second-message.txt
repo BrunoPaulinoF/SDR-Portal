@@ -1,0 +1,5 @@
+a KyberFood é uma IA que atende o WhatsApp do delivery: responde na hora, a qualquer hora, entende áudio e monta o pedido inteiro — tamanho, meia a meia, borda, adicional e taxa — com o PIX gerado ali na conversa.
+
+e ela trabalha dentro do próprio WhatsApp de vocês, no mesmo número que o cliente já chama: sem app novo, sem link, e quando alguém do time responde ela para sozinha.
+
+dá pra experimentar antes de decidir qualquer coisa: são 3 dias de teste grátis. posso te contar como funciona?

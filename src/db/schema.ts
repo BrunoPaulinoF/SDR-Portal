@@ -63,6 +63,12 @@ export const sdrAgents = pgTable('sdr_agents', {
   followupPrompt: text('followup_prompt'),
   /** Instrucao do 2o toque em quem nunca respondeu. Vazio: cai no followupPrompt. */
   bumpPrompt: text('bump_prompt'),
+  /**
+   * Segunda mensagem da abordagem: sai logo depois da primeira, no mesmo disparo, sem
+   * esperar o lead responder. Texto fixo (nao passa pela IA); vazio = abordagem de uma
+   * mensagem so, como era antes.
+   */
+  secondMessage: text('second_message'),
   firstMessageMode: text('first_message_mode').default('ai').notNull(),
   playbook: text('playbook').default('consultivo').notNull(),
   aiProvider: text('ai_provider').default('deepseek').notNull(),

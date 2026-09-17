@@ -92,13 +92,27 @@ export function renderFirstMessageVariantsPage(
     </form>
   </section>`;
 
+  // A abordagem sao duas mensagens, e as duas moram nesta tela: a primeira se apresenta, a
+  // segunda explica o sistema. Vazia, o SDR volta a abordar com uma mensagem so.
+  const secondMessage = agent.secondMessage ?? '';
+  const secondPanel = `<section class="panel">
+    <h2>Segunda mensagem da abordagem</h2>
+    <p class="muted">Sai sozinha, logo depois da primeira, no mesmo disparo e sem esperar o lead responder. E texto fixo: nao passa pela IA e aceita os mesmos placeholders das variantes. Deixe vazia para abordar com uma mensagem so.</p>
+    <form method="post" action="/sdr-agents/${agent.id}/second-message" class="form-grid">
+      <div class="field field-full"><label>Mensagem</label>
+        <textarea name="secondMessage" rows="8" placeholder="Ex: explique em poucas linhas o que o sistema faz e o teste gratis.">${escapeHtml(secondMessage)}</textarea>
+      </div>
+      <div class="actions field-full"><button class="button" type="submit">Salvar segunda mensagem</button></div>
+    </form>
+  </section>`;
+
   return renderLayout({
     title: `Mensagem inicial - ${agent.displayName} - SDR Portal`,
     body: `<main class="app-shell">
   <header class="topbar">
     <div>
       <h1>Mensagem inicial · ${escapeHtml(agent.displayName)}</h1>
-      <p class="muted">Mensagem fixa (texto exato, sem token) ou gerada por IA, com a taxa de resposta de cada texto.</p>
+      <p class="muted">A abordagem sai em duas mensagens: a apresentacao curta (fixa ou gerada por IA, com a taxa de resposta de cada texto) e, logo depois, a segunda mensagem que explica o sistema.</p>
     </div>
     <div class="actions">
       <a class="button button-secondary" href="/sdr-agents">Voltar para SDRs</a>
@@ -109,6 +123,7 @@ export function renderFirstMessageVariantsPage(
   ${emptyCards}
   ${cards}
   ${newPanel}
+  ${secondPanel}
 </main>`,
   });
 }
