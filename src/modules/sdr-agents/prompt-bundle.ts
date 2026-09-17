@@ -15,11 +15,19 @@ export const PROMPT_FILES = {
   prompt: 'prompt.txt',
   offerDescription: 'offer-description.txt',
   firstMessagePrompt: 'first-message-prompt.txt',
+  secondMessage: 'second-message.txt',
   followupPrompt: 'followup-prompt.txt',
   bumpPrompt: 'bump-prompt.txt',
   leadQualificationPrompt: 'lead-qualification-prompt.txt',
   handoffMessageTemplate: 'handoff-template.txt',
 } as const;
+
+/**
+ * Campos que nem todo SDR tem. Ausente, o arquivo nao vira aviso de bundle incompleto: a
+ * abordagem de duas mensagens e uma escolha por SDR, e cobrar `second-message.txt` de quem
+ * aborda com uma mensagem so faria todo `--apply` terminar com um aviso que nao e problema.
+ */
+const OPTIONAL_PROMPT_FIELDS = new Set<PromptField>(['secondMessage']);
 
 export type PromptField = keyof typeof PROMPT_FILES;
 
@@ -64,7 +72,7 @@ export async function readPromptBundle(dir: string): Promise<PromptBundle> {
   for (const [field, file] of Object.entries(PROMPT_FILES) as [PromptField, string][]) {
     const content = await readOptionalFile(dir, file);
     if (content === null) {
-      missing.push(file);
+      if (!OPTIONAL_PROMPT_FIELDS.has(field)) missing.push(file);
       continue;
     }
     fields[field] = content.trim();

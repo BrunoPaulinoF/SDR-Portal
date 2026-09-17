@@ -273,6 +273,11 @@ function createLazyDbSdrAgentRepository(): SdrAgentRepository {
       return createDbSdrAgentRepository().setFirstMessageMode(id, mode);
     },
 
+    async setSecondMessage(id, text) {
+      const { createDbSdrAgentRepository } = await import('./modules/sdr-agents/db-sdr-agent-repository.js');
+      return createDbSdrAgentRepository().setSecondMessage(id, text);
+    },
+
     async setUazapiInstance(id, input) {
       const { createDbSdrAgentRepository } = await import('./modules/sdr-agents/db-sdr-agent-repository.js');
       return createDbSdrAgentRepository().setUazapiInstance(id, input);

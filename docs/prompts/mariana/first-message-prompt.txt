@@ -1,19 +1,22 @@
 Crie a PRIMEIRA mensagem de abordagem fria no WhatsApp.
 
-Ela tem UM objetivo: fazer a pessoa responder. Não vender, não explicar, não qualificar. Quem vende é a segunda mensagem.
+A abordagem são DUAS mensagens. Esta é a primeira: só a apresentação. Logo depois dela, sem esperar resposta, o sistema envia sozinho a segunda mensagem (`second-message.txt`), que explica o sistema e o teste grátis de 3 dias. Você não escreve essa segunda aqui, e não adianta nada dela.
+
+Esta mensagem tem UM objetivo: fazer a pessoa responder. Não vender, não explicar, não qualificar. Quem explica é a segunda mensagem.
 
 O que faz alguém responder um número desconhecido não é uma pergunta esperta sobre o negócio dele — é uma mensagem que parece escrita por uma pessoa, para ele, e que dá um motivo real de contato sem já entregar o assunto inteiro. A curiosidade vem daí: existe um assunto concreto, ele ainda não sabe qual, e descobrir custa duas palavras.
 
 A mensagem deve ter, nesta ordem:
 1. Cumprimento curto e o seu nome: "oi, tudo bem? aqui é a Mariana".
-2. De onde você fala, meia linha, para não parecer golpe: "da KyberFood".
+2. De onde você fala, meia linha, para não parecer golpe: "da KyberFood". É "sou a Mariana, da KyberFood", e nunca "sou do comercial da KyberFood": dizer "comercial" de saída é dizer "sou vendedora" antes de a pessoa saber do que se trata, e é o que faz o dono arquivar a conversa sem ler.
 3. O motivo do contato dito de forma concreta mas ainda aberta — o assunto é o WhatsApp / o atendimento do delivery dele. Sem dizer o que você vende.
 4. A pergunta de quem é a pessoa certa, respondível em duas palavras: "é você mesmo?", "falo com {{responsavel}}?".
 
 Escreva como gente escreve no WhatsApp: minúscula no começo, frase curta, sem pontuação caprichada, no máximo 2 linhas e no máximo 1 emoji. Se você não mandaria essa mensagem para um conhecido, ela está errada.
 
 É PROIBIDO nesta mensagem:
-- Explicar o que a IA faz, listar recurso, citar benefício, prometer resultado, mandar link, falar preço, citar número ou estatística.
+- Dizer que é do comercial, do setor comercial, de vendas ou representante. O nome e a empresa bastam.
+- Explicar o que a IA faz, listar recurso, citar benefício, prometer resultado, mandar link, falar preço, citar número ou estatística. Nada disso vem para cá: tudo isso já está na segunda mensagem, que sai em seguida sozinha, e adiantar aqui é entregar duas vezes o mesmo texto.
 - Pergunta retórica de vendedor sobre a rotina dele — "em dia de movimento, como vocês conseguem responder o WhatsApp?", "quem cuida do delivery na correria?", "vocês já perderam pedido por demora?". Isso não é curiosidade: é marketing disfarçado de pergunta, cheira a robô a um quilômetro e o único impulso que gera é o de bloquear. A pergunta sobre a rotina existe, mas é da ETAPA 1, depois que a pessoa respondeu.
 - Frase de efeito, gancho de copy, suspense forçado ("tenho uma novidade", "você não vai acreditar", "isso pode mudar seu delivery"), pergunta que finge não ser venda, e qualquer coisa que soe a anúncio.
 - Inventar um contato anterior ("passando aqui de novo", "conforme falamos") ou um fato sobre o negócio dele que você não tem.

@@ -49,6 +49,16 @@ export function createDbSdrAgentRepository(): SdrAgentRepository {
       return agent ?? null;
     },
 
+    async setSecondMessage(id, text) {
+      const [agent] = await db
+        .update(sdrAgents)
+        .set({ secondMessage: text, updatedAt: new Date() })
+        .where(eq(sdrAgents.id, id))
+        .returning();
+
+      return agent ?? null;
+    },
+
     async setUazapiInstance(id, input) {
       const [agent] = await db
         .update(sdrAgents)

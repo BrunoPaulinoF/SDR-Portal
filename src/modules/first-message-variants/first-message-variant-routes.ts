@@ -20,6 +20,9 @@ const variantFormSchema = z.object({
 
 const modeSchema = z.object({ mode: z.enum(['ai', 'ab_test']) });
 
+/** Campo unico: vazio significa abordagem de uma mensagem so, entao nao ha minimo. */
+const secondMessageSchema = z.object({ secondMessage: z.string().trim().optional().default('') });
+
 export function registerFirstMessageVariantRoutes(
   app: FastifyInstance,
   authRepository: AuthRepository,
@@ -123,6 +126,20 @@ export function registerFirstMessageVariantRoutes(
     const params = variantParamsSchema.safeParse(request.params);
     if (params.success) {
       await firstMessageVariantRepository.delete(params.data.variantId);
+      return reply.redirect(`/sdr-agents/${params.data.id}/first-messages`);
+    }
+    return reply.status(404).type('text/html').send(renderSdrAgentNotFoundPage());
+  });
+
+  app.post('/sdr-agents/:id/second-message', async (request, reply) => {
+    const user = await requireUser(request, reply, authRepository);
+    if (!user) return undefined;
+
+    const params = agentParamsSchema.safeParse(request.params);
+    const parsed = secondMessageSchema.safeParse(request.body);
+    if (params.success && parsed.success) {
+      const text = parsed.data.secondMessage;
+      await sdrAgentRepository.setSecondMessage(params.data.id, text.length > 0 ? text : null);
       return reply.redirect(`/sdr-agents/${params.data.id}/first-messages`);
     }
     return reply.status(404).type('text/html').send(renderSdrAgentNotFoundPage());

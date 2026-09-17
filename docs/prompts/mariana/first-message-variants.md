@@ -5,6 +5,23 @@ A primeira mensagem **não** sai do `prompt.txt`. Ela vem da tela
 enviado exatamente como está escrito, sem IA. É por isso que ela é idêntica em todas as
 conversas — e é o único texto que 100% da base lê.
 
+## A abordagem são duas mensagens (17/09)
+
+Desde 17/09 a abordagem sai em **duas** mensagens, uma atrás da outra, no mesmo disparo e sem
+esperar o lead responder:
+
+1. **a apresentação curta** — as variantes deste arquivo, na tela `Msg inicial`;
+2. **a explicação** — `second-message.txt`, no campo "Segunda mensagem da abordagem" da mesma
+   tela. É ela que diz o que o sistema faz, que ele roda dentro do próprio WhatsApp da loja,
+   no mesmo número, e que existe **teste grátis de 3 dias**.
+
+A divisão é o ponto: a apresentação sozinha não tem o que o dono classifica como anúncio, e a
+explicação chega depois de ele já ter lido um "oi" de gente. Quem juntar as duas coisas numa
+mensagem só volta ao textão que a variante B era.
+
+Regra de redação que nasce daí: **nada do que está na segunda mensagem entra na primeira** —
+nem recurso, nem o teste grátis, nem "a gente tem uma IA que...".
+
 ## O que está no ar hoje
 
 Variante **"B"**, única ativa (95 envios):
@@ -17,6 +34,11 @@ Ela entrega o produto na primeira linha. Em dois segundos o dono classifica como
 IA" e não responde. O portal marca 60% de resposta, mas quase tudo é o robô da própria loja:
 de gente foram 27% na caixa inteira e 5% nas 20 últimas conversas
 (`docs/analises/mariana-2026-09-02.md`).
+
+Com a segunda mensagem no ar, essa variante precisa **perder as duas frases do meio**: a
+explicação virou a segunda mensagem, e o "sou do comercial" sai. A Mariana se apresenta como
+**"sou a Mariana, da KyberFood"** — dizer "comercial" de saída é dizer "sou vendedora" antes
+de a pessoa saber do que se trata. Vale para as variantes e para o `prompt.txt`.
 
 ## O princípio das variantes abaixo
 
@@ -35,10 +57,11 @@ O que faz alguém responder um número desconhecido é bem mais simples e bem me
 3. **Não entrega o assunto inteiro.** Ele sabe que existe um assunto, não sabe qual. A
    curiosidade nasce aí, não de uma frase de efeito.
 4. **Custa duas palavras para responder**: "sou eu", "é comigo", "sobre o quê?". Qualquer uma
-   dessas já abre a ETAPA 1, que é onde a Mariana finalmente diz o que faz.
+   dessas já abre a ETAPA 1 — e a essa altura a segunda mensagem já explicou o que a Mariana
+   faz, então a ETAPA 1 vai direto para a rotina da loja.
 5. **Tira a mensagem da caixa de spam mental do dono.** Ele recebe pedido o dia inteiro e
-   vendedor toda semana. Dizer de saída que não é pedido — e que é comercial mesmo — desarma
-   as duas categorias em que ele ia arquivar você sem ler.
+   vendedor toda semana. Dizer de saída que não é pedido desarma a primeira categoria em que
+   ele ia arquivar você sem ler. Sem se anunciar como "do comercial", que é a segunda.
 
 ## Variantes propostas para o A/B
 
@@ -50,10 +73,10 @@ Nenhuma tem link, número, estatística ou saudação de período (a mensagem sa
 > oi, tudo bem? aqui é a Mariana, da KyberFood. não é pedido não 😄 queria falar com quem cuida
 > do WhatsApp do {{restaurante|delivery}}. é você mesmo?
 
-### Variante "Comercial mesmo" (recomendada como B)
+### Variante "Não sou cliente" (recomendada como B)
 
-> oi! aqui é a Mariana, da KyberFood. não sou cliente não, é comercial mesmo — mas é rápido e é
-> sobre o atendimento do WhatsApp de vocês. falo com {{responsavel}}?
+> oi! aqui é a Mariana, da KyberFood. não sou cliente não, mas é rápido e é sobre o
+> atendimento do WhatsApp de vocês. falo com {{responsavel}}?
 
 ### Variante "Pelo nome" (C, só vale a pena com a base tendo contato)
 
@@ -65,6 +88,17 @@ ter ~60 envios antes de decidir, e leia a taxa **descontando o robô da loja** �
 tela conta autoresposta como resposta. Desde 02/09 o robô reconhecido é marcado como
 `Automatica da loja` na caixa de conversas, o que dá para conferir a olho enquanto a métrica
 da tela não separa os dois.
+
+## A segunda mensagem
+
+O texto está em `second-message.txt` e é gravado por `apply-sdr-prompts` no campo
+`secondMessage` do SDR (tela `Msg inicial` → "Segunda mensagem da abordagem"). Ele **não**
+passa pela IA: sai igual para todo lead, com os mesmos placeholders das variantes, poucos
+segundos depois da primeira — o intervalo é o delay de digitação do SDR.
+
+Campo vazio = abordagem de uma mensagem só, como era antes. Falha no envio da segunda não
+refaz a primeira: o lead já entrou como `initial_sent`, e o erro fica no `/job-logs` com a
+chave `initial-second-<lead>`.
 
 ## Por que este arquivo não tem bloco de código
 

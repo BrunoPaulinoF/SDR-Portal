@@ -120,6 +120,9 @@ function parseSdrAgentInput(body: unknown, current?: SdrAgentInput): { input: Sd
       leadQualificationPrompt: emptyToNull(data.leadQualificationPrompt),
       followupPrompt: emptyToNull(data.followupPrompt),
       bumpPrompt: emptyToNull(data.bumpPrompt),
+      // A segunda mensagem da abordagem tambem vive na tela Msg inicial: o formulario do SDR
+      // nao a envia, entao salvar esta tela nao pode apaga-la.
+      secondMessage: current?.secondMessage ?? null,
       playbook: data.playbook,
       aiProvider: data.aiProvider,
       aiModel: data.aiModel,

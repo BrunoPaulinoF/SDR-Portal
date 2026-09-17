@@ -1,0 +1,1 @@
+ALTER TABLE "sdr_agents" ADD COLUMN "second_message" text;

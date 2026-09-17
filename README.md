@@ -105,6 +105,20 @@ Rotas de SDRs:
 - `POST /sdr-agents/:id/toggle`: ativa ou desativa SDR.
 - `POST /sdr-agents/:id/delete`: exclui SDR.
 
+Rotas da abordagem (tela `Msg inicial`):
+
+- `GET /sdr-agents/:id/first-messages`: variantes da primeira mensagem, com taxa de resposta.
+- `POST /sdr-agents/:id/first-messages`: cria variante.
+- `POST /sdr-agents/:id/first-messages/:variantId`: atualiza variante.
+- `POST /sdr-agents/:id/first-message-mode`: alterna entre mensagem fixa e gerada por IA.
+- `POST /sdr-agents/:id/second-message`: grava a segunda mensagem da abordagem.
+
+A abordagem pode sair em duas mensagens: a apresentacao (variante fixa ou gerada por IA) e,
+logo depois, no mesmo disparo e sem esperar resposta, o texto fixo de `second_message`. O
+intervalo entre as duas usa o delay de digitacao do SDR. Campo vazio = abordagem de uma
+mensagem so. Se a segunda falhar, o lead continua `initial_sent` e o erro aparece em
+`/job-logs` com a chave `initial-second-<lead>` — a primeira nunca e reenviada.
+
 Rotas UAZAPI por SDR:
 
 - `POST /sdr-agents/:id/uazapi/status`: testa status da instancia.

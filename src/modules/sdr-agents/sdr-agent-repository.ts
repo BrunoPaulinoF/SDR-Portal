@@ -18,6 +18,8 @@ export interface SdrAgentRepository {
   list(): Promise<SdrAgent[]>;
   setActive(id: string, isActive: boolean): Promise<SdrAgent | null>;
   setFirstMessageMode(id: string, mode: string): Promise<SdrAgent | null>;
+  /** Troca so a segunda mensagem da abordagem, direto da tela Msg inicial. */
+  setSecondMessage(id: string, text: string | null): Promise<SdrAgent | null>;
   /** Troca so as credenciais UAZAPI, sem passar pelo formulario inteiro do SDR. */
   setUazapiInstance(id: string, input: UazapiInstanceInput): Promise<SdrAgent | null>;
   update(id: string, input: SdrAgentInput): Promise<SdrAgent | null>;
@@ -41,6 +43,7 @@ function withDefaults(input: SdrAgentInput): Omit<SdrAgent, 'id' | 'createdAt' |
     leadQualificationPrompt: nullable(input.leadQualificationPrompt),
     followupPrompt: nullable(input.followupPrompt),
     bumpPrompt: nullable(input.bumpPrompt),
+    secondMessage: nullable(input.secondMessage),
     firstMessageMode: input.firstMessageMode ?? 'ai',
     playbook: input.playbook ?? DEFAULT_SDR_PLAYBOOK,
     aiProvider: input.aiProvider ?? 'deepseek',
@@ -134,6 +137,18 @@ export function createMemorySdrAgentRepository(seedAgents: SdrAgent[] = []): Sdr
       }
 
       const updated: SdrAgent = { ...current, firstMessageMode: mode, updatedAt: new Date() };
+      rows.set(id, updated);
+      return updated;
+    },
+
+    async setSecondMessage(id, text) {
+      const current = rows.get(id);
+
+      if (!current) {
+        return null;
+      }
+
+      const updated: SdrAgent = { ...current, secondMessage: text, updatedAt: new Date() };
       rows.set(id, updated);
       return updated;
     },

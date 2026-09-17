@@ -3,6 +3,7 @@ import { supportsWebSearch, type AiChatMessage, type AiClient } from '../ai/ai-c
 import { resolveReasoningEffort } from '../ai/reasoning-effort.js';
 import type { AiRunRepository } from '../ai/ai-run-repository.js';
 import { parseAiResponse } from '../ai/ai-response.js';
+import { waitBeforeSending } from '../ai/response-buffer.js';
 import { resolveAiApiKey } from '../ai/resolve-api-key.js';
 import { resolveSdrPlaybook } from '../ai/sdr-playbooks.js';
 import type { ConversationRepository } from '../conversations/conversation-repository.js';
@@ -23,7 +24,7 @@ import { normalizeWhatsappJid, whatsappIdentityFromUazapiSendResult, whatsappNum
 import { decryptSecret } from '../security/secrets.js';
 import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
 import { describeNowInTimeZone, startOfDayInTimeZone } from '../timezone.js';
-import type { UazapiClient } from '../uazapi/uazapi-client.js';
+import type { UazapiClient, UazapiCredentials } from '../uazapi/uazapi-client.js';
 import { createChannelGuard } from './channel-guard.js';
 import { createLeadSendFailures, createSendBackoff, reachoutTimelockFrom, UazapiSendError } from './send-backoff.js';
 
@@ -640,7 +641,7 @@ export function createInitialOutreachService(deps: InitialOutreachDependencies) 
     rawPayload: unknown,
     sentAt: Date,
     whatsappNumber: string,
-  ): Promise<void> {
+  ): Promise<string> {
     const conversation = await deps.conversationRepository.create({
       companyId: lead.companyId,
       sdrAgentId: lead.sdrAgentId,
@@ -665,6 +666,90 @@ export function createInitialOutreachService(deps: InitialOutreachDependencies) 
       sentByApi: true,
       fromMe: true,
     });
+
+    return conversation.id;
+  }
+
+  /**
+   * Segunda mensagem da abordagem: sai logo depois da primeira, sem esperar resposta.
+   *
+   * A primeira se apresenta e a segunda e que explica o sistema — quebrar em duas e o que
+   * evita o textao de anuncio que o dono arquiva sem ler. Ela nao passa pela IA: e o mesmo
+   * texto para todo lead, entao nao ha o que gerar, e gerar seria conta de token e risco de
+   * o modelo inventar preco na abordagem.
+   *
+   * Falha aqui NAO derruba o lead: a primeira mensagem ja saiu e o lead ja esta marcado como
+   * `initial_sent`. Reabrir o ciclo por causa da segunda mandaria a apresentacao de novo.
+   */
+  async function sendSecondMessage(input: {
+    agent: SdrAgent;
+    conversationId: string;
+    credentials: UazapiCredentials;
+    lead: Lead;
+    research: LeadResearchResult | null;
+    startedAt: Date;
+    whatsappNumber: string;
+  }): Promise<void> {
+    const { agent, conversationId, credentials, lead, research, startedAt, whatsappNumber } = input;
+    const body = agent.secondMessage?.trim();
+    if (!body) return;
+
+    const text = renderVariantMessage(body, agent, lead, research);
+    if (!text) return;
+
+    // Mesmo compasso da resposta da IA: a segunda mensagem chegar no mesmo segundo que a
+    // primeira e o que denuncia disparo em massa.
+    const delayMs = Math.min(agent.responseDelayMaxMs, agent.responseDelayBaseMs + text.length * agent.responseDelayPerCharMs);
+
+    try {
+      await deps.uazapiClient.sendPresence({ ...credentials, number: whatsappNumber, presence: 'composing', delay: 1000 });
+      await waitBeforeSending(delayMs);
+      const result = await deps.uazapiClient.sendText({
+        ...credentials,
+        number: whatsappNumber,
+        text,
+        readchat: true,
+        trackSource: 'sdr-portal-initial-second',
+        trackId: `initial-second-${lead.id}`,
+      });
+
+      if (!result.ok) throw new UazapiSendError(result.status, result.body);
+
+      await deps.conversationRepository.createMessage({
+        conversationId,
+        leadId: lead.id,
+        sdrAgentId: agent.id,
+        direction: 'outbound',
+        senderType: 'ai',
+        whatsappMessageId: null,
+        messageType: 'conversation',
+        text,
+        transcription: null,
+        mediaUrl: null,
+        rawPayload: JSON.stringify(result.body),
+        sentByApi: true,
+        fromMe: true,
+      });
+      const secondSentAt = new Date();
+      await deps.conversationRepository.touch(conversationId, secondSentAt);
+      // `lastOutboundAt` e o que o follow-up le para saber se o chat esfriou: sem isto ele
+      // olharia para a primeira mensagem e nao para a ultima que saiu de fato.
+      await deps.leadRepository.markOutboundSent(lead.id, secondSentAt);
+    } catch (error) {
+      await deps.jobLogRepository.create({
+        jobName: 'initial-outreach',
+        jobKey: `initial-second-${lead.id}`,
+        sdrAgentId: agent.id,
+        leadId: lead.id,
+        status: 'failed',
+        attempt: 1,
+        payload: JSON.stringify({ number: whatsappNumber, text }),
+        result: error instanceof UazapiSendError ? JSON.stringify({ uazapiStatus: error.status, uazapi: error.body }) : null,
+        error: error instanceof Error ? error.message : 'Erro desconhecido.',
+        startedAt,
+        finishedAt: new Date(),
+      });
+    }
   }
 
   async function processAgent(agent: SdrAgent, now: Date, details: string[]): Promise<ProcessAgentResult> {
@@ -802,11 +887,20 @@ export function createInitialOutreachService(deps: InitialOutreachDependencies) 
           sentAt,
         );
         const conversationWhatsappNumber = whatsappNumberFromUazapiSendResult(result.body, lead.whatsappNumber);
-        await createInitialConversation(lead, agent, text, result.body, sentAt, conversationWhatsappNumber);
+        const conversationId = await createInitialConversation(lead, agent, text, result.body, sentAt, conversationWhatsappNumber);
         await deps.leadRepository.markInitialSent(lead.id, sentAt, followupDueAt(agent, sentAt));
         if (variantId) {
           await deps.leadRepository.setFirstMessageVariant(lead.id, variantId);
         }
+        await sendSecondMessage({
+          agent,
+          conversationId,
+          credentials,
+          lead,
+          research,
+          startedAt,
+          whatsappNumber: conversationWhatsappNumber,
+        });
         await deps.jobLogRepository.create({
           jobName: 'initial-outreach',
           jobKey: `initial-${lead.id}`,

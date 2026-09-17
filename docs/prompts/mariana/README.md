@@ -11,6 +11,7 @@ Quando alterar um prompt no portal, atualize o arquivo aqui no mesmo commit.
 | `prompt.txt` | Prompt principal | sim — região estável, depois do `SDR_BASE_PROMPT` |
 | `offer-description.txt` | Oferta | sim — região estável |
 | `first-message-prompt.txt` | Prompt da primeira mensagem | só quando o modo A/B está desligado |
+| `second-message.txt` | Segunda mensagem da abordagem (tela `Msg inicial`) | não é prompt: é o texto exato que sai logo depois da primeira |
 | `followup-prompt.txt` | Prompt de follow-up | sim, no job de follow-up (quem respondeu e esfriou) |
 | `bump-prompt.txt` | Prompt do segundo toque | sim, no job de follow-up (quem nunca respondeu) |
 | `lead-qualification-prompt.txt` | Prompt de qualificação | sim, no `lead_fit_assessment` |
@@ -18,6 +19,37 @@ Quando alterar um prompt no portal, atualize o arquivo aqui no mesmo commit.
 
 `Descrição do produto` (`productDescription`) **não** alimenta nenhum prompt — é
 documentação interna da tela. Só `productName` e `offerDescription` chegam à IA.
+
+## Revisão de 17/09: a abordagem virou duas mensagens
+
+A equipe padronizou a abordagem em **duas** mensagens, enviadas uma atrás da outra no mesmo
+disparo, sem esperar o lead responder:
+
+1. **apresentação curta** — as variantes de `first-message-variants.md`, como já eram. Só
+   mudou uma coisa no texto: a Mariana não diz mais que é "do comercial da KyberFood". É "sou
+   a Mariana, da KyberFood". Dizer "comercial" na primeira linha é dizer "sou vendedora" antes
+   de a pessoa saber do que se trata, e é o que faz o dono arquivar sem ler.
+2. **explicação** — `second-message.txt`, novo. Diz o que o sistema faz (responde na hora,
+   entende áudio, monta o pedido inteiro, gera o PIX na conversa), que ele roda **dentro do
+   próprio WhatsApp da loja**, no mesmo número e sem app novo, e que existe **teste grátis de
+   3 dias**. Sem textão: três parágrafos curtos terminando numa pergunta fácil.
+
+O que isso muda nos outros prompts:
+
+- `prompt.txt` ganhou a seção **O QUE O LEAD JÁ LEU ANTES DE VOCÊ**. A ETAPA 1 deixou de ser
+  "diga o que é e entenda a rotina" e passou a ser só a rotina — a explicação já foi dada, e
+  repeti-la com outras palavras é o jeito mais rápido de soar a robô.
+- O teste grátis de 3 dias virou a **única** condição comercial que a Mariana fala. "Quanto
+  custa depois do teste" continua sendo do Igor, e pedir o teste agora aciona handoff.
+- `bump-prompt.txt` e `followup-prompt.txt` não podem mais partir de "ela não sabe o que é a
+  KyberFood": ela recebeu a explicação, mesmo que não tenha lido.
+- A regra 8 (uma mensagem por vez) continua valendo para a IA. As duas da abordagem são do
+  sistema, antes de ela entrar.
+
+Do lado do portal: o texto fica em `sdr_agents.second_message`, editável na tela
+`Msg inicial` → "Segunda mensagem da abordagem", e é gravado por
+`apply-sdr-prompts` a partir de `second-message.txt`. Campo vazio = abordagem de uma mensagem
+só, que é o que os outros SDRs continuam fazendo.
 
 ## Revisão de 02/09: robô da loja e primeira mensagem
 
