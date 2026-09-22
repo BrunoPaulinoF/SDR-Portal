@@ -22,23 +22,34 @@ mensagem só volta ao textão que a variante B era.
 Regra de redação que nasce daí: **nada do que está na segunda mensagem entra na primeira** —
 nem recurso, nem o teste grátis, nem "a gente tem uma IA que...".
 
-## O que está no ar hoje
+## O que está no ar hoje (desde 22/09)
 
-Variante **"B"**, única ativa (95 envios):
+Variante **"B"**, única ativa, com o texto ajustado à abordagem de duas mensagens:
+
+> Olá, tudo bem? Me chamo Mariana, sou da KyberFood. Queria falar sobre o atendimento do
+> WhatsApp de vocês. Falo com {{responsavel}}?
+
+Duas coisas saíram do texto anterior:
+
+- **a explicação** ("a gente tem uma IA que atende o WhatsApp do delivery, responde na hora e
+  monta o pedido sozinha"), que agora é a segunda mensagem. Mantê-la aqui faria o lead ler a
+  mesma coisa duas vezes, uma mensagem colada na outra;
+- **o "do comercial"**. Dizer "comercial" na primeira linha é dizer "sou vendedora" antes de a
+  pessoa saber do que se trata. Vale para as variantes e para o `prompt.txt`.
+
+O que ficou é a apresentação, o motivo do contato dito de forma concreta e a pergunta de duas
+palavras.
+
+### O texto anterior, e por que ele saiu
 
 > Olá, tudo bem? Me chamo Mariana, sou do comercial da KyberFood. A gente tem uma IA que
 > atende o WhatsApp do delivery, responde na hora e monta o pedido sozinha. Falo com
 > {{responsavel}}?
 
-Ela entrega o produto na primeira linha. Em dois segundos o dono classifica como "vendedor de
-IA" e não responde. O portal marca 60% de resposta, mas quase tudo é o robô da própria loja:
-de gente foram 27% na caixa inteira e 5% nas 20 últimas conversas
+Ele entregava o produto na primeira linha. Em dois segundos o dono classificava como "vendedor
+de IA" e não respondia. O portal marcava 60% de resposta, mas quase tudo era o robô da própria
+loja: de gente foram 27% na caixa inteira e 5% nas 20 últimas conversas
 (`docs/analises/mariana-2026-09-02.md`).
-
-Com a segunda mensagem no ar, essa variante precisa **perder as duas frases do meio**: a
-explicação virou a segunda mensagem, e o "sou do comercial" sai. A Mariana se apresenta como
-**"sou a Mariana, da KyberFood"** — dizer "comercial" de saída é dizer "sou vendedora" antes
-de a pessoa saber do que se trata. Vale para as variantes e para o `prompt.txt`.
 
 ## O princípio das variantes abaixo
 
