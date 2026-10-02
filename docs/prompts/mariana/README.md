@@ -20,6 +20,21 @@ Quando alterar um prompt no portal, atualize o arquivo aqui no mesmo commit.
 `Descrição do produto` (`productDescription`) **não** alimenta nenhum prompt — é
 documentação interna da tela. Só `productName` e `offerDescription` chegam à IA.
 
+## Revisão de 02/10: variantes no arquivo e prompt mais curto
+
+1. **As variantes da primeira mensagem passaram para o arquivo.** `first-message-variants.md`
+   ganhou a seção `## Variantes no ar`, e `apply-sdr-prompts --apply` grava cada variante dali
+   como ativa e pausa (sem apagar) as outras. A troca de 22/09 nunca chegou ao banco porque era
+   manual: até 02/10 a abordagem que saía ainda era a antiga ("sou do comercial" + explicação da
+   IA), seguida da segunda mensagem explicando a mesma coisa. No ar agora: "Nao e pedido" contra
+   "Nao sou cliente", só a abertura muda entre elas — decida pela tela `Msg inicial`.
+2. **A seção do robô da loja encolheu.** O código já separa a automática antes de chamar a IA e
+   a regra geral está no `SDR_BASE_PROMPT`; o `prompt.txt` repetia as duas coisas em 1.700
+   caracteres e ainda mandava "dizer em uma frase o que você faz" quando aparecesse gente — o
+   contrário da seção `O QUE O LEAD JÁ LEU ANTES DE VOCÊ`. Ficaram os dois lembretes que só valem
+   para delivery (o atendente de IA da loja também é robô; gente depois do robô não recebe
+   reapresentação).
+
 ## Revisão de 17/09: a abordagem virou duas mensagens
 
 A equipe padronizou a abordagem em **duas** mensagens, enviadas uma atrás da outra no mesmo
