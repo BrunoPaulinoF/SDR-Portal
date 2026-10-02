@@ -9,6 +9,7 @@ import { createDbFirstMessageVariantRepository } from './modules/first-message-v
 import { createDbJobLogRepository } from './modules/jobs/db-job-log-repository.js';
 import { createDbLeadResearchRepository } from './modules/leads/db-lead-research-repository.js';
 import { createHttpLeadResearchProvider, createLeadResearchService } from './modules/leads/lead-research-service.js';
+import { createDbContactBlockRepository } from './modules/leads/db-contact-block-repository.js';
 import { createDbLeadRepository } from './modules/leads/db-lead-repository.js';
 import { createDbConnectionMonitorRepository } from './modules/monitoring/db-connection-monitor-repository.js';
 import { createConnectionMonitorService } from './modules/monitoring/connection-monitor-service.js';
@@ -43,6 +44,7 @@ async function start(): Promise<void> {
       createInitialOutreachService({
         aiClient: createHttpAiClient(),
         aiRunRepository: createDbAiRunRepository(),
+        contactBlockRepository: createDbContactBlockRepository(),
         conversationRepository: createDbConversationRepository(),
         firstMessageVariantRepository: createDbFirstMessageVariantRepository(),
         jobLogRepository: createDbJobLogRepository(),

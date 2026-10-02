@@ -10,9 +10,11 @@ import type { CompanyRepository } from '../companies/company-repository.js';
 import type { JobLogRepository } from '../jobs/job-log-repository.js';
 import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
 import { importLeadsFromExcel, inspectLeadExcel, leadImportFields, type LeadImportMapping } from './lead-importer.js';
+import type { ContactBlockRepository } from './contact-block-repository.js';
 import { clearMilestone, isLeadMilestone, markMilestone } from './lead-outcome.js';
 import type { LeadInput, LeadRepository } from './lead-repository.js';
 import {
+  renderContactBlocksPage,
   renderEditLeadPage,
   renderImportLeadsPage,
   renderImportMappingPage,
@@ -153,8 +155,45 @@ export function registerLeadRoutes(
   leadRepository: LeadRepository,
   aiRunRepository: AiRunRepository,
   jobLogRepository: JobLogRepository,
+  contactBlockRepository: ContactBlockRepository,
 ): void {
   const importDrafts = new Map<string, LeadImportDraft>();
+
+  app.get('/leads/nao-contatar', async (request, reply) => {
+    const user = await requireUser(request, reply, authRepository);
+    if (!user) return undefined;
+    return reply.type('text/html').send(renderContactBlocksPage(await contactBlockRepository.list()));
+  });
+
+  app.post('/leads/nao-contatar/:blockId/remover', async (request, reply) => {
+    const user = await requireUser(request, reply, authRepository);
+    if (!user) return undefined;
+    const params = z.object({ blockId: z.string().uuid() }).safeParse(request.params);
+    if (params.success) await contactBlockRepository.remove(params.data.blockId);
+    const back = (request.body as { voltar?: unknown } | undefined)?.voltar;
+    // So volta para tela do proprio portal: o campo vem do formulario e nao pode virar redirect aberto.
+    return reply.redirect(typeof back === 'string' && /^\/leads\/[0-9a-f-]{36}$/.test(back) ? back : '/leads/nao-contatar', 302);
+  });
+
+  /** Bloqueia o numero para todos os SDRs e encerra o lead: sem interesse, sem follow-up. */
+  app.post('/leads/:id/nao-contatar', async (request, reply) => {
+    const user = await requireUser(request, reply, authRepository);
+    if (!user) return undefined;
+    const params = paramsSchema.safeParse(request.params);
+    if (!params.success) return reply.status(404).type('text/html').send(renderLeadNotFoundPage());
+    const lead = await leadRepository.findById(params.data.id);
+    if (!lead) return reply.status(404).type('text/html').send(renderLeadNotFoundPage());
+    const motivo = z.object({ motivo: z.string().trim().max(200).optional().default('') }).safeParse(request.body ?? {});
+    const now = new Date();
+    await contactBlockRepository.add({
+      whatsappNumber: lead.whatsappNumber,
+      reason: motivo.success && motivo.data.motivo ? motivo.data.motivo : null,
+      source: `portal:${user.email}`,
+    });
+    await leadRepository.markNotInterested(lead.id, now);
+    request.log.info({ leadId: lead.id, userId: user.id }, 'Contact blocked');
+    return reply.redirect(`/leads/${lead.id}`, 302);
+  });
 
   app.get('/leads', async (request, reply) => {
     const user = await requireUser(request, reply, authRepository);
@@ -247,8 +286,12 @@ export function registerLeadRoutes(
     const [lead, agents] = await Promise.all([leadRepository.findById(params.data.id), sdrAgentRepository.list()]);
     if (!lead) return reply.status(404).type('text/html').send(renderLeadNotFoundPage());
     const company = await companyRepository.findById(lead.companyId);
-    const [aiRuns, jobLogs] = await Promise.all([aiRunRepository.findByLeadId(lead.id), jobLogRepository.findByLeadId(lead.id)]);
-    return reply.type('text/html').send(renderLeadDetailPage(lead, company, agents, aiRuns, jobLogs));
+    const [aiRuns, jobLogs, block] = await Promise.all([
+      aiRunRepository.findByLeadId(lead.id),
+      jobLogRepository.findByLeadId(lead.id),
+      contactBlockRepository.findBlocked(lead.whatsappNumber),
+    ]);
+    return reply.type('text/html').send(renderLeadDetailPage(lead, company, agents, aiRuns, jobLogs, block));
   });
 
   /** Desfecho depois do handoff: reuniao, teste, cliente ou perdido. "desfazer" corrige clique errado. */
@@ -390,6 +433,7 @@ export function registerLeadRoutes(
     const result = await importLeadsFromExcel({
       buffer: draft.buffer,
       companyId: draft.companyId,
+      contactBlockRepository,
       fileName: draft.fileName,
       leadRepository,
       mapping,

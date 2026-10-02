@@ -493,3 +493,26 @@ export const sdrConnectionEvents = pgTable(
 
 export type SdrConnectionEvent = typeof sdrConnectionEvents.$inferSelect;
 export type NewSdrConnectionEvent = typeof sdrConnectionEvents.$inferInsert;
+
+/**
+ * Numeros que nenhum SDR aborda mais: quem pediu para nao ser contatado, numero que nao e do
+ * ramo (taxi, consultorio), dono que ja disse nao para todos os produtos. Vale para a importacao
+ * e para o disparo de qualquer SDR. Ate 02/10 a unica protecao era o lead existir no mesmo SDR
+ * com o mesmo numero exato — reimportar a planilha devolvia quem tinha recusado.
+ */
+export const contactBlocks = pgTable(
+  'contact_blocks',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    /** So digitos, como `leads.whatsapp_number`. A busca usa as variantes com e sem o 9. */
+    whatsappNumber: text('whatsapp_number').notNull(),
+    reason: text('reason'),
+    /** Quem bloqueou: `portal:<email>` ou o lead de onde veio. */
+    source: text('source').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex('contact_blocks_number_unique_idx').on(table.whatsappNumber)],
+);
+
+export type ContactBlock = typeof contactBlocks.$inferSelect;
+export type NewContactBlock = typeof contactBlocks.$inferInsert;

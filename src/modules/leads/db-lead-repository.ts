@@ -208,6 +208,11 @@ export function createDbLeadRepository(): LeadRepository {
       return lead ?? null;
     },
 
+    async findByWhatsappNumbers(whatsappNumbers) {
+      if (whatsappNumbers.length === 0) return [];
+      return db.select().from(leads).where(inArray(leads.whatsappNumber, whatsappNumbers));
+    },
+
     async list() {
       return db.select().from(leads).orderBy(desc(leads.createdAt));
     },

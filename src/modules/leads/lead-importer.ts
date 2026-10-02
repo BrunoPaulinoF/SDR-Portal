@@ -1,5 +1,7 @@
 import { readSheet } from 'read-excel-file/node';
 
+import { whatsappNumberVariants } from '../phone/whatsapp-number.js';
+import type { ContactBlockRepository } from './contact-block-repository.js';
 import type { LeadRepository } from './lead-repository.js';
 
 export const leadImportFields = [
@@ -19,6 +21,8 @@ export type LeadImportMapping = Partial<Record<LeadImportField, number>>;
 interface ImportLeadsInput {
   buffer: Buffer;
   companyId: string;
+  /** Lista de "nao contatar". Sem ela a importacao so olha os leads que ja existem. */
+  contactBlockRepository?: ContactBlockRepository;
   fileName: string;
   leadRepository: LeadRepository;
   mapping?: LeadImportMapping;
@@ -129,6 +133,30 @@ export async function inspectLeadExcel(buffer: Buffer): Promise<LeadExcelPreview
   };
 }
 
+/**
+ * Por que este numero nao entra na fila, ou `null` se entra. Ate 02/10 a importacao so comparava
+ * o numero exato no mesmo SDR: a mesma loja com e sem o nono digito entrava duas vezes, dois SDRs
+ * da mesma empresa abordavam a mesma casa, e reimportar a planilha devolvia quem tinha recusado.
+ *
+ * - qualquer variante do numero ja cadastrada no mesmo SDR ou em outro SDR da mesma empresa;
+ * - numero que ja se mostrou sem WhatsApp em qualquer SDR (o disparo confirma antes de enviar,
+ *   mas e uma consulta a menos e um lead a menos parado na fila);
+ * - numero na lista de "nao contatar".
+ *
+ * Outra empresa pode abordar a mesma loja: Insumo Smart e KyberFood vendem coisas diferentes, e
+ * o "nao" para uma nao e "nao" para a outra. Para isso existe a lista de "nao contatar".
+ */
+async function importSkipReason(input: ImportLeadsInput, whatsappNumber: string): Promise<string | null> {
+  const blocked = await input.contactBlockRepository?.findBlocked(whatsappNumber);
+  if (blocked) return `WhatsApp na lista de nao contatar${blocked.reason ? ` (${blocked.reason})` : ''}.`;
+
+  const existing = await input.leadRepository.findByWhatsappNumbers(whatsappNumberVariants(whatsappNumber));
+  if (existing.some((lead) => lead.sdrAgentId === input.sdrAgentId)) return 'WhatsApp ja cadastrado para este SDR.';
+  if (existing.some((lead) => lead.companyId === input.companyId)) return 'WhatsApp ja cadastrado em outro SDR desta empresa.';
+  if (existing.some((lead) => lead.status === 'invalid_phone')) return 'WhatsApp ja conferido antes: o numero nao tem WhatsApp.';
+  return null;
+}
+
 export async function importLeadsFromExcel(input: ImportLeadsInput): Promise<ImportLeadsResult> {
   const rows = await readSheet(input.buffer);
   const [headers, ...dataRows] = rows;
@@ -167,10 +195,9 @@ export async function importLeadsFromExcel(input: ImportLeadsInput): Promise<Imp
       continue;
     }
 
-    const existingLead = await input.leadRepository.findBySdrAndWhatsapp(input.sdrAgentId, whatsappNumber);
-
-    if (existingLead) {
-      errors.push(`Linha ${line}: WhatsApp ja cadastrado para este SDR.`);
+    const skip = await importSkipReason(input, whatsappNumber);
+    if (skip) {
+      errors.push(`Linha ${line}: ${skip}`);
       continue;
     }
 

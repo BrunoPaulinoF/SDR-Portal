@@ -31,6 +31,7 @@ async function loadRepos() {
     leads: (await import('../src/modules/leads/db-lead-repository.js')).createDbLeadRepository(),
     agents: (await import('../src/modules/sdr-agents/db-sdr-agent-repository.js')).createDbSdrAgentRepository(),
     monitors: (await import('../src/modules/monitoring/db-connection-monitor-repository.js')).createDbConnectionMonitorRepository(),
+    blocks: (await import('../src/modules/leads/db-contact-block-repository.js')).createDbContactBlockRepository(),
   };
 }
 
@@ -49,7 +50,7 @@ dbDescribe('repositorios no Postgres', () => {
 
   beforeEach(async () => {
     await repos.client.db.execute(
-      repos.sql`truncate table messages, conversations, job_logs, ai_runs, webhook_events, lead_research, lead_imports, instance_share_links, sdr_connection_events, sdr_connection_states, leads, first_message_variants, sdr_agents, companies cascade`,
+      repos.sql`truncate table contact_blocks, messages, conversations, job_logs, ai_runs, webhook_events, lead_research, lead_imports, instance_share_links, sdr_connection_events, sdr_connection_states, leads, first_message_variants, sdr_agents, companies cascade`,
     );
   });
 
@@ -165,6 +166,24 @@ dbDescribe('repositorios no Postgres', () => {
     const last = await repos.leads.markFollowupSent(lead.id, now, null);
     expect(last?.followupCount).toBe(2);
     expect(last?.followupDisabledAt).not.toBeNull();
+  });
+
+  it('nao contatar: acha pelas variantes e bloquear de novo so atualiza', async () => {
+    await repos.blocks.add({ whatsappNumber: '5519999990000', reason: 'taxi', source: 'portal:a' });
+    await repos.blocks.add({ whatsappNumber: '5519999990000', reason: 'pediu para parar', source: 'portal:b' });
+
+    const block = await repos.blocks.findBlocked('551999990000');
+
+    expect(block?.reason).toBe('pediu para parar');
+    expect(await repos.blocks.list()).toHaveLength(1);
+  });
+
+  it('acha leads de qualquer SDR pelas variantes do numero', async () => {
+    const { lead } = await agentAndLead({ whatsappNumber: '5519999990000' });
+
+    const found = await repos.leads.findByWhatsappNumbers(['551999990000', '5519999990000']);
+
+    expect(found.map((item) => item.id)).toEqual([lead.id]);
   });
 
   it('historico de conexao grava e lista em ordem', async () => {

@@ -57,6 +57,7 @@ import {
   type InstanceShareLinkRepository,
 } from './modules/uazapi/instance-share-link-repository.js';
 import { registerAssetsRoutes } from './modules/web/assets.js';
+import { createMemoryContactBlockRepository, type ContactBlockRepository } from './modules/leads/contact-block-repository.js';
 import { registerWebhookEventRoutes } from './modules/webhooks/webhook-event-routes.js';
 import { createMemoryWebhookEventRepository, type WebhookEventRepository } from './modules/webhooks/webhook-event-repository.js';
 import { createResetConversationService } from './modules/webhooks/reset-conversation-service.js';
@@ -69,6 +70,7 @@ export interface AppOptions extends FastifyServerOptions {
   aiRunRepository?: AiRunRepository;
   authRepository?: AuthRepository;
   companyRepository?: CompanyRepository;
+  contactBlockRepository?: ContactBlockRepository;
   conversationRepository?: ConversationRepository;
   firstMessageVariantRepository?: FirstMessageVariantRepository;
   jobLogRepository?: JobLogRepository;
@@ -517,6 +519,10 @@ function createLazyDbLeadRepository(): LeadRepository {
       const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
       return createDbLeadRepository().setFirstMessageVariant(id, variantId);
     },
+    async findByWhatsappNumbers(whatsappNumbers) {
+      const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
+      return createDbLeadRepository().findByWhatsappNumbers(whatsappNumbers);
+    },
     async setOutcome(id, outcome, updatedAt) {
       const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
       return createDbLeadRepository().setOutcome(id, outcome, updatedAt);
@@ -605,12 +611,34 @@ function createLazyDbLeadResearchRepository(): LeadResearchRepository {
   };
 }
 
+function createLazyDbContactBlockRepository(): ContactBlockRepository {
+  return {
+    async add(input) {
+      const { createDbContactBlockRepository } = await import('./modules/leads/db-contact-block-repository.js');
+      return createDbContactBlockRepository().add(input);
+    },
+    async findBlocked(whatsappNumber) {
+      const { createDbContactBlockRepository } = await import('./modules/leads/db-contact-block-repository.js');
+      return createDbContactBlockRepository().findBlocked(whatsappNumber);
+    },
+    async list() {
+      const { createDbContactBlockRepository } = await import('./modules/leads/db-contact-block-repository.js');
+      return createDbContactBlockRepository().list();
+    },
+    async remove(id) {
+      const { createDbContactBlockRepository } = await import('./modules/leads/db-contact-block-repository.js');
+      return createDbContactBlockRepository().remove(id);
+    },
+  };
+}
+
 export function buildApp(options: AppOptions = {}): AppInstance {
   const {
     aiClient,
     aiRunRepository,
     authRepository,
     companyRepository,
+    contactBlockRepository,
     conversationRepository,
     firstMessageVariantRepository,
     jobLogRepository,
@@ -634,6 +662,8 @@ export function buildApp(options: AppOptions = {}): AppInstance {
   const sdrAgents =
     sdrAgentRepository ?? (env.NODE_ENV === 'test' ? createMemorySdrAgentRepository() : createLazyDbSdrAgentRepository());
   const leads = leadRepository ?? (env.NODE_ENV === 'test' ? createMemoryLeadRepository() : createLazyDbLeadRepository());
+  const contactBlocks =
+    contactBlockRepository ?? (env.NODE_ENV === 'test' ? createMemoryContactBlockRepository() : createLazyDbContactBlockRepository());
   const jobLogs = jobLogRepository ?? (env.NODE_ENV === 'test' ? createMemoryJobLogRepository() : createLazyDbJobLogRepository());
   const conversations =
     conversationRepository ?? (env.NODE_ENV === 'test' ? createMemoryConversationRepository() : createLazyDbConversationRepository());
@@ -661,6 +691,7 @@ export function buildApp(options: AppOptions = {}): AppInstance {
   const initialOutreach = createInitialOutreachService({
     aiClient: ai,
     aiRunRepository: aiRuns,
+    contactBlockRepository: contactBlocks,
     conversationRepository: conversations,
     firstMessageVariantRepository: firstMessageVariants,
     jobLogRepository: jobLogs,
@@ -756,7 +787,7 @@ export function buildApp(options: AppOptions = {}): AppInstance {
   registerCompanyRoutes(app, repository, companies);
   registerSdrAgentRoutes(app, repository, companies, sdrAgents, uazapi);
   registerFirstMessageVariantRoutes(app, repository, sdrAgents, firstMessageVariants);
-  registerLeadRoutes(app, repository, companies, sdrAgents, leads, aiRuns, jobLogs);
+  registerLeadRoutes(app, repository, companies, sdrAgents, leads, aiRuns, jobLogs, contactBlocks);
   registerUazapiRoutes(app, repository, sdrAgents, uazapi, textToSpeech);
   registerInstanceConnectRoutes(app, repository, sdrAgents, instanceShareLinks, uazapi);
   registerSchedulerRoutes(app, repository, initialOutreach, followupOutreach, pendingReply);

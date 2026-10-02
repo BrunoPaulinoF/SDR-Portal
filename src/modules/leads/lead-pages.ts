@@ -1,4 +1,4 @@
-import type { AiRun, Company, JobLog, Lead, LeadImport, SdrAgent } from '../../db/schema.js';
+import type { AiRun, Company, ContactBlock, JobLog, Lead, LeadImport, SdrAgent } from '../../db/schema.js';
 import { formatDateTimeInTimeZone, resolveTimeZone } from '../timezone.js';
 import { escapeHtml, renderLayout } from '../web/html.js';
 import { leadImportFields, type LeadExcelPreview, type LeadImportMapping } from './lead-importer.js';
@@ -192,7 +192,7 @@ export function renderLeadsListPage(leads: Lead[], companies: Company[], agents:
 
   return renderLayout({
     title: 'Leads - SDR Portal',
-    body: `<main class="app-shell"><header class="topbar"><div><h1>Leads</h1><p class="muted">Cadastre, edite e importe contatos para os SDRs.</p></div><div class="actions"><a class="button button-secondary" href="/leads/import">Importar Excel</a><a class="button" href="/leads/new">Novo lead</a></div></header>${noticeHtml}${table}${renderBulkDeletePanel(leads, agents)}</main>`,
+    body: `<main class="app-shell"><header class="topbar"><div><h1>Leads</h1><p class="muted">Cadastre, edite e importe contatos para os SDRs.</p></div><div class="actions"><a class="button button-secondary" href="/leads/nao-contatar">Nao contatar</a><a class="button button-secondary" href="/leads/import">Importar Excel</a><a class="button" href="/leads/new">Novo lead</a></div></header>${noticeHtml}${table}${renderBulkDeletePanel(leads, agents)}</main>`,
   });
 }
 
@@ -282,6 +282,46 @@ function renderMilestoneRow(lead: Lead, milestone: LeadMilestone, timeZone: stri
  * Painel que fecha o funil: quem atendeu o handoff marca o que aconteceu. Aparece em todo lead
  * (cliente pode fechar sem handoff formal), mas e no lead transferido que ele importa.
  */
+/** Bloqueio do numero para todos os SDRs, ou o botao para bloquear. */
+function renderContactBlockPanel(lead: Lead, block: ContactBlock | null): string {
+  if (block) {
+    return `<section class="panel spacing-top">
+    <h2>Nao contatar</h2>
+    <p>Este numero esta na lista de nao contatar${block.reason ? `: <strong>${escapeHtml(block.reason)}</strong>` : ''}. Nenhum SDR aborda, e a importacao nao traz de volta.</p>
+    <form method="post" action="/leads/nao-contatar/${block.id}/remover" data-inline><input type="hidden" name="voltar" value="/leads/${lead.id}"><button class="link-button" type="submit">Tirar da lista</button></form>
+  </section>`;
+  }
+  return `<section class="panel spacing-top">
+    <h2>Nao contatar</h2>
+    <p class="muted">Pediu para nao receber mais mensagem, nao e do ramo, numero errado: bloqueie para nenhum SDR abordar de novo, nem numa importacao futura. O lead tambem e marcado sem interesse.</p>
+    <form method="post" action="/leads/${lead.id}/nao-contatar" class="form-grid">
+      <div class="field"><label for="motivo">Motivo</label><input id="motivo" name="motivo" maxlength="200" placeholder="Ex: pediu para parar, e taxi"></div>
+      <div class="actions"><button class="button button-secondary" type="submit">Nao contatar mais</button></div>
+    </form>
+  </section>`;
+}
+
+export function renderContactBlocksPage(blocks: ContactBlock[]): string {
+  const rows = blocks
+    .map(
+      (block) => `<tr>
+        <td>${escapeHtml(block.whatsappNumber)}</td>
+        <td>${escapeHtml(block.reason ?? '-')}</td>
+        <td class="muted">${escapeHtml(block.source)}</td>
+        <td>${escapeHtml(formatDateTimeInTimeZone(block.createdAt, 'America/Sao_Paulo'))}</td>
+        <td><form method="post" action="/leads/nao-contatar/${block.id}/remover" data-inline><button class="link-button" type="submit">Tirar da lista</button></form></td>
+      </tr>`,
+    )
+    .join('');
+  const table = blocks.length
+    ? `<div class="table-wrap"><table><thead><tr><th>WhatsApp</th><th>Motivo</th><th>Quem bloqueou</th><th>Quando</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+    : '<section class="empty-state"><h2>Lista vazia</h2><p class="muted">Bloqueie pela tela do lead, no quadro "Nao contatar".</p></section>';
+  return renderLayout({
+    title: 'Nao contatar - SDR Portal',
+    body: `<main class="app-shell"><header class="topbar"><div><h1>Nao contatar</h1><p class="muted">Numeros que nenhum SDR aborda e que a importacao de planilha pula.</p></div><div class="actions"><a class="button button-secondary" href="/leads">Voltar</a></div></header>${table}</main>`,
+  });
+}
+
 function renderOutcomePanel(lead: Lead, timeZone: string): string {
   const intro = lead.handoffRequestedAt
     ? 'O lead foi passado para o time. Marque aqui o que aconteceu: e isso que diz se o SDR esta trazendo cliente.'
@@ -299,6 +339,7 @@ export function renderLeadDetailPage(
   agents: SdrAgent[],
   aiRuns: AiRun[],
   jobLogs: JobLog[],
+  block: ContactBlock | null = null,
 ): string {
   const agent = agents.find((a) => a.id === lead.sdrAgentId);
 
@@ -378,6 +419,7 @@ export function renderLeadDetailPage(
   </header>
 
   ${renderOutcomePanel(lead, resolveTimeZone(agent?.timezone))}
+  ${renderContactBlockPanel(lead, block)}
 
   <section class="panel spacing-top">
     <h2>Dados do lead</h2>

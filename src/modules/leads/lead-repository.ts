@@ -76,6 +76,8 @@ export interface LeadRepository {
    */
   findNextPendingForSdr(sdrAgentId: string, options?: { skipLeadIds?: readonly string[] }): Promise<Lead | null>;
   findBySdrAndWhatsapp(sdrAgentId: string, whatsappNumber: string): Promise<Lead | null>;
+  /** Leads de qualquer SDR com um destes numeros exatos (passe as variantes do telefone). */
+  findByWhatsappNumbers(whatsappNumbers: string[]): Promise<Lead[]>;
   list(): Promise<Lead[]>;
   /** Leads de um conjunto conhecido de ids (ex.: os donos das conversas de um SDR). */
   listByIds(ids: string[]): Promise<Lead[]>;
@@ -311,6 +313,11 @@ export function createMemoryLeadRepository(seedLeads: Lead[] = []): LeadReposito
           .filter((lead) => lead.sdrAgentId === sdrAgentId && lead.whatsappNumber === whatsappNumber)
           .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0] ?? null
       );
+    },
+
+    async findByWhatsappNumbers(whatsappNumbers) {
+      const wanted = new Set(whatsappNumbers);
+      return [...rows.values()].filter((lead) => wanted.has(lead.whatsappNumber));
     },
 
     async list() {

@@ -5,6 +5,7 @@ import { createMemoryAiRunRepository } from '../src/modules/ai/ai-run-repository
 import { createMemoryConversationRepository } from '../src/modules/conversations/conversation-repository.js';
 import { createMemoryFirstMessageVariantRepository } from '../src/modules/first-message-variants/first-message-variant-repository.js';
 import { createMemoryJobLogRepository } from '../src/modules/jobs/job-log-repository.js';
+import { createMemoryContactBlockRepository } from '../src/modules/leads/contact-block-repository.js';
 import { createMemoryLeadRepository } from '../src/modules/leads/lead-repository.js';
 import type { LeadResearchService } from '../src/modules/leads/lead-research-service.js';
 import { createInitialOutreachService } from '../src/modules/scheduler/initial-outreach.js';
@@ -98,7 +99,7 @@ function leadRow(id: string, companyName: string, whatsappNumber: string, create
   };
 }
 
-async function build(rejectNumbers: string[]) {
+async function build(rejectNumbers: string[], contactBlockRepository?: ReturnType<typeof createMemoryContactBlockRepository>) {
   const sdrAgentRepository = createMemorySdrAgentRepository();
   const agent = await sdrAgentRepository.create({
     companyId: 'company-1',
@@ -128,6 +129,7 @@ async function build(rejectNumbers: string[]) {
   const service = createInitialOutreachService({
     aiClient: fakeAi(),
     aiRunRepository: createMemoryAiRunRepository(),
+    contactBlockRepository,
     conversationRepository: createMemoryConversationRepository(),
     firstMessageVariantRepository: createMemoryFirstMessageVariantRepository(),
     jobLogRepository: createMemoryJobLogRepository(),
@@ -138,6 +140,19 @@ async function build(rejectNumbers: string[]) {
   });
   return { leads, service, uazapi };
 }
+
+describe('lista de nao contatar no disparo', () => {
+  it('pula o lead bloqueado depois da importacao e aborda o proximo', async () => {
+    const blocks = createMemoryContactBlockRepository();
+    await blocks.add({ whatsappNumber: '5519996782890', reason: 'pediu para parar', source: 'portal:admin' });
+    const { leads, service, uazapi } = await build([], blocks);
+
+    await service.runOnce(NOW);
+
+    expect(uazapi.sent.map((message) => message.number)).toEqual(['5512996808655']);
+    expect((await leads.findById('lead-ruim'))?.status).toBe('discarded');
+  });
+});
 
 /**
  * `findNextPendingForSdr` devolve sempre o lead mais antigo, entao um numero que a UAZAPI
