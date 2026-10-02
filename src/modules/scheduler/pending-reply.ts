@@ -6,6 +6,7 @@ import type { JobLogRepository } from '../jobs/job-log-repository.js';
 import { isAiPaused } from '../leads/ai-pause.js';
 import type { LeadRepository } from '../leads/lead-repository.js';
 import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
+import { withAgentLock } from './agent-lock.js';
 
 type AiResponseService = ReturnType<typeof createAiResponseService>;
 
@@ -116,7 +117,17 @@ export function createPendingReplyService(deps: PendingReplyDependencies) {
 
         const startedAt = new Date();
         try {
-          await deps.aiResponseService.respondToInbound({ agent: target.agent, conversation, lead: target.lead });
+          // A mesma trava da fila de respostas: se a fila esta gerando esta conversa agora,
+          // responder aqui tambem mandaria duas mensagens.
+          const ran = await withAgentLock(`reply:${conversation.id}`, async () => {
+            await deps.aiResponseService.respondToInbound({ agent: target.agent, conversation, lead: target.lead });
+            return true;
+          });
+          if (!ran) {
+            result.skipped += 1;
+            result.details.push(`${leadLabel(target.lead)}: resposta ja em andamento`);
+            continue;
+          }
           result.retried += 1;
           result.details.push(`${leadLabel(target.lead)}: resposta pendente reenviada para a IA`);
           await deps.jobLogRepository.create({

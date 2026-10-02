@@ -8,6 +8,7 @@ import { createHttpAiClient, type AiClient } from './modules/ai/ai-client.js';
 import { createMemoryAiRunRepository, type AiRunRepository } from './modules/ai/ai-run-repository.js';
 import { createAiResponseService } from './modules/ai/ai-response-service.js';
 import { createInboundResponseBuffer } from './modules/ai/inbound-response-buffer.js';
+import { createReplyDispatcher, type ReplyTransportSlot } from './modules/ai/reply-queue.js';
 import { createAudioTranscriptionService } from './modules/audio/audio-transcription-service.js';
 import { createElevenLabsTextToSpeechClient, type TextToSpeechClient } from './modules/audio/text-to-speech-client.js';
 import { registerAiRunRoutes } from './modules/ai/ai-run-routes.js';
@@ -82,6 +83,8 @@ export interface AppOptions extends FastifyServerOptions {
   leadRepository?: LeadRepository;
   connectionMonitorRepository?: ConnectionMonitorRepository;
   inboundResponseBufferMs?: number;
+  /** Fila de respostas no banco, ligada pelo `server.ts` depois que o pg-boss sobe. */
+  replyTransport?: ReplyTransportSlot;
   instanceShareLinkRepository?: InstanceShareLinkRepository;
   sdrAgentRepository?: SdrAgentRepository;
   textToSpeechClient?: TextToSpeechClient;
@@ -665,6 +668,7 @@ export function buildApp(options: AppOptions = {}): AppInstance {
     connectionMonitorRepository,
     inboundResponseBufferMs,
     instanceShareLinkRepository,
+    replyTransport,
     sdrAgentRepository,
     textToSpeechClient,
     uazapiClient,
@@ -746,11 +750,16 @@ export function buildApp(options: AppOptions = {}): AppInstance {
     textToSpeechClient: textToSpeech,
     uazapiClient: uazapi,
   });
-  const bufferedAiResponseService = createInboundResponseBuffer({
-    aiResponseService,
-    conversationRepository: conversations,
-    delayMs: inboundResponseBufferMs ?? (env.NODE_ENV === 'test' ? 0 : env.INBOUND_RESPONSE_BUFFER_MS),
-    leadRepository: leads,
+  const replyDelayMs = inboundResponseBufferMs ?? (env.NODE_ENV === 'test' ? 0 : env.INBOUND_RESPONSE_BUFFER_MS);
+  const bufferedAiResponseService = createReplyDispatcher({
+    delayMs: replyDelayMs,
+    fallback: createInboundResponseBuffer({
+      aiResponseService,
+      conversationRepository: conversations,
+      delayMs: replyDelayMs,
+      leadRepository: leads,
+    }),
+    transport: replyTransport,
   });
   const pendingReply = createPendingReplyService({
     aiResponseService,
