@@ -133,6 +133,7 @@ Lead lifecycle is a `status` string field (`pending` → `initial_sent` → `in_
 - TS `strict` + `noUncheckedIndexedAccess` are on; array/record indexing yields `T | undefined`.
 - ESLint bans `console` except `console.error` (`no-console`); use the Fastify logger (`app.log` / `request.log`) or `process.stderr` for structured output.
 - Add tests as `tests/*.test.ts` (vitest, `globals: false` so import `describe/it/expect` from `vitest`). Prefer testing pure logic and services against memory repositories rather than the DB.
+- SQL dos repositorios `db-*` se testa em `tests/banco-de-verdade.test.ts`, contra um Postgres **descartavel** (a suite apaga as tabelas): `TEST_DATABASE_URL=postgres://... npx vitest run tests/banco-de-verdade.test.ts`. Sem a variavel a suite fica `skipped`. Numa sessao do Claude Code da para subir um local com `/usr/lib/postgresql/16/bin/initdb` + `pg_ctl` como usuario nao-root (o Postgres recusa rodar como root).
 - UI strings and DB text values are Portuguese; match existing wording/spelling (including unaccented forms already in the codebase) rather than "correcting" them.
 
 ## AI prompt ordering (prompt caching)
