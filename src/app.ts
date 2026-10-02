@@ -775,6 +775,7 @@ export function buildApp(options: AppOptions = {}): AppInstance {
     audioTranscriptionService,
     resetConversation,
     connectionMonitorService,
+    uazapi,
   );
   registerPromptAssistantRoutes(app, repository, sdrAgents, ai, aiRuns);
 

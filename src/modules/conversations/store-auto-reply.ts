@@ -132,3 +132,30 @@ export function isStoreAutoReply(input: {
 
   return false;
 }
+
+/** O que `isStoreImage` precisa saber das mensagens anteriores da conversa. */
+interface PriorMessage {
+  autoReply: boolean;
+  direction: string;
+  text: string | null;
+  transcription: string | null;
+}
+
+/**
+ * `true` para a foto que e conteudo da loja, nao alguem conversando: foto **sem legenda** que
+ * chega antes de qualquer fala de gente no chat — o cardapio do dia, o panfleto da promocao, a
+ * imagem que o robo manda junto da saudacao. Chamar so para mensagem de imagem.
+ *
+ * Ate 02/10 toda imagem pausava a IA para sempre e desligava o follow-up, sem avisar ninguem.
+ * Loja que manda o cardapio do dia em foto (Ceciliana, Sabor Divino) virava lead morto no
+ * primeiro bom-dia (`docs/analises/plano-reestruturacao-2026-10-02.md`).
+ *
+ * Legenda digitada ("olha o meu cardapio") ou conversa ja aberta com uma pessoa fazem a foto
+ * ser de gente: ai a IA para e um humano olha, como antes.
+ */
+export function isStoreImage(input: { text?: string | null; history: PriorMessage[] }): boolean {
+  if (input.text?.trim()) return false;
+  return !input.history.some(
+    (message) => message.direction === 'inbound' && !message.autoReply && Boolean(message.text?.trim() || message.transcription?.trim()),
+  );
+}

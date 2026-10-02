@@ -5,7 +5,7 @@ import type { AiClient, AiGenerateResult } from '../src/modules/ai/ai-client.js'
 import { createMemoryAiRunRepository } from '../src/modules/ai/ai-run-repository.js';
 import { createMemoryCompanyRepository } from '../src/modules/companies/company-repository.js';
 import { createMemoryConversationRepository } from '../src/modules/conversations/conversation-repository.js';
-import { isStoreAutoReply } from '../src/modules/conversations/store-auto-reply.js';
+import { isStoreAutoReply, isStoreImage } from '../src/modules/conversations/store-auto-reply.js';
 import { createMemoryLeadRepository } from '../src/modules/leads/lead-repository.js';
 import { createMemorySdrAgentRepository } from '../src/modules/sdr-agents/sdr-agent-repository.js';
 import { encryptSecret } from '../src/modules/security/secrets.js';
@@ -221,5 +221,28 @@ describe('resposta automatica da loja', () => {
     // a IA ve as automaticas no historico, mas etiquetadas como cenario e nao como fala do lead
     expect(scenario.aiCalls[0]).toContain('[resposta automatica da loja, nao e a pessoa]');
     expect(scenario.aiCalls[0]).toContain('oi, boa noite, sobre o que seria?');
+  });
+});
+
+describe('foto da loja', () => {
+  const pessoa = { autoReply: false, direction: 'inbound', text: 'oi, quem fala?', transcription: null };
+  const robo = { autoReply: true, direction: 'inbound', text: 'Seja bem-vindo! Faca seu pedido', transcription: null };
+  const nossa = { autoReply: false, direction: 'outbound', text: 'oi, aqui e a Mariana', transcription: null };
+
+  it('foto sem legenda antes de alguem falar e conteudo da loja', () => {
+    expect(isStoreImage({ text: null, history: [] })).toBe(true);
+    expect(isStoreImage({ text: '', history: [nossa, robo] })).toBe(true);
+  });
+
+  it('foto com legenda digitada e de gente', () => {
+    expect(isStoreImage({ text: 'olha o meu cardapio', history: [nossa] })).toBe(false);
+  });
+
+  it('foto depois de uma pessoa ter falado e de gente', () => {
+    expect(isStoreImage({ text: null, history: [nossa, robo, pessoa] })).toBe(false);
+  });
+
+  it('audio da pessoa tambem conta como alguem falando', () => {
+    expect(isStoreImage({ text: null, history: [{ ...pessoa, text: null, transcription: 'oi tudo bem' }] })).toBe(false);
   });
 });

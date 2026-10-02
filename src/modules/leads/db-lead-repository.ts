@@ -3,7 +3,7 @@ import { alias, type PgColumn } from 'drizzle-orm/pg-core';
 
 import { db } from '../../db/client.js';
 import { leadImports, leads } from '../../db/schema.js';
-import { statusAfterAiResume } from './ai-pause.js';
+import { followupDisabledAfterAiResume, statusAfterAiResume } from './ai-pause.js';
 import type { LeadRepository } from './lead-repository.js';
 
 type LeadActivityColumns = Pick<typeof leads, 'lastInboundAt' | 'lastOutboundAt'>;
@@ -242,6 +242,7 @@ export function createDbLeadRepository(): LeadRepository {
         .update(leads)
         .set({
           status: statusAfterAiResume(current),
+          followupDisabledAt: followupDisabledAfterAiResume(current),
           humanPausedUntil: null,
           aiPausedAt: null,
           aiPauseReason: null,

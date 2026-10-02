@@ -5,6 +5,7 @@ import { env } from '../../config/env.js';
 import type { Conversation, Lead } from '../../db/schema.js';
 import type { ConversationRepository } from '../conversations/conversation-repository.js';
 import { AI_PAUSE_REASONS, isAiPaused } from '../leads/ai-pause.js';
+import { sendAiPauseNotice } from '../leads/ai-pause-notice.js';
 import type { LeadRepository } from '../leads/lead-repository.js';
 import { whatsappNumberVariants } from '../phone/whatsapp-number.js';
 import { followupDueAt } from '../scheduler/initial-outreach.js';
@@ -14,7 +15,8 @@ import type { createAudioTranscriptionService } from '../audio/audio-transcripti
 import type { ConnectionMonitorService } from '../monitoring/connection-monitor-service.js';
 import { readConnectionEvent } from './connection-event.js';
 import type { ResetConversationService } from './reset-conversation-service.js';
-import { isStoreAutoReply } from '../conversations/store-auto-reply.js';
+import { isStoreAutoReply, isStoreImage } from '../conversations/store-auto-reply.js';
+import type { UazapiClient } from '../uazapi/uazapi-client.js';
 import { isAudioMessageType, isGroupWebhook, isImageMessageType, normalizeUazapiWebhook } from './uazapi-normalizer.js';
 import type { WebhookEventRepository } from './webhook-event-repository.js';
 
@@ -99,6 +101,7 @@ export function registerUazapiWebhookRoutes(
   audioTranscriptionService: AudioTranscriptionService,
   resetConversationService: ResetConversationService,
   connectionMonitorService: ConnectionMonitorService,
+  uazapiClient: UazapiClient,
 ): void {
   app.post('/webhooks/uazapi/:sdrAgentId', async (request, reply) => {
     const params = paramsSchema.safeParse(request.params);
@@ -238,7 +241,13 @@ export function registerUazapiWebhookRoutes(
       // Resposta automatica da loja nao e o lead falando: nao chama a IA, nao move o funil e
       // nao conta como conversa. Quando a pessoa assumir o WhatsApp, a proxima mensagem cai no
       // caminho normal e a IA responde ali — que e o unico momento em que ha alguem lendo.
-      const autoReply = !normalized.fromMe && isStoreAutoReply({ messageType: normalized.messageType, text: normalized.text, transcription });
+      const isImage = !normalized.fromMe && isImageMessageType(normalized.messageType);
+      // A foto so e "de gente" se veio com legenda ou se ja houve alguem falando antes dela.
+      const priorMessages = isImage ? await conversationRepository.listMessages(conversation.id) : [];
+      const autoReply =
+        !normalized.fromMe &&
+        (isStoreAutoReply({ messageType: normalized.messageType, text: normalized.text, transcription }) ||
+          (isImage && isStoreImage({ text: normalized.text, history: priorMessages })));
 
       await conversationRepository.createMessage({
         conversationId: conversation.id,
@@ -268,9 +277,14 @@ export function registerUazapiWebhookRoutes(
         } else {
           // o follow-up conta a partir desta resposta, nao da primeira mensagem enviada ao lead
           await leadRepository.markInboundReceived(lead.id, now, followupDueAt(agent, now));
-          if (isImageMessageType(normalized.messageType)) {
-            // a IA nao ve a foto: responder as cegas e pior do que chamar um humano
-            if (!isAiPaused(lead, now)) await leadRepository.pauseAi(lead.id, now, AI_PAUSE_REASONS.leadImage);
+          if (isImage) {
+            // a IA nao ve a foto: responder as cegas e pior do que chamar um humano — e o humano
+            // precisa saber, senao a pausa vira lead esquecido
+            if (!isAiPaused(lead, now)) {
+              await leadRepository.pauseAi(lead.id, now, AI_PAUSE_REASONS.leadImage);
+              const noticeFailure = await sendAiPauseNotice(uazapiClient, agent, lead, conversation);
+              if (noticeFailure) request.log.warn({ leadId: lead.id, noticeFailure }, 'AI pause notice not sent');
+            }
           } else if (hasReplyableContent(normalized.text, transcription)) {
             await aiResponseService.respondToInbound({ agent, conversation, lead });
           }

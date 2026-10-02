@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import type { Lead, LeadImport, NewLead, NewLeadImport } from '../../db/schema.js';
-import { statusAfterAiResume } from './ai-pause.js';
+import { followupDisabledAfterAiResume, statusAfterAiResume } from './ai-pause.js';
 
 export type LeadInput = Pick<
   NewLead,
@@ -325,6 +325,7 @@ export function createMemoryLeadRepository(seedLeads: Lead[] = []): LeadReposito
       const lead: Lead = {
         ...current,
         status: statusAfterAiResume(current),
+        followupDisabledAt: followupDisabledAfterAiResume(current),
         humanPausedUntil: null,
         aiPausedAt: null,
         aiPauseReason: null,

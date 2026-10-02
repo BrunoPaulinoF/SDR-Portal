@@ -12,6 +12,7 @@ import {
   tradeBusinessName,
 } from '../leads/lead-display-name.js';
 import type { LeadRepository } from '../leads/lead-repository.js';
+import { whatsappDestination } from '../phone/whatsapp-number.js';
 import { decryptSecret } from '../security/secrets.js';
 import { describeNowInTimeZone } from '../timezone.js';
 import type { UazapiClient } from '../uazapi/uazapi-client.js';
@@ -83,11 +84,6 @@ function actionString(action: AiAction, key: string): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
-function normalizePhone(value: string): string {
-  const digits = value.replace(/\D/g, '');
-  return digits.length === 10 || digits.length === 11 ? `55${digits}` : digits;
-}
-
 function hasNotifyHandoff(parsed: ParsedAiResponse): boolean {
   return parsed.actions.some((action) => actionType(action) === 'notify_handoff');
 }
@@ -149,7 +145,7 @@ async function notifyReferral(
 
   const result = await deps.uazapiClient.sendText({
     ...credentials,
-    number: normalizePhone(agent.handoffPhone),
+    number: whatsappDestination(agent.handoffPhone),
     text,
     readchat: true,
     trackSource: 'sdr-portal-referral',
@@ -197,7 +193,7 @@ async function notifyHandoff(
 
   const result = await deps.uazapiClient.sendText({
     ...credentials,
-    number: normalizePhone(agent.handoffPhone),
+    number: whatsappDestination(agent.handoffPhone),
     text,
     readchat: true,
     trackSource: 'sdr-portal-handoff',
@@ -271,7 +267,7 @@ async function sendDemoContact(
 ): Promise<void> {
   const { agent, conversation, lead } = input;
   const fullName = agent.demoContactName?.trim();
-  const phone = agent.demoContactPhone ? normalizePhone(agent.demoContactPhone) : '';
+  const phone = agent.demoContactPhone ? whatsappDestination(agent.demoContactPhone) : '';
   if (!fullName || !phone) return;
 
   const alreadySent = (await deps.conversationRepository.listMessages(conversation.id)).some(
