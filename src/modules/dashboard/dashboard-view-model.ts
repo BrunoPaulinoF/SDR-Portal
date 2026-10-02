@@ -19,6 +19,8 @@ export const stalledDispatchMinutes = 180;
  * interesse", 29/09 16:05), que ficou ali quando o WhatsApp da Mariana caiu duas horas depois.
  */
 export const stalledHandoffOfferMinutes = 120;
+/** Depois disso o lead some do alerta: aviso que nunca sai da tela vira paisagem. */
+const stalledHandoffOfferMaxDays = 14;
 
 /** Mesmo nome de job que `ai-response-service` grava no aviso de handoff. */
 const HANDOFF_NOTICE_JOB = 'handoff-notify';
@@ -542,7 +544,8 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
       lead.conversationStage === 'handoff_offer' &&
       lead.status !== 'transferred' &&
       lead.status !== 'not_interested' &&
-      now.getTime() - lastActivityAt(lead).getTime() > stalledHandoffOfferMinutes * 60000,
+      now.getTime() - lastActivityAt(lead).getTime() > stalledHandoffOfferMinutes * 60000 &&
+      now.getTime() - lastActivityAt(lead).getTime() < stalledHandoffOfferMaxDays * 24 * 60 * 60000,
   );
   const failedHandoffNotices = jobLogsInPeriod.filter((log) => log.jobName === HANDOFF_NOTICE_JOB && log.status === 'failed');
   const failedNoticeLeads = failedHandoffNotices

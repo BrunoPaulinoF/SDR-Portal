@@ -361,6 +361,12 @@ describe('alertas de lead com interesse', () => {
     expect(model.alerts.join(' ')).toContain('esperando ha mais de 2h na oferta de handoff: Fit013 Marmitas');
   });
 
+  it('esquece a oferta velha: alerta que nunca sai da tela vira paisagem', async () => {
+    const model = await buildModel({ minutesSinceActivity: 20 * 24 * 60 });
+
+    expect(model.alerts.join(' ')).not.toContain('oferta de handoff');
+  });
+
   it('nao avisa enquanto a oferta ainda e recente', async () => {
     const model = await buildModel({ minutesSinceActivity: 30 });
 

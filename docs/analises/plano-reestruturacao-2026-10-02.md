@@ -196,6 +196,13 @@ o login não limita tentativas.
 | 10 | Trava de "resposta em andamento" por conversa e `catch` no buffer | `inbound-response-buffer.ts` | acaba resposta dupla e queda do processo |
 | 11 | Follow-up com erro de envio reagenda e conta tentativa, como o disparo inicial | `followup-outreach.ts` | um lead não trava a fila |
 
+**Andamento (02/10):** feitos no código os itens 1, 2, 4, 5, 8, 9, 10 e 11. O 6 virou dois
+avisos — na tela do SDR, quando o texto gravado difere de `docs/prompts/<sdr>/`, e na tela
+`Msg inicial`, quando a variante ativa repete a segunda mensagem. O 7 virou alerta no painel
+(lead em oferta de handoff parado há mais de 2h, e aviso de handoff que não chegou), não botão.
+O 3 ficou como **ajuste na tela do monitor**: o código já usa 60 minutos por padrão; o 0 em
+produção foi escolha de alguém, e a tela agora avisa o que ele custa — trocar é Fase 0.
+
 ### Fase 2 — 2 a 4 semanas: medir o que importa
 
 1. **Desfecho depois do handoff** — novos status: `reuniao_marcada`, `teste_iniciado`,
