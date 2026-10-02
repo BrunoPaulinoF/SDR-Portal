@@ -124,6 +124,27 @@ function renderDispatchTable(model: DashboardViewModel): string {
   </section>`;
 }
 
+function renderChannelHealth(model: DashboardViewModel): string {
+  if (!model.channelRows.length) return '';
+  const rows = model.channelRows
+    .map(
+      (row) => `<tr>
+        <td>${escapeHtml(row.sdrName)}</td>
+        <td><span class="status-pill ${row.belowTarget ? 'status-off' : 'status-on'}">${escapeHtml(row.connectedLabel)}</span></td>
+        <td>${row.drops}</td>
+        <td>${escapeHtml(row.reconnectLabel)}</td>
+        <td>${escapeHtml(row.downNowLabel)}</td>
+        <td class="muted">${escapeHtml(row.detail)}</td>
+      </tr>`,
+    )
+    .join('');
+
+  return `<section class="page-section">
+    <div class="section-heading"><h2>Saude do WhatsApp</h2><p class="muted">Quanto do horario de envio cada SDR ficou conectado nos ultimos 7 dias. Meta: 95%.</p></div>
+    <div class="table-wrap"><table><thead><tr><th>SDR</th><th>Conectado</th><th>Quedas</th><th>Tempo medio para voltar</th><th>Fora agora ha</th><th>Base</th></tr></thead><tbody>${rows}</tbody></table></div>
+  </section>`;
+}
+
 function renderCohortFunnel(model: DashboardViewModel): string {
   const body = model.cohortRows
     .map(
@@ -203,6 +224,7 @@ export function renderDashboardPage(model: DashboardViewModel): string {
   ${renderMetricCards(model)}
   ${renderAlerts(model)}
   ${renderDispatchTable(model)}
+  ${renderChannelHealth(model)}
   ${renderCohortFunnel(model)}
   ${renderDistributionTable('Status atual dos leads', 'Situacao atual da base filtrada.', model.statusRows)}
   ${renderDistributionTable('Etapas da conversa', 'Distribuicao atual por etapa do fluxo SDR.', model.stageRows)}

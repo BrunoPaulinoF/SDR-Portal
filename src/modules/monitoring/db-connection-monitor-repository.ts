@@ -1,7 +1,7 @@
-import { eq } from 'drizzle-orm';
+import { asc, eq, gte } from 'drizzle-orm';
 
 import { db } from '../../db/client.js';
-import { monitorSettings, sdrConnectionStates } from '../../db/schema.js';
+import { monitorSettings, sdrConnectionEvents, sdrConnectionStates } from '../../db/schema.js';
 import type { ConnectionMonitorRepository } from './connection-monitor-repository.js';
 
 const SINGLETON = 'default';
@@ -54,6 +54,14 @@ export function createDbConnectionMonitorRepository(): ConnectionMonitorReposito
 
     async markDailyReportSent(dayKey) {
       await db.update(monitorSettings).set({ lastDailyReportOn: dayKey, updatedAt: new Date() }).where(eq(monitorSettings.singleton, SINGLETON));
+    },
+
+    async recordConnectionEvent(input) {
+      await db.insert(sdrConnectionEvents).values(input);
+    },
+
+    async listConnectionEvents(since) {
+      return db.select().from(sdrConnectionEvents).where(gte(sdrConnectionEvents.occurredAt, since)).orderBy(asc(sdrConnectionEvents.occurredAt));
     },
 
     async saveState(input) {

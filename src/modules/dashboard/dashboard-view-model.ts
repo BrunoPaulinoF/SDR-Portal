@@ -1,5 +1,6 @@
-import type { AiRun, Company, Conversation, JobLog, Lead, Message, SdrAgent } from '../../db/schema.js';
+import type { AiRun, Company, Conversation, JobLog, Lead, Message, SdrAgent, SdrConnectionEvent } from '../../db/schema.js';
 import { hasOutcome } from '../leads/lead-outcome.js';
+import { CHANNEL_HEALTH_TARGET_PERCENT, computeChannelHealth } from '../monitoring/channel-health.js';
 import { formatDateTimeInTimeZone, startOfDayInTimeZone } from '../timezone.js';
 
 export type DashboardPeriod = 'today' | '7d' | '30d' | 'all';
@@ -113,8 +114,23 @@ export interface DashboardCompanyRow {
   totalSdrs: number;
 }
 
+/** Saude do WhatsApp de um SDR nos ultimos 7 dias, so no horario de envio. */
+export interface DashboardChannelRow {
+  sdrName: string;
+  /** "93%" ou "-" sem historico. */
+  connectedLabel: string;
+  /** Abaixo da meta, ou fora do ar agora. */
+  belowTarget: boolean;
+  drops: number;
+  reconnectLabel: string;
+  downNowLabel: string;
+  /** Explica de onde vem o numero (ex.: historico desde quando). */
+  detail: string;
+}
+
 export interface DashboardViewModel {
   alerts: string[];
+  channelRows: DashboardChannelRow[];
   cohortLost: number;
   cohortRows: DashboardCohortRow[];
   companies: Company[];
@@ -230,9 +246,13 @@ interface BuildDashboardInput {
   leads: Lead[];
   messages: Message[];
   now?: Date;
+  /** Transicoes de conexao (monitor). Leia com folga antes dos 7 dias: o estado inicial vem delas. */
+  connectionEvents?: SdrConnectionEvent[];
   sdrAgents: SdrAgent[];
   userLabel: string;
 }
+
+export const CHANNEL_HEALTH_DAYS = 7;
 
 function periodStart(period: DashboardPeriod, now: Date): Date | null {
   if (period === 'all') return null;
@@ -599,6 +619,32 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
       now.getTime() - lastActivityAt(lead).getTime() < stalledHandoffOfferMaxDays * 24 * 60 * 60000,
   );
   const DAY_MS = 24 * 60 * 60000;
+  const healthFrom = new Date(now.getTime() - CHANNEL_HEALTH_DAYS * DAY_MS);
+  const channelRows: DashboardChannelRow[] = scopedAgents
+    .filter((agent) => agent.isActive)
+    .map((agent) => {
+      const health = computeChannelHealth({
+        events: (input.connectionEvents ?? []).filter((event) => event.sdrAgentId === agent.id),
+        from: healthFrom,
+        to: now,
+        isInsideWindow: (at) => isInsideSendWindow(agent, at),
+      });
+      const partial = health.coveredFrom && health.coveredFrom.getTime() > healthFrom.getTime();
+      return {
+        sdrName: agent.displayName || agent.name,
+        connectedLabel: health.percent === null ? '-' : `${health.percent}%`,
+        belowTarget: (health.percent !== null && health.percent < CHANNEL_HEALTH_TARGET_PERCENT) || health.downForMinutes !== null,
+        drops: health.drops,
+        reconnectLabel: health.averageReconnectMinutes === null ? '-' : formatDuration(health.averageReconnectMinutes),
+        downNowLabel: health.downForMinutes === null ? '-' : formatDuration(health.downForMinutes),
+        detail: !health.coveredFrom
+          ? 'Sem historico ainda: o monitor de conexao grava a partir da proxima leitura.'
+          : partial
+            ? `Historico desde ${formatDateTimeInTimeZone(health.coveredFrom, agent.timezone)}.`
+            : `Ultimos ${CHANNEL_HEALTH_DAYS} dias.`,
+      };
+    });
+  const unhealthyChannels = channelRows.filter((row) => row.belowTarget && row.connectedLabel !== '-');
   const handoffsWithoutOutcome = scopedLeads.filter((lead) => {
     if (!lead.handoffRequestedAt || hasOutcome(lead)) return false;
     const age = now.getTime() - lead.handoffRequestedAt.getTime();
@@ -609,6 +655,9 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
     .map((log) => scopedLeads.find((lead) => lead.id === log.leadId)?.companyName)
     .filter((name): name is string => Boolean(name));
   const alerts = [
+    unhealthyChannels.length > 0
+      ? `WhatsApp abaixo da meta de ${CHANNEL_HEALTH_TARGET_PERCENT}% conectado no horario de envio: ${unhealthyChannels.map((row) => `${row.sdrName} (${row.connectedLabel}${row.downNowLabel !== '-' ? `, fora ha ${row.downNowLabel}` : ''})`).join(', ')}. Cada hora fora e abordagem que nao sai.`
+      : null,
     stalledHandoffOffers.length > 0
       ? `${stalledHandoffOffers.length} lead(s) com interesse esperando ha mais de ${stalledHandoffOfferMinutes / 60}h na oferta de handoff: ${namesPreview(stalledHandoffOffers.map((lead) => lead.companyName))}. Chame pelo WhatsApp do SDR.`
       : null,
@@ -637,6 +686,7 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
 
   return {
     alerts,
+    channelRows,
     cohortLost: cohortFunnel.lost,
     cohortRows: cohortFunnel.rows,
     companies: input.companies,

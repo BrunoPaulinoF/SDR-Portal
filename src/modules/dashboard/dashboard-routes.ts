@@ -7,6 +7,7 @@ import type { CompanyRepository } from '../companies/company-repository.js';
 import type { ConversationRepository } from '../conversations/conversation-repository.js';
 import type { JobLogRepository } from '../jobs/job-log-repository.js';
 import type { LeadRepository } from '../leads/lead-repository.js';
+import type { ConnectionMonitorRepository } from '../monitoring/connection-monitor-repository.js';
 import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
 import { renderDashboardPage } from './dashboard-pages.js';
 import { buildDashboardViewModel, type DashboardFilters, type DashboardPeriod } from './dashboard-view-model.js';
@@ -41,6 +42,7 @@ export function registerDashboardRoutes(
   conversationRepository: ConversationRepository,
   aiRunRepository: AiRunRepository,
   jobLogRepository: JobLogRepository,
+  connectionMonitorRepository: ConnectionMonitorRepository,
 ): void {
   app.get('/dashboard', async (request, reply) => {
     const user = await requireUser(request, reply, authRepository);
@@ -55,10 +57,13 @@ export function registerDashboardRoutes(
       aiRunRepository.list(),
       jobLogRepository.list(),
     ]);
+    // Folga de 60 dias: a ultima transicao antes dos 7 dias e o que diz como a semana comecou.
+    const connectionEvents = await connectionMonitorRepository.listConnectionEvents(new Date(Date.now() - 60 * 24 * 60 * 60000));
 
     const model = buildDashboardViewModel({
       aiRuns,
       companies,
+      connectionEvents,
       conversations,
       filters: parseFilters(request.query),
       jobLogs,

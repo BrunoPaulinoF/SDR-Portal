@@ -218,6 +218,13 @@
       "when": 1790947686954,
       "tag": "0030_lead_outcomes",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1790948151888,
+      "tag": "0031_sdr_connection_events",
+      "breakpoints": true
     }
   ]
 }

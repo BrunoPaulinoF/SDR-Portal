@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import type { MonitorSettings, SdrConnectionState } from '../../db/schema.js';
+import type { MonitorSettings, SdrConnectionEvent, SdrConnectionState } from '../../db/schema.js';
 
 /** Os dois estados que o alerta enxerga: o `status` cru da UAZAPI vai separado. */
 export type ConnectionStatus = 'connected' | 'disconnected';
@@ -37,6 +37,13 @@ export interface ConnectionStateInput {
   lastAlertAt: Date | null;
 }
 
+export interface ConnectionEventInput {
+  sdrAgentId: string;
+  status: ConnectionStatus;
+  reason: string | null;
+  occurredAt: Date;
+}
+
 export interface LeadQueueStateInput {
   sdrAgentId: string;
   pendingLeads: number;
@@ -62,6 +69,10 @@ export interface ConnectionMonitorRepository {
    * mesma linha e um job nao pode apagar a memoria do outro.
    */
   saveLeadQueueState(input: LeadQueueStateInput): Promise<void>;
+  /** Anota uma transicao (caiu/voltou) no historico. So o monitor escreve aqui. */
+  recordConnectionEvent(input: ConnectionEventInput): Promise<void>;
+  /** Transicoes de todos os SDRs desde `since`, da mais antiga para a mais nova. */
+  listConnectionEvents(since: Date): Promise<SdrConnectionEvent[]>;
 }
 
 export const DEFAULT_REPEAT_ALERT_MINUTES = 60;
@@ -92,9 +103,11 @@ export function defaultMonitorSettings(): MonitorSettingsInput {
 export function createMemoryConnectionMonitorRepository(
   seedSettings: MonitorSettings | null = null,
   seedStates: SdrConnectionState[] = [],
+  seedEvents: SdrConnectionEvent[] = [],
 ): ConnectionMonitorRepository {
   let settings = seedSettings;
   const states = new Map<string, SdrConnectionState>();
+  const events: SdrConnectionEvent[] = [...seedEvents];
 
   for (const state of seedStates) {
     states.set(state.sdrAgentId, state);
@@ -166,6 +179,16 @@ export function createMemoryConnectionMonitorRepository(
 
     async markDailyReportSent(dayKey) {
       if (settings) settings = { ...settings, lastDailyReportOn: dayKey, updatedAt: new Date() };
+    },
+
+    async recordConnectionEvent(input) {
+      events.push({ id: randomUUID(), ...input, createdAt: new Date() });
+    },
+
+    async listConnectionEvents(since) {
+      return events
+        .filter((event) => event.occurredAt.getTime() >= since.getTime())
+        .sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime());
     },
   };
 }

@@ -1,4 +1,4 @@
-import { boolean, integer, pgTable, real, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { boolean, index, integer, pgTable, real, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
 export const appMetadata = pgTable('app_metadata', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -459,3 +459,29 @@ export const sdrConnectionStates = pgTable(
 
 export type SdrConnectionState = typeof sdrConnectionStates.$inferSelect;
 export type NewSdrConnectionState = typeof sdrConnectionStates.$inferInsert;
+
+/**
+ * Historico de quedas e voltas do WhatsApp de cada SDR, uma linha por transicao, gravado pelo
+ * monitor de conexao. `sdr_connection_states` so guarda o estado de agora; sem este historico
+ * nao dava para dizer quanto tempo do horario de envio o SDR ficou no ar — e em setembro a
+ * Mariana ficou fora em 8 de 23 dias uteis sem que nenhuma tela mostrasse isso.
+ */
+export const sdrConnectionEvents = pgTable(
+  'sdr_connection_events',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    sdrAgentId: uuid('sdr_agent_id')
+      .notNull()
+      .references(() => sdrAgents.id, { onDelete: 'cascade' }),
+    /** 'connected' ou 'disconnected', o mesmo par de `sdr_connection_states.status`. */
+    status: text('status').notNull(),
+    /** `lastDisconnectReason` da UAZAPI na queda: "same number connected", "logged out"... */
+    reason: text('reason'),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('sdr_connection_events_agent_time_idx').on(table.sdrAgentId, table.occurredAt)],
+);
+
+export type SdrConnectionEvent = typeof sdrConnectionEvents.$inferSelect;
+export type NewSdrConnectionEvent = typeof sdrConnectionEvents.$inferInsert;
