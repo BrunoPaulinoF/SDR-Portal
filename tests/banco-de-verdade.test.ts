@@ -148,6 +148,25 @@ dbDescribe('repositorios no Postgres', () => {
     expect(await repos.leads.findNextFollowupDueForSdr(agent.id, now, { quietSince: new Date(now.getTime() - 24 * 60 * MINUTE) })).toBeNull();
   });
 
+  it('cadencia: o lead com follow-up enviado volta enquanto tiver toque sobrando', async () => {
+    const { agent, lead } = await agentAndLead({ status: 'initial_sent' });
+    const now = new Date();
+    const quietSince = new Date(now.getTime() - 24 * 60 * MINUTE);
+    await repos.leads.markInitialSent(lead.id, new Date(now.getTime() - 60 * 60 * MINUTE), new Date(now.getTime() - 30 * 60 * MINUTE));
+
+    const sentAt = new Date(now.getTime() - 26 * 60 * MINUTE);
+    const marked = await repos.leads.markFollowupSent(lead.id, sentAt, new Date(now.getTime() - MINUTE));
+    expect(marked?.followupCount).toBe(1);
+    expect(marked?.followupDisabledAt).toBeNull();
+
+    expect(await repos.leads.findNextFollowupDueForSdr(agent.id, now, { quietSince, maxTouches: 1 })).toBeNull();
+    expect((await repos.leads.findNextFollowupDueForSdr(agent.id, now, { quietSince, maxTouches: 2 }))?.id).toBe(lead.id);
+
+    const last = await repos.leads.markFollowupSent(lead.id, now, null);
+    expect(last?.followupCount).toBe(2);
+    expect(last?.followupDisabledAt).not.toBeNull();
+  });
+
   it('historico de conexao grava e lista em ordem', async () => {
     const { agent } = await agentAndLead();
     const t0 = new Date('2026-09-29T18:00:00.000Z');

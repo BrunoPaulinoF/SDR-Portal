@@ -463,9 +463,9 @@ function createLazyDbLeadRepository(): LeadRepository {
       return createDbLeadRepository().markOutboundSent(id, sentAt);
     },
 
-    async markFollowupSent(id, sentAt) {
+    async markFollowupSent(id, sentAt, nextDueAt) {
       const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
-      return createDbLeadRepository().markFollowupSent(id, sentAt);
+      return createDbLeadRepository().markFollowupSent(id, sentAt, nextDueAt);
     },
 
     async rescheduleFollowup(id, followupDueAt, updatedAt) {

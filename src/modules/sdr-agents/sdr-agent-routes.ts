@@ -66,6 +66,8 @@ const sdrAgentFormSchema = z.object({
   followupCooldownMaxMinutes: z.coerce.number().int().nonnegative(),
   dailyInitialSendLimit: z.coerce.number().int().positive(),
   dailyFollowupSendLimit: z.coerce.number().int().positive(),
+  // Ausente em formulario antigo: 1 e o comportamento de sempre.
+  followupMaxTouches: z.coerce.number().int().min(1).max(5).optional().default(1),
   responseDelayBaseMs: z.coerce.number().int().nonnegative(),
   responseDelayPerCharMs: z.coerce.number().int().nonnegative(),
   responseDelayMaxMs: z.coerce.number().int().nonnegative(),
@@ -155,6 +157,7 @@ function parseSdrAgentInput(body: unknown, current?: SdrAgentInput): { input: Sd
       followupCooldownMaxMinutes: data.followupCooldownMaxMinutes,
       dailyInitialSendLimit: data.dailyInitialSendLimit,
       dailyFollowupSendLimit: data.dailyFollowupSendLimit,
+      followupMaxTouches: data.followupMaxTouches,
       responseDelayBaseMs: data.responseDelayBaseMs,
       responseDelayPerCharMs: data.responseDelayPerCharMs,
       responseDelayMaxMs: data.responseDelayMaxMs,

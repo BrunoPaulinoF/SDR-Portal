@@ -26,6 +26,7 @@ import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
 import { describeNowInTimeZone, startOfDayInTimeZone } from '../timezone.js';
 import type { UazapiClient, UazapiCredentials } from '../uazapi/uazapi-client.js';
 import { createChannelGuard } from './channel-guard.js';
+import { withAgentLock } from './agent-lock.js';
 import { createLeadSendFailures, createSendBackoff, reachoutTimelockFrom, UazapiSendError } from './send-backoff.js';
 
 /** Resolve o nivel salvo para a escala do provider deste SDR; `null` omite o parametro. */
@@ -966,7 +967,11 @@ export function createInitialOutreachService(deps: InitialOutreachDependencies) 
       const result: InitialOutreachResult = { sent: 0, skipped: 0, errors: 0, details: [] };
 
       for (const agent of agents) {
-        const agentResult = await processAgent(agent, now, result.details);
+        let agentResult = await withAgentLock(`initial-outreach:${agent.id}`, () => processAgent(agent, now, result.details));
+        if (!agentResult) {
+          result.details.push(`${agent.name}: outro disparo deste SDR ja esta rodando.`);
+          agentResult = skippedProcessResult();
+        }
         result.sent += agentResult.sent;
         result.skipped += agentResult.skipped;
         result.errors += agentResult.errors;

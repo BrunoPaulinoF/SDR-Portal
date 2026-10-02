@@ -96,6 +96,12 @@ export const sdrAgents = pgTable('sdr_agents', {
   followupCooldownMaxMinutes: integer('followup_cooldown_max_minutes').default(30).notNull(),
   dailyInitialSendLimit: integer('daily_initial_send_limit').default(40).notNull(),
   dailyFollowupSendLimit: integer('daily_followup_send_limit').default(50).notNull(),
+  /**
+   * Quantos follow-ups um lead pode receber no total. 1 e o comportamento de sempre (um so);
+   * acima disso cada toque a mais sai `followup_after_hours` depois do anterior, enquanto o lead
+   * nao responder. Cada toque e mais uma mensagem de numero desconhecido: subir com cuidado.
+   */
+  followupMaxTouches: integer('followup_max_touches').default(1).notNull(),
   responseDelayBaseMs: integer('response_delay_base_ms').default(1200).notNull(),
   responseDelayPerCharMs: integer('response_delay_per_char_ms').default(35).notNull(),
   responseDelayMaxMs: integer('response_delay_max_ms').default(12000).notNull(),
@@ -156,6 +162,8 @@ export const leads = pgTable(
     followupDisabledAt: timestamp('followup_disabled_at', { withTimezone: true }),
     /** Geracoes de follow-up que falharam por erro tecnico. Zera quando o lead responde. */
     followupAttempts: integer('followup_attempts').default(0).notNull(),
+    /** Follow-ups ja enviados a este lead: a cadencia para em `sdr_agents.followup_max_touches`. */
+    followupCount: integer('followup_count').default(0).notNull(),
     humanPausedUntil: timestamp('human_paused_until', { withTimezone: true }),
     aiPausedAt: timestamp('ai_paused_at', { withTimezone: true }),
     aiPauseReason: text('ai_pause_reason'),

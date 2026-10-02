@@ -53,6 +53,7 @@ interface SdrAgentFormData {
   followupCooldownMaxMinutes: string;
   dailyInitialSendLimit: string;
   dailyFollowupSendLimit: string;
+  followupMaxTouches: string;
   responseDelayBaseMs: string;
   responseDelayPerCharMs: string;
   responseDelayMaxMs: string;
@@ -158,11 +159,12 @@ const fieldHelp: Partial<Record<keyof SdrAgentFormData, string>> = {
   aiProvider: 'Escolha onde a IA sera chamada. DeepSeek usa a API oficial da DeepSeek (recomendado). OpenAI usa sua chave OpenAI; OpenRouter usa sua chave OpenRouter.',
   aiTemperature: 'Controla variacao/criatividade. Para SDR, valores baixos como 0.3 a 0.6 tendem a ser mais consistentes. Modelos com raciocinio ligado (como o deepseek-v4-pro) ignoram este campo.',
   dailyFollowupSendLimit: 'Maximo de follow-ups enviados por este SDR em um dia.',
+  followupMaxTouches: 'Quantos follow-ups cada lead pode receber no total enquanto nao responde (1 a 5). 1 = um so, como sempre foi. Cada toque a mais e mais uma mensagem de numero desconhecido: suba aos poucos e olhe a saude do WhatsApp.',
   dailyInitialSendLimit: 'Maximo de primeiras mensagens enviadas por este SDR em um dia.',
   displayName: 'Nome que a IA usa ao se apresentar na conversa. Ex: Kyane.',
   playbook: 'Estrategia de conversa. Consultivo: a IA diz do que se trata, entende a rotina do lead e so depois chama o humano. Convite: a IA nao apresenta o produto, so gera curiosidade e passa o lead para o humano no primeiro sim.',
   leadQualificationPrompt: 'Prompt usado antes da primeira mensagem para decidir se o lead deve ser abordado ou descartado. A IA deve retornar qualified=false apenas quando houver baixo fit claro.',
-  followupAfterHours: 'Quantidade de horas apos a primeira mensagem para tentar o follow-up unico, somente se o lead ja respondeu.',
+  followupAfterHours: 'Horas de silencio antes de cada follow-up: depois da primeira mensagem e, com mais de um toque, depois de cada follow-up.',
   followupCooldownMaxMinutes: 'Intervalo maximo entre follow-ups automaticos.',
   followupCooldownMinMinutes: 'Intervalo minimo entre follow-ups automaticos.',
   followupEnabled: 'Quando ativo, o sistema tenta enviar um unico follow-up somente para leads que ja responderam.',
@@ -241,6 +243,7 @@ const defaultForm: SdrAgentFormData = {
   followupCooldownMaxMinutes: '30',
   dailyInitialSendLimit: '40',
   dailyFollowupSendLimit: '50',
+  followupMaxTouches: '1',
   responseDelayBaseMs: '1200',
   responseDelayPerCharMs: '35',
   responseDelayMaxMs: '12000',
@@ -300,6 +303,7 @@ function agentToForm(agent?: SdrAgent): SdrAgentFormData {
     followupCooldownMaxMinutes: String(agent.followupCooldownMaxMinutes),
     dailyInitialSendLimit: String(agent.dailyInitialSendLimit),
     dailyFollowupSendLimit: String(agent.dailyFollowupSendLimit),
+    followupMaxTouches: String(agent.followupMaxTouches),
     responseDelayBaseMs: String(agent.responseDelayBaseMs),
     responseDelayPerCharMs: String(agent.responseDelayPerCharMs),
     responseDelayMaxMs: String(agent.responseDelayMaxMs),
@@ -606,6 +610,7 @@ function renderSdrAgentForm(action: string, companies: Company[], agent?: SdrAge
       ${renderField('followupCooldownMinMinutes', 'Cooldown follow-up minimo em minutos', data.followupCooldownMinMinutes, true, 'number')}
       ${renderField('followupCooldownMaxMinutes', 'Cooldown follow-up maximo em minutos', data.followupCooldownMaxMinutes, true, 'number')}
       ${renderField('dailyFollowupSendLimit', 'Limite diario de follow-ups', data.dailyFollowupSendLimit, true, 'number')}
+      ${renderField('followupMaxTouches', 'Follow-ups por lead (maximo)', data.followupMaxTouches, true, 'number')}
         `,
       )}
 

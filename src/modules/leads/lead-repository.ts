@@ -33,6 +33,8 @@ export type LeadImportInput = Pick<
  */
 export interface FollowupDueOptions {
   quietSince?: Date | null;
+  /** Teto de follow-ups por lead (`sdr_agents.followup_max_touches`). Padrao 1: um so. */
+  maxTouches?: number;
 }
 
 /**
@@ -84,7 +86,11 @@ export interface LeadRepository {
   resumeAi(id: string, resumedAt: Date): Promise<Lead | null>;
   markInboundReceived(id: string, receivedAt: Date, followupDueAt?: Date | null): Promise<Lead | null>;
   markOutboundSent(id: string, sentAt: Date): Promise<Lead | null>;
-  markFollowupSent(id: string, sentAt: Date): Promise<Lead | null>;
+  /**
+   * Conta mais um follow-up. Com `nextDueAt` a cadencia continua (o proximo toque vence ali);
+   * sem ele o follow-up do lead acaba, como sempre foi com um toque so.
+   */
+  markFollowupSent(id: string, sentAt: Date, nextDueAt?: Date | null): Promise<Lead | null>;
   rescheduleFollowup(id: string, followupDueAt: Date, updatedAt: Date): Promise<Lead | null>;
   markDiscarded(id: string, discardedAt: Date): Promise<Lead | null>;
   markInvalidPhone(id: string, markedAt: Date): Promise<Lead | null>;
@@ -126,6 +132,7 @@ function normalize(input: LeadInput): Omit<Lead, 'id' | 'createdAt' | 'updatedAt
     followupSentAt: null,
     followupDisabledAt: null,
     followupAttempts: 0,
+    followupCount: 0,
     humanPausedUntil: null,
     aiPausedAt: null,
     aiPauseReason: null,
@@ -266,12 +273,14 @@ export function createMemoryLeadRepository(seedLeads: Lead[] = []): LeadReposito
           .filter(
             (lead) =>
               lead.sdrAgentId === sdrAgentId &&
-              // Retomada (respondeu e esfriou) ou segundo toque (nunca respondeu).
+              // Retomada (respondeu e esfriou), segundo toque (nunca respondeu) ou o proximo
+              // toque da cadencia.
               ((lead.status === 'in_conversation' && lead.lastInboundAt !== null) ||
-                (lead.status === 'initial_sent' && lead.lastInboundAt === null)) &&
+                (lead.status === 'initial_sent' && lead.lastInboundAt === null) ||
+                lead.status === 'followup_sent') &&
               lead.followupDueAt !== null &&
               lead.followupDueAt <= now &&
-              lead.followupSentAt === null &&
+              (lead.followupCount ?? 0) < (options?.maxTouches ?? 1) &&
               lead.followupDisabledAt === null &&
               (quietSince === null || !hasActivityAfter(lead, quietSince)) &&
               !all.some(
@@ -383,7 +392,7 @@ export function createMemoryLeadRepository(seedLeads: Lead[] = []): LeadReposito
       return lead;
     },
 
-    async markFollowupSent(id, sentAt) {
+    async markFollowupSent(id, sentAt, nextDueAt = null) {
       const current = rows.get(id);
       if (!current) {
         return null;
@@ -393,7 +402,9 @@ export function createMemoryLeadRepository(seedLeads: Lead[] = []): LeadReposito
         ...current,
         status: 'followup_sent',
         followupSentAt: sentAt,
-        followupDisabledAt: sentAt,
+        followupCount: (current.followupCount ?? 0) + 1,
+        followupDueAt: nextDueAt ?? current.followupDueAt,
+        followupDisabledAt: nextDueAt ? null : sentAt,
         lastOutboundAt: sentAt,
         updatedAt: sentAt,
       };
