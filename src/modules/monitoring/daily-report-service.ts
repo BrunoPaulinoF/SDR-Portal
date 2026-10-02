@@ -81,7 +81,10 @@ export function createDailyReportService(deps: DailyReportDeps) {
 
     for (const agent of agents) {
       const activity = await leadRepository.countDailyActivityForSdr(agent.id, start, now);
-      linhas.push({ name: agent.name, ...activity });
+      // A memoria do monitor de conexao, nao uma leitura nova: o relatorio nao consulta a UAZAPI.
+      const state = await connectionMonitorRepository.findState(agent.id);
+      const down = state?.status === 'disconnected' ? { disconnectedSince: state.disconnectedAt ?? state.lastCheckedAt } : {};
+      linhas.push({ name: agent.name, ...activity, ...down });
     }
 
     return linhas;

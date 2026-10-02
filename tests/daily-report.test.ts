@@ -265,6 +265,57 @@ describe('relatorio do fim do dia', () => {
   });
 });
 
+describe('SDR desconectado no relatorio', () => {
+  it('diz que o WhatsApp caiu e desde quando, em vez de so mostrar zero', async () => {
+    const { franc, monitors, service, uazapi } = await buildHarness();
+    await monitors.saveState({
+      sdrAgentId: franc.id,
+      status: 'disconnected',
+      instanceStatus: 'disconnected',
+      disconnectReason: 'same number connected',
+      lastCheckedAt: DEPOIS_DA_HORA,
+      lastConnectedAt: null,
+      // 02/08 as 15:32 local, um mes antes do relatorio.
+      disconnectedAt: new Date('2026-08-02T18:32:00.000Z'),
+      lastAlertAt: null,
+    });
+
+    const result = await service.runOnce(DEPOIS_DA_HORA);
+
+    expect(result.sdrs[0]?.disconnectedSince).toEqual(new Date('2026-08-02T18:32:00.000Z'));
+    const texto = uazapi.sent[0]?.text ?? '';
+    expect(texto).toContain('WhatsApp DESCONECTADO desde 02/08, 15:32 (ha 30 dias)');
+  });
+
+  it('SDR conectado nao ganha aviso nenhum', async () => {
+    const { franc, monitors, service, uazapi } = await buildHarness();
+    await monitors.saveState({
+      sdrAgentId: franc.id,
+      status: 'connected',
+      instanceStatus: 'connected',
+      disconnectReason: null,
+      lastCheckedAt: DEPOIS_DA_HORA,
+      lastConnectedAt: DEPOIS_DA_HORA,
+      disconnectedAt: null,
+      lastAlertAt: null,
+    });
+
+    const result = await service.runOnce(DEPOIS_DA_HORA);
+
+    expect(result.sdrs[0]?.disconnectedSince).toBeUndefined();
+    expect(uazapi.sent[0]?.text ?? '').not.toContain('DESCONECTADO');
+  });
+
+  it('conta o tempo fora em minutos, horas ou dias', async () => {
+    const { describeDowntime } = await import('../src/modules/monitoring/daily-report-message.js');
+    const now = new Date('2026-10-02T12:00:00.000Z');
+
+    expect(describeDowntime(new Date(now.getTime() - 40 * 60000), now)).toBe('ha 40 min');
+    expect(describeDowntime(new Date(now.getTime() - 5 * 60 * 60000), now)).toBe('ha 5 h');
+    expect(describeDowntime(new Date(now.getTime() - 26 * 60 * 60000), now)).toBe('ha 1 dia');
+  });
+});
+
 describe('texto do relatorio', () => {
   const base = { now: DEPOIS_DA_HORA, timeZone: 'America/Sao_Paulo', portalUrl: null };
 

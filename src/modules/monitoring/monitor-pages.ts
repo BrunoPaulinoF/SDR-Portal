@@ -219,6 +219,7 @@ export function renderMonitorPage(data: MonitorPageData): string {
       <div class="field">
         <label for="repeatAlertMinutes">Repetir o alerta a cada (minutos, 0 = so na queda)</label>
         <input id="repeatAlertMinutes" name="repeatAlertMinutes" type="number" min="0" value="${settings?.repeatAlertMinutes ?? DEFAULT_REPEAT_ALERT_MINUTES}">
+        ${settings?.repeatAlertMinutes === 0 ? '<p class="muted">Com 0, o aviso sai uma vez so: se ninguem vir, o SDR fica fora do ar em silencio. Foi assim que um SDR passou 30 dias desconectado em setembro.</p>' : ''}
       </div>
       <div class="field field-full">
         <label for="alertRecipients">Numeros que recebem o alerta (um por linha)</label>
