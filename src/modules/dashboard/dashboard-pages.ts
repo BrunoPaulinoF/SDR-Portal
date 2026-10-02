@@ -124,7 +124,25 @@ function renderDispatchTable(model: DashboardViewModel): string {
   </section>`;
 }
 
-function renderDistributionTable(title: string, description: string, rows: DashboardViewModel['funnelRows']): string {
+function renderCohortFunnel(model: DashboardViewModel): string {
+  const body = model.cohortRows
+    .map(
+      (row) => `<tr>
+        <td>${escapeHtml(row.label)} <span class="muted">${escapeHtml(row.help)}</span></td>
+        <td>${row.count}</td>
+        <td><div class="bar-track"><span style="width:${row.percentOfBase}%"></span></div><span class="muted">${row.percentOfBase}%</span></td>
+        <td>${row.percentOfPrevious === null ? '-' : `${row.percentOfPrevious}%`}</td>
+      </tr>`,
+    )
+    .join('');
+
+  return `<section class="page-section">
+    <div class="section-heading"><h2>Funil da safra</h2><p class="muted">Dos leads abordados no periodo, quantos chegaram a cada etapa ate hoje. Perdidos depois do handoff: ${model.cohortLost}.</p></div>
+    <div class="table-wrap"><table><thead><tr><th>Etapa</th><th>Leads</th><th>% dos abordados</th><th>% da etapa anterior</th></tr></thead><tbody>${body}</tbody></table></div>
+  </section>`;
+}
+
+function renderDistributionTable(title: string, description: string, rows: DashboardViewModel['statusRows']): string {
   const body = rows
     .map(
       (row) => `<tr>
@@ -185,7 +203,7 @@ export function renderDashboardPage(model: DashboardViewModel): string {
   ${renderMetricCards(model)}
   ${renderAlerts(model)}
   ${renderDispatchTable(model)}
-  ${renderDistributionTable('Funil do periodo', 'Eventos comerciais no periodo selecionado.', model.funnelRows)}
+  ${renderCohortFunnel(model)}
   ${renderDistributionTable('Status atual dos leads', 'Situacao atual da base filtrada.', model.statusRows)}
   ${renderDistributionTable('Etapas da conversa', 'Distribuicao atual por etapa do fluxo SDR.', model.stageRows)}
   ${renderCompanyTable(model)}

@@ -46,6 +46,10 @@ export interface SdrDailyActivity {
   responded: number;
   /** Leads passados para humano no periodo — o "possivel cliente". */
   handoffs: number;
+  /** Reunioes marcadas no periodo (marcadas por quem atendeu, na tela do lead). */
+  meetings: number;
+  /** Leads que viraram cliente no periodo. */
+  won: number;
 }
 
 export interface LeadRepository {
@@ -167,6 +171,8 @@ export function createMemoryLeadRepository(seedLeads: Lead[] = []): LeadReposito
         prospected: agentLeads.filter((lead) => inPeriod(lead.firstMessageSentAt, start, end)).length,
         responded: agentLeads.filter((lead) => inPeriod(lead.lastInboundAt, start, end)).length,
         handoffs: agentLeads.filter((lead) => inPeriod(lead.handoffRequestedAt, start, end)).length,
+        meetings: agentLeads.filter((lead) => inPeriod(lead.meetingAt, start, end)).length,
+        won: agentLeads.filter((lead) => inPeriod(lead.wonAt, start, end)).length,
       };
     },
 

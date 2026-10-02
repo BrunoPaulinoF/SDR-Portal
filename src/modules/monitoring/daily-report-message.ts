@@ -45,7 +45,13 @@ function describeSdr(sdr: DailyReportLine, now: Date, timeZone: string): string 
       `⚠️ WhatsApp DESCONECTADO desde ${formatDateTimeInTimeZone(sdr.disconnectedSince, timeZone)} (${describeDowntime(sdr.disconnectedSince, now)}). Nada sai ate reconectar no portal.`,
     );
   }
-  lines.push(`• Prospectados: ${sdr.prospected}`, `• Responderam: ${sdr.responded}`, `• Possiveis clientes: ${sdr.handoffs}`);
+  lines.push(
+    `• Prospectados: ${sdr.prospected}`,
+    `• Responderam: ${sdr.responded}`,
+    `• Passados para o time: ${sdr.handoffs}`,
+    `• Reunioes marcadas: ${sdr.meetings}`,
+    `• Viraram cliente: ${sdr.won}`,
+  );
   return lines.join('\n');
 }
 
@@ -54,12 +60,10 @@ function describeTotals(sdrs: DailyReportLine[]): string {
   const prospected = soma((sdr) => sdr.prospected);
   const responded = soma((sdr) => sdr.responded);
   const handoffs = soma((sdr) => sdr.handoffs);
+  const won = soma((sdr) => sdr.won);
+  const resumo = `${prospected} prospectado(s), ${responded} responderam, ${handoffs} passado(s) para o time, ${won} cliente(s).`;
 
-  if (sdrs.length < 2) {
-    return `${prospected} prospectado(s), ${responded} responderam, ${handoffs} possivel(is) cliente(s).`;
-  }
-
-  return `Total: ${prospected} prospectado(s), ${responded} responderam, ${handoffs} possivel(is) cliente(s).`;
+  return sdrs.length < 2 ? resumo : `Total: ${resumo}`;
 }
 
 export function buildDailyReport(input: DailyReportInput): string {

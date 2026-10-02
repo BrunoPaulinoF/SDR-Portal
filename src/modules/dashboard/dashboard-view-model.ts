@@ -85,6 +85,17 @@ export interface DashboardFunnelRow {
   percent: number;
 }
 
+/** Um degrau do funil da safra: quantos dos leads abordados no periodo chegaram ate aqui. */
+export interface DashboardCohortRow {
+  count: number;
+  help: string;
+  label: string;
+  /** Sobre os abordados: a taxa que compara periodos e SDRs. */
+  percentOfBase: number;
+  /** Sobre o degrau anterior: onde o funil vaza. `null` no primeiro degrau. */
+  percentOfPrevious: number | null;
+}
+
 export interface DashboardCompanyRow {
   activeSdrs: number;
   companyId: string;
@@ -104,11 +115,12 @@ export interface DashboardCompanyRow {
 
 export interface DashboardViewModel {
   alerts: string[];
+  cohortLost: number;
+  cohortRows: DashboardCohortRow[];
   companies: Company[];
   companyRows: DashboardCompanyRow[];
   dispatchRows: DashboardDispatchRow[];
   filters: DashboardFilters;
-  funnelRows: DashboardFunnelRow[];
   metrics: DashboardMetric[];
   periodLabel: string;
   sdrAgents: SdrAgent[];
@@ -161,6 +173,53 @@ export const stageOptions = [
   { value: 'not_interested', label: 'Sem interesse' },
   { value: 'discarded', label: 'Descartado' },
 ];
+
+const PROPOSAL_STAGES = new Set(['solution', 'handoff_offer', 'handoff_done']);
+
+function percentOf(count: number, base: number): number {
+  return base > 0 ? Math.round((count / base) * 100) : 0;
+}
+
+/**
+ * O funil unico: dos leads abordados no periodo (a safra), quantos chegaram a cada degrau, em
+ * qualquer momento depois. Ate 02/10 o painel mostrava "eventos do periodo" misturados (leads
+ * criados, descartados, em conversa agora), e nenhuma linha dizia quantos abordados viraram
+ * cliente. Cada degrau conta quem chegou nele ou passou dele — cliente fechado sem reuniao
+ * marcada conta como reuniao, senao o funil teria degrau maior que o anterior.
+ *
+ * "Gente respondeu" segue a definicao do resto do portal: resposta automatica da loja nao conta.
+ */
+export function buildCohortFunnel(cohort: Lead[], humanRepliedLeadIds: ReadonlySet<string>): { rows: DashboardCohortRow[]; lost: number } {
+  const won = cohort.filter((lead) => lead.wonAt);
+  const trial = cohort.filter((lead) => lead.trialStartedAt || lead.wonAt);
+  const meeting = cohort.filter((lead) => lead.meetingAt || lead.trialStartedAt || lead.wonAt);
+  const handoff = cohort.filter((lead) => lead.handoffRequestedAt || lead.meetingAt || lead.trialStartedAt || lead.wonAt);
+  const proposal = cohort.filter((lead) => PROPOSAL_STAGES.has(lead.conversationStage) || handoff.includes(lead));
+  const replied = cohort.filter((lead) => humanRepliedLeadIds.has(lead.id) || lead.lastInboundAt || proposal.includes(lead));
+
+  const steps: Array<{ label: string; leads: Lead[]; help: string }> = [
+    { label: 'Abordados', leads: cohort, help: 'Receberam a primeira mensagem no periodo.' },
+    { label: 'Gente respondeu', leads: replied, help: 'Uma pessoa respondeu. Robo e transmissao da loja nao contam.' },
+    { label: 'Ouviu a proposta', leads: proposal, help: 'A conversa chegou na etapa de solucao ou alem.' },
+    { label: 'Handoff', leads: handoff, help: 'Passado para alguem do time.' },
+    { label: 'Reuniao marcada', leads: meeting, help: 'Marcado na tela do lead por quem atendeu.' },
+    { label: 'Teste comecou', leads: trial, help: 'Marcado na tela do lead por quem atendeu.' },
+    { label: 'Virou cliente', leads: won, help: 'Marcado na tela do lead por quem atendeu.' },
+  ];
+
+  const rows = steps.map((step, index) => {
+    const previous = index > 0 ? steps[index - 1] : undefined;
+    return {
+      count: step.leads.length,
+      help: step.help,
+      label: step.label,
+      percentOfBase: percentOf(step.leads.length, cohort.length),
+      percentOfPrevious: previous ? percentOf(step.leads.length, previous.leads.length) : null,
+    };
+  });
+
+  return { rows, lost: cohort.filter((lead) => lead.lostAt).length };
+}
 
 interface BuildDashboardInput {
   aiRuns: AiRun[];
@@ -444,10 +503,8 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
   const initialSent = scopedLeads.filter((lead) => isDateInPeriod(lead.firstMessageSentAt, start, now)).length;
   const followupsSent = scopedLeads.filter((lead) => isDateInPeriod(lead.followupSentAt, start, now)).length;
   const handoffs = scopedLeads.filter((lead) => isDateInPeriod(lead.handoffRequestedAt, start, now)).length;
-  const notInterested = scopedLeads.filter((lead) => isDateInPeriod(lead.notInterestedAt, start, now)).length;
   const discarded = scopedLeads.filter((lead) => lead.status === 'discarded' && isDateInPeriod(lead.updatedAt, start, now)).length;
   const invalidPhone = scopedLeads.filter((lead) => lead.status === 'invalid_phone' && isDateInPeriod(lead.updatedAt, start, now)).length;
-  const created = scopedLeads.filter((lead) => isDateInPeriod(lead.createdAt, start, now)).length;
   const outboundMessages = messagesInPeriod.filter((message) => message.direction === 'outbound').length;
   const inboundMessages = messagesInPeriod.filter((message) => message.direction === 'inbound').length;
   // Resposta automatica da loja nao e resposta: contar o robo dava 60% de taxa numa caixa em que
@@ -486,27 +543,13 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
     addCount(statusCounts, lead.status);
     addCount(stageCounts, lead.conversationStage);
   }
-  const funnelItems = [
-    { value: 'created', label: 'Leads criados' },
-    { value: 'initial_sent', label: 'Abordagens iniciais' },
-    { value: 'responded', label: 'Responderam' },
-    { value: 'in_conversation', label: 'Em conversa agora' },
-    { value: 'transferred', label: 'Handoffs' },
-    { value: 'discarded', label: 'Descartados' },
-    { value: 'invalid_phone', label: 'Telefone inexistente' },
-    { value: 'not_interested', label: 'Sem interesse' },
-  ];
-  const funnelValues = new Map<string, number>([
-    ['created', created],
-    ['initial_sent', initialSent],
-    ['responded', respondedLeadIds.size],
-    ['in_conversation', scopedLeads.filter((lead) => lead.status === 'in_conversation').length],
-    ['transferred', handoffs],
-    ['discarded', discarded],
-    ['invalid_phone', invalidPhone],
-    ['not_interested', notInterested],
-  ]);
-  const funnelBase = Math.max(created, initialSent, scopedLeads.length, 1);
+  const cohort = scopedLeads.filter((lead) => isDateInPeriod(lead.firstMessageSentAt, start, now));
+  const cohortIds = new Set(cohort.map((lead) => lead.id));
+  const humanRepliedEver = new Set<string>();
+  for (const message of input.messages) {
+    if (message.direction === 'inbound' && !message.autoReply && cohortIds.has(message.leadId)) humanRepliedEver.add(message.leadId);
+  }
+  const cohortFunnel = buildCohortFunnel(cohort, humanRepliedEver);
   const companyRows = input.companies
     .filter((company) => !input.filters.companyId || company.id === input.filters.companyId)
     .map((company) => {
@@ -594,11 +637,12 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
 
   return {
     alerts,
+    cohortLost: cohortFunnel.lost,
+    cohortRows: cohortFunnel.rows,
     companies: input.companies,
     companyRows,
     dispatchRows,
     filters: input.filters,
-    funnelRows: funnelItems.map((item) => ({ count: funnelValues.get(item.value) ?? 0, label: item.label, percent: Math.round(((funnelValues.get(item.value) ?? 0) / funnelBase) * 100) })),
     metrics: [
       { label: 'Mensagens enviadas', value: String(totalKnownSends), help: 'Abordagens + follow-ups + mensagens outbound registradas.' },
       { label: 'Responderam', value: String(respondedLeadIds.size), help: `Leads com resposta de gente. ${inboundMessages} inbound no periodo, ${autoReplyMessages} automatica(s) da loja fora da conta.` },

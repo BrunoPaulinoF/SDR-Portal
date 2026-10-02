@@ -379,3 +379,41 @@ describe('alertas de lead com interesse', () => {
     expect(model.alerts.join(' ')).toContain('1 aviso(s) de handoff nao chegaram a quem atende (Fit013 Marmitas)');
   });
 });
+
+describe('funil da safra', () => {
+  it('conta cada degrau sobre os abordados e sobre o degrau anterior', async () => {
+    const { buildCohortFunnel } = await import('../src/modules/dashboard/dashboard-view-model.js');
+    const leadRepository = createMemoryLeadRepository();
+    const make = async (name: string) => leadRepository.create({ ...leadInput('c1', 'sdr-1', name, `55119${name.length}000000`), status: 'initial_sent' });
+    const [mudo, robo, gente, proposta, cliente] = await Promise.all([
+      make('Mudo'),
+      make('So robo'),
+      make('Gente'),
+      make('Proposta'),
+      make('Cliente'),
+    ]);
+    await leadRepository.updateStage(proposta.id, 'solution', new Date());
+    await leadRepository.markTransferred(cliente.id, new Date(), 'resumo');
+    await leadRepository.setOutcome(
+      cliente.id,
+      { meetingAt: null, trialStartedAt: null, wonAt: new Date(), lostAt: null, lostReason: null },
+      new Date(),
+    );
+    const cohort = (await leadRepository.list()).filter((lead) => [mudo, robo, gente, proposta, cliente].some((item) => item.id === lead.id));
+
+    // "So robo" recebeu so automatica: fica fora de "gente respondeu".
+    const { rows } = buildCohortFunnel(cohort, new Set([gente.id]));
+    const byLabel = Object.fromEntries(rows.map((row) => [row.label, row]));
+
+    expect(byLabel['Abordados']?.count).toBe(5);
+    expect(byLabel['Gente respondeu']?.count).toBe(3);
+    expect(byLabel['Ouviu a proposta']?.count).toBe(2);
+    expect(byLabel['Handoff']?.count).toBe(1);
+    // Cliente fechado sem reuniao marcada conta nos degraus de antes: o funil nao sobe.
+    expect(byLabel['Reuniao marcada']?.count).toBe(1);
+    expect(byLabel['Virou cliente']?.count).toBe(1);
+    expect(byLabel['Virou cliente']?.percentOfBase).toBe(20);
+    expect(byLabel['Ouviu a proposta']?.percentOfPrevious).toBe(67);
+    expect(byLabel['Abordados']?.percentOfPrevious).toBeNull();
+  });
+});
