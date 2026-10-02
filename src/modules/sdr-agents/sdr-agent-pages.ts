@@ -12,6 +12,7 @@ import {
   resolveAudioReplyMode,
 } from '../audio/audio-reply.js';
 import { escapeHtml, renderLayout } from '../web/html.js';
+import { PROMPT_FILES, type PromptDrift } from './prompt-bundle.js';
 
 interface SdrAgentFormData {
   companyId: string;
@@ -711,10 +712,21 @@ export function renderNewSdrAgentPage(companies: Company[], error?: string): str
   });
 }
 
-export function renderEditSdrAgentPage(agent: SdrAgent, companies: Company[], error?: string): string {
+/**
+ * Aviso de texto gravado diferente do versionado. Nao diz quem esta certo — pode ser edicao
+ * feita aqui que o arquivo nao acompanhou —, so que os dois deixaram de ser a mesma coisa.
+ */
+function renderPromptDrift(agent: SdrAgent, drift: PromptDrift | null): string {
+  if (!drift || drift.fields.length === 0) return '';
+  const files = drift.fields.map((field) => `<code>${escapeHtml(PROMPT_FILES[field])}</code>`).join(', ');
+  return `<section class="panel"><p class="alert-error">O texto gravado neste SDR esta diferente de <code>${escapeHtml(drift.dir)}</code> em: ${files}. O que vai para os leads e o que esta gravado aqui.</p>
+    <p class="muted">Se os arquivos estao certos, grave pelo Console do EasyPanel: <code>cd /app &amp;&amp; node dist/src/db/apply-sdr-prompts.js --agent="${escapeHtml(agent.name)}" --apply</code>. Se a edicao feita aqui e a certa, leve o texto para os arquivos no repositorio.</p></section>`;
+}
+
+export function renderEditSdrAgentPage(agent: SdrAgent, companies: Company[], error?: string, drift: PromptDrift | null = null): string {
   return renderLayout({
     title: 'Editar SDR - SDR Portal',
-    body: `<main class="app-shell"><header class="topbar"><div><h1>Editar SDR</h1><p class="muted">Atualize as configuracoes do agente.</p></div></header><section class="panel">${renderSdrAgentForm(`/sdr-agents/${agent.id}`, companies, agent, error)}</section>${renderUazapiActions(agent)}</main>`,
+    body: `<main class="app-shell"><header class="topbar"><div><h1>Editar SDR</h1><p class="muted">Atualize as configuracoes do agente.</p></div></header>${renderPromptDrift(agent, drift)}<section class="panel">${renderSdrAgentForm(`/sdr-agents/${agent.id}`, companies, agent, error)}</section>${renderUazapiActions(agent)}</main>`,
   });
 }
 

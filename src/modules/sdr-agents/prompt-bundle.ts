@@ -173,6 +173,31 @@ export function planPromptUpdate(input: {
   return { changes, unchanged, firstMessage: firstMessageChanged ? bundle.firstMessage : null, warnings };
 }
 
+/** Raiz dos prompts versionados. No container ela vem do Dockerfile, junto com `dist/`. */
+export const PROMPTS_ROOT = 'docs/prompts';
+
+export interface PromptDrift {
+  dir: string;
+  /** Campos cujo texto no banco nao bate com o arquivo do diretorio. */
+  fields: PromptField[];
+}
+
+/**
+ * Compara o que esta gravado no SDR com docs/prompts/<sdr>/. `null` quando o SDR nao tem
+ * diretorio versionado: nao ha o que comparar.
+ *
+ * Existe porque o banco e o repositorio divergiam em silencio: a documentacao da Mariana dizia
+ * desde 22/09 que a abordagem tinha mudado, e o que saia para os leads era o texto antigo.
+ */
+export async function findPromptDrift(agent: SdrAgent, root: string = PROMPTS_ROOT): Promise<PromptDrift | null> {
+  const dir = path.join(root, promptDirNameFor(agent.name));
+  const bundle = await readPromptBundle(dir);
+  const fields = (Object.keys(bundle.fields) as PromptField[]).filter((field) => bundle.fields[field] !== undefined);
+  if (fields.length === 0) return null;
+
+  return { dir, fields: fields.filter((field) => (currentValue(agent, field) ?? '').trim() !== bundle.fields[field]) };
+}
+
 /**
  * Nome do diretorio de prompts de um SDR: `Mariana` -> `mariana`, `Insumo Smart` ->
  * `insumosmart`. Mora aqui, e nao no script, para poder ser testado sem abrir conexao com o

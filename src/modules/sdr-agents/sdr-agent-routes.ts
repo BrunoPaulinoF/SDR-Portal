@@ -10,6 +10,7 @@ import type { CompanyRepository } from '../companies/company-repository.js';
 import { decryptSecret, encryptSecret } from '../security/secrets.js';
 import { configureInstanceWebhook, deleteInstance, isInstanceProvisioningEnabled, provisionInstance } from '../uazapi/instance-provisioning.js';
 import type { UazapiClient } from '../uazapi/uazapi-client.js';
+import { findPromptDrift, type PromptDrift } from './prompt-bundle.js';
 import type { SdrAgentInput, SdrAgentRepository } from './sdr-agent-repository.js';
 import {
   renderEditSdrAgentPage,
@@ -280,7 +281,15 @@ export function registerSdrAgentRoutes(
       return reply.status(404).type('text/html').send(renderSdrAgentNotFoundPage());
     }
 
-    return reply.type('text/html').send(renderEditSdrAgentPage(agent, companies));
+    // Comparar com os arquivos nao pode derrubar a tela: sem diretorio ou sem permissao, segue sem aviso.
+    let drift: PromptDrift | null = null;
+    try {
+      drift = await findPromptDrift(agent);
+    } catch (error) {
+      request.log.warn({ sdrAgentId: agent.id, error }, 'Prompt drift check failed');
+    }
+
+    return reply.type('text/html').send(renderEditSdrAgentPage(agent, companies, undefined, drift));
   });
 
   app.post('/sdr-agents/:id', async (request, reply) => {

@@ -13,6 +13,25 @@ export const pendingLeadLowThreshold = 100;
  */
 export const stalledDispatchMinutes = 180;
 
+/**
+ * Lead em "Oferta de handoff" parado ha mais que isto precisa de um humano agora: ele ja
+ * disse que tem interesse e esta esperando alguem. Foi o caso da Fit013 Marmitas ("Tenho
+ * interesse", 29/09 16:05), que ficou ali quando o WhatsApp da Mariana caiu duas horas depois.
+ */
+export const stalledHandoffOfferMinutes = 120;
+
+/** Mesmo nome de job que `ai-response-service` grava no aviso de handoff. */
+const HANDOFF_NOTICE_JOB = 'handoff-notify';
+
+function lastActivityAt(lead: Lead): Date {
+  const times = [lead.lastInboundAt, lead.lastOutboundAt].filter((value): value is Date => value instanceof Date);
+  return times.length > 0 ? new Date(Math.max(...times.map((value) => value.getTime()))) : lead.updatedAt;
+}
+
+function namesPreview(names: string[], max = 4): string {
+  return names.length > max ? `${names.slice(0, max).join(', ')} e mais ${names.length - max}` : names.join(', ');
+}
+
 /** Um SDR liberado para enviar e parado por mais que isto nao esta esperando: esta preso. */
 function stalledAfterMinutes(maxCooldownMinutes: number): number {
   return Math.max(stalledDispatchMinutes, maxCooldownMinutes * 2);
@@ -518,7 +537,24 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
   const overCapacitySdrs = scopedAgents
     .filter((agent) => agent.isActive && dailySendCapacity(agent) < agent.dailyInitialSendLimit)
     .map((agent) => `${agent.displayName || agent.name} (~${dailySendCapacity(agent)}/${agent.dailyInitialSendLimit})`);
+  const stalledHandoffOffers = scopedLeads.filter(
+    (lead) =>
+      lead.conversationStage === 'handoff_offer' &&
+      lead.status !== 'transferred' &&
+      lead.status !== 'not_interested' &&
+      now.getTime() - lastActivityAt(lead).getTime() > stalledHandoffOfferMinutes * 60000,
+  );
+  const failedHandoffNotices = jobLogsInPeriod.filter((log) => log.jobName === HANDOFF_NOTICE_JOB && log.status === 'failed');
+  const failedNoticeLeads = failedHandoffNotices
+    .map((log) => scopedLeads.find((lead) => lead.id === log.leadId)?.companyName)
+    .filter((name): name is string => Boolean(name));
   const alerts = [
+    stalledHandoffOffers.length > 0
+      ? `${stalledHandoffOffers.length} lead(s) com interesse esperando ha mais de ${stalledHandoffOfferMinutes / 60}h na oferta de handoff: ${namesPreview(stalledHandoffOffers.map((lead) => lead.companyName))}. Chame pelo WhatsApp do SDR.`
+      : null,
+    failedHandoffNotices.length > 0
+      ? `${failedHandoffNotices.length} aviso(s) de handoff nao chegaram a quem atende${failedNoticeLeads.length > 0 ? ` (${namesPreview(failedNoticeLeads)})` : ''}. O resumo de cada um esta em Job logs.`
+      : null,
     stalledSdrs.length > 0
       ? `SDR parado sem enviar: ${stalledSdrs.join(', ')}. Confira a conexao do WhatsApp na tela Conectar.`
       : null,
