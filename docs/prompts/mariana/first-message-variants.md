@@ -22,7 +22,39 @@ mensagem só volta ao textão que a variante B era.
 Regra de redação que nasce daí: **nada do que está na segunda mensagem entra na primeira** —
 nem recurso, nem o teste grátis, nem "a gente tem uma IA que...".
 
-## O que está no ar hoje (desde 22/09)
+## Variantes no ar
+
+Esta seção é a fonte das variantes ativas da Mariana. `apply-sdr-prompts --apply` grava cada
+`### rótulo` com o bloco de código logo abaixo como variante **ativa**, e **pausa** (não apaga)
+qualquer outra variante ativa que não esteja aqui — as métricas dela ficam guardadas. Cada
+gravação vai para o histórico de mudanças da tela do SDR.
+
+As duas seguem o princípio da seção mais abaixo: curtas, cara de gente, sem "comercial", sem
+falar de IA (quem explica o sistema é a segunda mensagem) e com uma pergunta que se responde em
+duas palavras. **Só a abertura muda entre elas** — a segunda mensagem é a mesma —, então a
+diferença no resultado é da abertura. Decida pela tela `Msg inicial`, que só declara vencedora
+com 150 envios de cada e diferença real.
+
+### Nao e pedido
+
+```
+oi, tudo bem? aqui é a Mariana, da KyberFood. não é pedido não 😄 queria falar com quem cuida do WhatsApp do {{restaurante|delivery}}. é você mesmo?
+```
+
+### Nao sou cliente
+
+```
+oi! aqui é a Mariana, da KyberFood. não sou cliente não, mas é rápido e é sobre o atendimento do WhatsApp de vocês. falo com {{responsavel}}?
+```
+
+## O que esteve no ar até 02/10
+
+Em 02/10 a variante ativa no banco ainda era o texto antigo (abaixo, "O texto anterior"), embora
+este arquivo dissesse desde 22/09 que ele tinha mudado: a troca era manual, pela tela, e não
+aconteceu. É por isso que as variantes passaram para a seção acima, gravada pelo script, e que a
+tela do SDR avisa quando o banco diverge dos arquivos.
+
+## O que deveria estar no ar desde 22/09
 
 Variante **"B"**, única ativa, com o texto ajustado à abordagem de duas mensagens:
 
@@ -74,31 +106,17 @@ O que faz alguém responder um número desconhecido é bem mais simples e bem me
    vendedor toda semana. Dizer de saída que não é pedido desarma a primeira categoria em que
    ele ia arquivar você sem ler. Sem se anunciar como "do comercial", que é a segunda.
 
-## Variantes propostas para o A/B
+## Variante de reserva
 
-Nenhuma tem link, número, estatística ou saudação de período (a mensagem sai entre 15h e 21h;
-"boa tarde" fixo denuncia automação metade das vezes).
-
-### Variante "Não é pedido" (recomendada como A)
-
-> oi, tudo bem? aqui é a Mariana, da KyberFood. não é pedido não 😄 queria falar com quem cuida
-> do WhatsApp do {{restaurante|delivery}}. é você mesmo?
-
-### Variante "Não sou cliente" (recomendada como B)
-
-> oi! aqui é a Mariana, da KyberFood. não sou cliente não, mas é rápido e é sobre o
-> atendimento do WhatsApp de vocês. falo com {{responsavel}}?
-
-### Variante "Pelo nome" (C, só vale a pena com a base tendo contato)
+Nenhuma variante tem link, número, estatística ou saudação de período (a mensagem sai entre 15h
+e 21h; "boa tarde" fixo denuncia automação metade das vezes). Esta fica fora do ar porque só
+vale a pena com a base tendo o nome do contato:
 
 > oi, {{nome|tudo bem}}? aqui é a Mariana, da KyberFood. queria falar sobre o WhatsApp do
 > {{restaurante|seu delivery}} — não é pedido. é contigo mesmo?
 
-Com duas ou três ativas ao mesmo tempo, o rodízio compara as taxas. Deixe rodar até cada uma
-ter ~60 envios antes de decidir, e leia a taxa **descontando o robô da loja** — o número da
-tela conta autoresposta como resposta. Desde 02/09 o robô reconhecido é marcado como
-`Automatica da loja` na caixa de conversas, o que dá para conferir a olho enquanto a métrica
-da tela não separa os dois.
+Para testá-la, mova para a seção "Variantes no ar" como `### Pelo nome` com bloco de código, no
+lugar da que perder o A/B — uma troca por vez.
 
 ## A segunda mensagem
 
@@ -111,19 +129,12 @@ Campo vazio = abordagem de uma mensagem só, como era antes. Falha no envio da s
 refaz a primeira: o lead já entrou como `initial_sent`, e o erro fica no `/job-logs` com a
 chave `initial-second-<lead>`.
 
-## Por que este arquivo não tem bloco de código
+## Blocos de código neste arquivo
 
-`apply-sdr-prompts` trata o **primeiro bloco de código** deste arquivo como *a* mensagem
-inicial fixa: ele desativa todas as variantes ativas do SDR e deixa uma só, com o rótulo
-`Roteiro` (ver `FIRST_MESSAGE_FILE` em `src/modules/sdr-agents/prompt-bundle.ts`). Como aqui
-a proposta é um A/B com mais de uma variante ativa, e o script só sabe expressar uma, as
-mensagens acima estão em citação (`>`) e não em bloco de código — assim `--apply` grava os
-outros prompts e **não encosta** nas variantes.
-
-Consequência prática: as variantes acima entram **na mão**, pela tela
-`/sdr-agents/<id>/first-messages`. E não transforme nenhuma delas em bloco de código aqui só
-para "ficar bonito": o próximo `--apply` derrubaria o A/B e deixaria a primeira delas sozinha
-no ar.
+Só os blocos de código **dentro da seção "Variantes no ar"** viram variante. O resto do arquivo
+usa citação (`>`) de propósito: sem a seção, `apply-sdr-prompts` trataria o primeiro bloco de
+código do arquivo como o roteiro único (o modo do playbook `convite`, que a Insumo Smart usa) e
+pausaria o A/B.
 
 ## Por que não voltar às variantes antigas
 

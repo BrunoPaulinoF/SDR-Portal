@@ -132,7 +132,8 @@ describe('bundle de prompts do repositorio', () => {
 
   it('nao mexe no modo da primeira mensagem quando o diretorio nao tem roteiro', async () => {
     const agent = await makeAgent({ firstMessageMode: 'ai' });
-    const bundle = await readPromptBundle('docs/prompts/mariana');
+    // Markdown sem bloco de codigo e sem secao de variantes: so explicacao.
+    const bundle = { ...(await readPromptBundle('docs/prompts/mariana')), firstMessage: null, variants: null };
 
     const plan = planPromptUpdate({ agent, bundle, currentFirstMessage: null, playbook: 'consultivo' });
 
@@ -164,5 +165,84 @@ describe('diretorio de prompts sai do nome do SDR', () => {
       expect(existsSync(join('docs/prompts', sdr))).toBe(true);
     }
     expect(promptDirNameFor('Mariana')).toBe('mariana');
+  });
+});
+
+describe('variantes versionadas no arquivo', () => {
+  it('le cada ### rotulo com o bloco de codigo da secao', async () => {
+    const { extractVariantSection } = await import('../src/modules/sdr-agents/prompt-bundle.js');
+    const markdown = [
+      '# Titulo',
+      '```',
+      'bloco fora da secao',
+      '```',
+      '## Variantes no ar',
+      'texto de explicacao',
+      '### A',
+      '```',
+      'oi, aqui e a Mariana',
+      '```',
+      '### B',
+      'sem bloco nao vale',
+      '### C',
+      '```text',
+      'oi! Mariana aqui',
+      '```',
+      '## Outra secao',
+      '### D',
+      '```',
+      'fora',
+      '```',
+    ].join('\n');
+
+    expect(extractVariantSection(markdown)).toEqual([
+      { label: 'A', body: 'oi, aqui e a Mariana' },
+      { label: 'C', body: 'oi! Mariana aqui' },
+    ]);
+    expect(extractVariantSection('# sem secao')).toBeNull();
+  });
+
+  it('a Mariana tem duas variantes no ar e nenhum roteiro unico', async () => {
+    const bundle = await readPromptBundle('docs/prompts/mariana');
+
+    expect(bundle.variants?.map((variant) => variant.label)).toEqual(['Nao e pedido', 'Nao sou cliente']);
+    expect(bundle.firstMessage).toBeNull();
+    for (const variant of bundle.variants ?? []) {
+      // Nada do que a segunda mensagem explica entra na primeira.
+      expect(variant.body).not.toMatch(/comercial|\bIA\b|teste gr/i);
+    }
+  });
+
+  it('grava as do arquivo e pausa a variante antiga, sem apagar', async () => {
+    const bundle = await readPromptBundle('docs/prompts/mariana');
+    const agent = await createMemorySdrAgentRepository().create({ companyId: 'c1', name: 'Mariana', displayName: 'Mariana', isActive: true });
+
+    const plan = planPromptUpdate({
+      agent: { ...agent, firstMessageMode: 'ab_test' },
+      bundle,
+      currentFirstMessage: null,
+      currentVariants: [{ label: 'B', body: 'Olá, tudo bem? Me chamo Mariana, sou do comercial da KyberFood.', isActive: true }],
+      playbook: 'consultivo',
+    });
+
+    expect(plan.variantSync?.upsert.map((variant) => variant.label)).toEqual(['Nao e pedido', 'Nao sou cliente']);
+    expect(plan.variantSync?.deactivate).toEqual(['B']);
+    expect(plan.changes.find((change) => change.field === 'variante:B')?.after).toContain('[pausada]');
+  });
+
+  it('nao mexe quando o banco ja esta igual ao arquivo', async () => {
+    const bundle = await readPromptBundle('docs/prompts/mariana');
+    const agent = await createMemorySdrAgentRepository().create({ companyId: 'c1', name: 'Mariana', displayName: 'Mariana', isActive: true });
+
+    const plan = planPromptUpdate({
+      agent: { ...agent, firstMessageMode: 'ab_test' },
+      bundle,
+      currentFirstMessage: null,
+      currentVariants: (bundle.variants ?? []).map((variant) => ({ ...variant, isActive: true })),
+      playbook: 'consultivo',
+    });
+
+    expect(plan.variantSync).toBeNull();
+    expect(plan.unchanged).toContain('variante:Nao e pedido');
   });
 });

@@ -32,6 +32,7 @@ async function loadRepos() {
     agents: (await import('../src/modules/sdr-agents/db-sdr-agent-repository.js')).createDbSdrAgentRepository(),
     monitors: (await import('../src/modules/monitoring/db-connection-monitor-repository.js')).createDbConnectionMonitorRepository(),
     blocks: (await import('../src/modules/leads/db-contact-block-repository.js')).createDbContactBlockRepository(),
+    history: (await import('../src/modules/sdr-agents/db-config-history.js')).createDbSdrConfigChangeRepository(),
   };
 }
 
@@ -50,7 +51,7 @@ dbDescribe('repositorios no Postgres', () => {
 
   beforeEach(async () => {
     await repos.client.db.execute(
-      repos.sql`truncate table contact_blocks, messages, conversations, job_logs, ai_runs, webhook_events, lead_research, lead_imports, instance_share_links, sdr_connection_events, sdr_connection_states, leads, first_message_variants, sdr_agents, companies cascade`,
+      repos.sql`truncate table sdr_config_changes, contact_blocks, messages, conversations, job_logs, ai_runs, webhook_events, lead_research, lead_imports, instance_share_links, sdr_connection_events, sdr_connection_states, leads, first_message_variants, sdr_agents, companies cascade`,
     );
   });
 
@@ -184,6 +185,17 @@ dbDescribe('repositorios no Postgres', () => {
     const found = await repos.leads.findByWhatsappNumbers(['551999990000', '5519999990000']);
 
     expect(found.map((item) => item.id)).toEqual([lead.id]);
+  });
+
+  it('historico de configuracao grava e lista o mais recente primeiro', async () => {
+    const { agent } = await agentAndLead();
+    await repos.history.record([{ sdrAgentId: agent.id, field: 'aiModel', before: 'deepseek-v4-pro', after: 'deepseek-v4-flash', changedBy: 'portal:a' }]);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await repos.history.record([{ sdrAgentId: agent.id, field: 'prompt', before: 'velho', after: 'novo', changedBy: 'script:apply-sdr-prompts' }]);
+
+    const history = await repos.history.listForAgent(agent.id, 10);
+
+    expect(history.map((change) => change.field)).toEqual(['prompt', 'aiModel']);
   });
 
   it('historico de conexao grava e lista em ordem', async () => {

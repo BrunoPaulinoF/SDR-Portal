@@ -239,6 +239,13 @@
       "when": 1790949546308,
       "tag": "0033_contact_blocks",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1790949795347,
+      "tag": "0034_sdr_config_changes",
+      "breakpoints": true
     }
   ]
 }

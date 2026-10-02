@@ -1,4 +1,5 @@
-import type { Company, SdrAgent } from '../../db/schema.js';
+import type { Company, SdrAgent, SdrConfigChange } from '../../db/schema.js';
+import { formatDateTimeInTimeZone } from '../timezone.js';
 import { lockedBasePromptPreview } from '../ai/sdr-base-prompt.js';
 import { DEFAULT_SDR_PLAYBOOK, SDR_PLAYBOOK_LABELS, SDR_PLAYBOOKS, resolveSdrPlaybook } from '../ai/sdr-playbooks.js';
 import { DEFAULT_LEAD_QUALIFICATION_PROMPT } from '../leads/lead-qualification-prompt.js';
@@ -728,10 +729,46 @@ function renderPromptDrift(agent: SdrAgent, drift: PromptDrift | null): string {
     <p class="muted">Se os arquivos estao certos, grave pelo Console do EasyPanel: <code>cd /app &amp;&amp; node dist/src/db/apply-sdr-prompts.js --agent="${escapeHtml(agent.name)}" --apply</code>. Se a edicao feita aqui e a certa, leve o texto para os arquivos no repositorio.</p></section>`;
 }
 
-export function renderEditSdrAgentPage(agent: SdrAgent, companies: Company[], error?: string, drift: PromptDrift | null = null): string {
+function clip(value: string | null, max = 400): string {
+  if (value === null) return '(vazio)';
+  return value.length > max ? `${value.slice(0, max)}…` : value;
+}
+
+/**
+ * O que mudou neste SDR, quando e por quem. E para ler junto do funil: resultado que mudou de
+ * uma semana para a outra quase sempre tem uma linha aqui explicando.
+ */
+function renderConfigHistory(agent: SdrAgent, history: SdrConfigChange[]): string {
+  if (history.length === 0) {
+    return '<section class="panel spacing-top"><h2>Historico de mudancas</h2><p class="muted">Nada registrado ainda. Toda mudanca de prompt, variante, modelo ou limite feita daqui em diante aparece aqui.</p></section>';
+  }
+  const rows = history
+    .map(
+      (change) => `<tr>
+        <td>${escapeHtml(formatDateTimeInTimeZone(change.createdAt, agent.timezone))}</td>
+        <td>${escapeHtml(change.field)}</td>
+        <td class="muted">${escapeHtml(change.changedBy)}</td>
+        <td><details><summary>Ver</summary><p class="muted">Antes</p><pre style="white-space:pre-wrap;max-height:160px;overflow:auto;">${escapeHtml(clip(change.before))}</pre><p class="muted">Depois</p><pre style="white-space:pre-wrap;max-height:160px;overflow:auto;">${escapeHtml(clip(change.after))}</pre></details></td>
+      </tr>`,
+    )
+    .join('');
+  return `<section class="panel spacing-top">
+    <h2>Historico de mudancas</h2>
+    <p class="muted">As ${history.length} mudancas mais recentes. Mude uma coisa por vez: assim da para saber qual mexeu no resultado.</p>
+    <div class="table-wrap"><table><thead><tr><th>Quando</th><th>O que</th><th>Quem</th><th>Antes e depois</th></tr></thead><tbody>${rows}</tbody></table></div>
+  </section>`;
+}
+
+export function renderEditSdrAgentPage(
+  agent: SdrAgent,
+  companies: Company[],
+  error?: string,
+  drift: PromptDrift | null = null,
+  history: SdrConfigChange[] = [],
+): string {
   return renderLayout({
     title: 'Editar SDR - SDR Portal',
-    body: `<main class="app-shell"><header class="topbar"><div><h1>Editar SDR</h1><p class="muted">Atualize as configuracoes do agente.</p></div></header>${renderPromptDrift(agent, drift)}<section class="panel">${renderSdrAgentForm(`/sdr-agents/${agent.id}`, companies, agent, error)}</section>${renderUazapiActions(agent)}</main>`,
+    body: `<main class="app-shell"><header class="topbar"><div><h1>Editar SDR</h1><p class="muted">Atualize as configuracoes do agente.</p></div></header>${renderPromptDrift(agent, drift)}<section class="panel">${renderSdrAgentForm(`/sdr-agents/${agent.id}`, companies, agent, error)}</section>${renderUazapiActions(agent)}${renderConfigHistory(agent, history)}</main>`,
   });
 }
 

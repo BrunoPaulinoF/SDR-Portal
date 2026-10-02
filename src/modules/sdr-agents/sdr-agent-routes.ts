@@ -10,6 +10,7 @@ import type { CompanyRepository } from '../companies/company-repository.js';
 import { decryptSecret, encryptSecret } from '../security/secrets.js';
 import { configureInstanceWebhook, deleteInstance, isInstanceProvisioningEnabled, provisionInstance } from '../uazapi/instance-provisioning.js';
 import type { UazapiClient } from '../uazapi/uazapi-client.js';
+import { diffAgentConfig, type SdrConfigChangeRepository } from './config-history.js';
 import { findPromptDrift, type PromptDrift } from './prompt-bundle.js';
 import type { SdrAgentInput, SdrAgentRepository } from './sdr-agent-repository.js';
 import {
@@ -183,6 +184,7 @@ export function registerSdrAgentRoutes(
   companyRepository: CompanyRepository,
   sdrAgentRepository: SdrAgentRepository,
   uazapiClient: UazapiClient,
+  configChanges: SdrConfigChangeRepository,
 ): void {
   app.get('/sdr-agents', async (request, reply) => {
     const user = await requireUser(request, reply, authRepository);
@@ -292,7 +294,8 @@ export function registerSdrAgentRoutes(
       request.log.warn({ sdrAgentId: agent.id, error }, 'Prompt drift check failed');
     }
 
-    return reply.type('text/html').send(renderEditSdrAgentPage(agent, companies, undefined, drift));
+    const history = await configChanges.listForAgent(agent.id, 40);
+    return reply.type('text/html').send(renderEditSdrAgentPage(agent, companies, undefined, drift, history));
   });
 
   app.post('/sdr-agents/:id', async (request, reply) => {
@@ -322,6 +325,7 @@ export function registerSdrAgentRoutes(
       return reply.status(400).type('text/html').send(renderEditSdrAgentPage(agent, companies, message));
     }
 
+    await configChanges.record(diffAgentConfig(agent, input, `portal:${user.email}`));
     await sdrAgentRepository.update(params.data.id, input);
     return reply.redirect('/sdr-agents');
   });
@@ -339,6 +343,7 @@ export function registerSdrAgentRoutes(
 
       if (agent) {
         await sdrAgentRepository.setActive(agent.id, !agent.isActive);
+        await configChanges.record(diffAgentConfig(agent, { isActive: !agent.isActive }, `portal:${user.email}`));
       }
     }
 

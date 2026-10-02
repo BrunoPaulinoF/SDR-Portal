@@ -516,3 +516,32 @@ export const contactBlocks = pgTable(
 
 export type ContactBlock = typeof contactBlocks.$inferSelect;
 export type NewContactBlock = typeof contactBlocks.$inferInsert;
+
+/**
+ * Historico de configuracao de cada SDR: prompt, variante da primeira mensagem, modelo, limites.
+ * Uma linha por campo alterado, com o antes e o depois e quem mudou (tela ou script).
+ *
+ * Existe para responder "o que mudou e quando" ao lado do funil: em agosto e setembro a
+ * abertura, o prompt, o modelo e o limite mudaram juntos varias vezes, ninguem sabia a data de
+ * cada um, e a variante da Mariana ficou dez dias no ar diferente do que a documentacao dizia.
+ */
+export const sdrConfigChanges = pgTable(
+  'sdr_config_changes',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    sdrAgentId: uuid('sdr_agent_id')
+      .notNull()
+      .references(() => sdrAgents.id, { onDelete: 'cascade' }),
+    /** Campo do SDR (`prompt`, `aiModel`...) ou `variante:<rotulo>`. */
+    field: text('field').notNull(),
+    before: text('before'),
+    after: text('after'),
+    /** `portal:<email>` ou `script:apply-sdr-prompts`. */
+    changedBy: text('changed_by').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('sdr_config_changes_agent_time_idx').on(table.sdrAgentId, table.createdAt)],
+);
+
+export type SdrConfigChange = typeof sdrConfigChanges.$inferSelect;
+export type NewSdrConfigChange = typeof sdrConfigChanges.$inferInsert;

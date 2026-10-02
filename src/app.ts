@@ -58,6 +58,7 @@ import {
 } from './modules/uazapi/instance-share-link-repository.js';
 import { registerAssetsRoutes } from './modules/web/assets.js';
 import { createMemoryContactBlockRepository, type ContactBlockRepository } from './modules/leads/contact-block-repository.js';
+import { createMemorySdrConfigChangeRepository, type SdrConfigChangeRepository } from './modules/sdr-agents/config-history.js';
 import { registerWebhookEventRoutes } from './modules/webhooks/webhook-event-routes.js';
 import { createMemoryWebhookEventRepository, type WebhookEventRepository } from './modules/webhooks/webhook-event-repository.js';
 import { createResetConversationService } from './modules/webhooks/reset-conversation-service.js';
@@ -70,6 +71,7 @@ export interface AppOptions extends FastifyServerOptions {
   aiRunRepository?: AiRunRepository;
   authRepository?: AuthRepository;
   companyRepository?: CompanyRepository;
+  configChangeRepository?: SdrConfigChangeRepository;
   contactBlockRepository?: ContactBlockRepository;
   conversationRepository?: ConversationRepository;
   firstMessageVariantRepository?: FirstMessageVariantRepository;
@@ -611,6 +613,19 @@ function createLazyDbLeadResearchRepository(): LeadResearchRepository {
   };
 }
 
+function createLazyDbSdrConfigChangeRepository(): SdrConfigChangeRepository {
+  return {
+    async record(changes) {
+      const { createDbSdrConfigChangeRepository } = await import('./modules/sdr-agents/db-config-history.js');
+      return createDbSdrConfigChangeRepository().record(changes);
+    },
+    async listForAgent(sdrAgentId, limit) {
+      const { createDbSdrConfigChangeRepository } = await import('./modules/sdr-agents/db-config-history.js');
+      return createDbSdrConfigChangeRepository().listForAgent(sdrAgentId, limit);
+    },
+  };
+}
+
 function createLazyDbContactBlockRepository(): ContactBlockRepository {
   return {
     async add(input) {
@@ -638,6 +653,7 @@ export function buildApp(options: AppOptions = {}): AppInstance {
     aiRunRepository,
     authRepository,
     companyRepository,
+    configChangeRepository,
     contactBlockRepository,
     conversationRepository,
     firstMessageVariantRepository,
@@ -662,6 +678,8 @@ export function buildApp(options: AppOptions = {}): AppInstance {
   const sdrAgents =
     sdrAgentRepository ?? (env.NODE_ENV === 'test' ? createMemorySdrAgentRepository() : createLazyDbSdrAgentRepository());
   const leads = leadRepository ?? (env.NODE_ENV === 'test' ? createMemoryLeadRepository() : createLazyDbLeadRepository());
+  const configChanges =
+    configChangeRepository ?? (env.NODE_ENV === 'test' ? createMemorySdrConfigChangeRepository() : createLazyDbSdrConfigChangeRepository());
   const contactBlocks =
     contactBlockRepository ?? (env.NODE_ENV === 'test' ? createMemoryContactBlockRepository() : createLazyDbContactBlockRepository());
   const jobLogs = jobLogRepository ?? (env.NODE_ENV === 'test' ? createMemoryJobLogRepository() : createLazyDbJobLogRepository());
@@ -785,8 +803,8 @@ export function buildApp(options: AppOptions = {}): AppInstance {
   registerAuthRoutes(app, repository);
   registerDashboardRoutes(app, repository, companies, sdrAgents, leads, conversations, aiRuns, jobLogs, connectionMonitors);
   registerCompanyRoutes(app, repository, companies);
-  registerSdrAgentRoutes(app, repository, companies, sdrAgents, uazapi);
-  registerFirstMessageVariantRoutes(app, repository, sdrAgents, firstMessageVariants);
+  registerSdrAgentRoutes(app, repository, companies, sdrAgents, uazapi, configChanges);
+  registerFirstMessageVariantRoutes(app, repository, sdrAgents, firstMessageVariants, configChanges);
   registerLeadRoutes(app, repository, companies, sdrAgents, leads, aiRuns, jobLogs, contactBlocks);
   registerUazapiRoutes(app, repository, sdrAgents, uazapi, textToSpeech);
   registerInstanceConnectRoutes(app, repository, sdrAgents, instanceShareLinks, uazapi);

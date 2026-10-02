@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { requireUser } from '../auth/access.js';
 import type { AuthRepository } from '../auth/auth-repository.js';
 import { renderSdrAgentNotFoundPage } from '../sdr-agents/sdr-agent-pages.js';
+import { diffAgentConfig, type SdrConfigChangeRepository } from '../sdr-agents/config-history.js';
 import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
 import type { FirstMessageVariantRepository } from './first-message-variant-repository.js';
 import { renderFirstMessageVariantsPage } from './first-message-variant-pages.js';
@@ -28,7 +29,13 @@ export function registerFirstMessageVariantRoutes(
   authRepository: AuthRepository,
   sdrAgentRepository: SdrAgentRepository,
   firstMessageVariantRepository: FirstMessageVariantRepository,
+  configChanges: SdrConfigChangeRepository,
 ): void {
+  /** Uma linha por variante mexida: o texto (ou "ativa"/"pausada") de antes e de depois. */
+  const recordVariant = (sdrAgentId: string, label: string, before: string | null, after: string | null, email: string) =>
+    configChanges.record([{ sdrAgentId, field: `variante:${label}`, before, after, changedBy: `portal:${email}` }]);
+  const describeVariant = (variant: { body: string; isActive: boolean }) => `${variant.isActive ? '[ativa]' : '[pausada]'} ${variant.body}`;
+
   async function loadPage(agentId: string, error?: string): Promise<string | null> {
     const agent = await sdrAgentRepository.findById(agentId);
     if (!agent) return null;
@@ -78,6 +85,7 @@ export function registerFirstMessageVariantRoutes(
       body: parsed.data.body,
       isActive: parsed.data.isActive,
     });
+    await recordVariant(params.data.id, parsed.data.label, null, describeVariant(parsed.data), user.email);
     return reply.redirect(`/sdr-agents/${params.data.id}/first-messages`);
   });
 
@@ -96,11 +104,15 @@ export function registerFirstMessageVariantRoutes(
       return reply.status(400).type('text/html').send(page ?? renderSdrAgentNotFoundPage());
     }
 
+    const current = await firstMessageVariantRepository.findById(params.data.variantId);
     await firstMessageVariantRepository.update(params.data.variantId, {
       label: parsed.data.label,
       body: parsed.data.body,
       isActive: parsed.data.isActive,
     });
+    if (current && describeVariant(current) !== describeVariant(parsed.data)) {
+      await recordVariant(params.data.id, parsed.data.label, describeVariant(current), describeVariant(parsed.data), user.email);
+    }
     return reply.redirect(`/sdr-agents/${params.data.id}/first-messages`);
   });
 
@@ -113,6 +125,7 @@ export function registerFirstMessageVariantRoutes(
       const variant = await firstMessageVariantRepository.findById(params.data.variantId);
       if (variant) {
         await firstMessageVariantRepository.setActive(variant.id, !variant.isActive);
+        await recordVariant(params.data.id, variant.label, describeVariant(variant), describeVariant({ ...variant, isActive: !variant.isActive }), user.email);
       }
       return reply.redirect(`/sdr-agents/${params.data.id}/first-messages`);
     }
@@ -125,7 +138,9 @@ export function registerFirstMessageVariantRoutes(
 
     const params = variantParamsSchema.safeParse(request.params);
     if (params.success) {
+      const variant = await firstMessageVariantRepository.findById(params.data.variantId);
       await firstMessageVariantRepository.delete(params.data.variantId);
+      if (variant) await recordVariant(params.data.id, variant.label, describeVariant(variant), null, user.email);
       return reply.redirect(`/sdr-agents/${params.data.id}/first-messages`);
     }
     return reply.status(404).type('text/html').send(renderSdrAgentNotFoundPage());
@@ -139,7 +154,9 @@ export function registerFirstMessageVariantRoutes(
     const parsed = secondMessageSchema.safeParse(request.body);
     if (params.success && parsed.success) {
       const text = parsed.data.secondMessage;
+      const agent = await sdrAgentRepository.findById(params.data.id);
       await sdrAgentRepository.setSecondMessage(params.data.id, text.length > 0 ? text : null);
+      if (agent) await configChanges.record(diffAgentConfig(agent, { secondMessage: text.length > 0 ? text : null }, `portal:${user.email}`));
       return reply.redirect(`/sdr-agents/${params.data.id}/first-messages`);
     }
     return reply.status(404).type('text/html').send(renderSdrAgentNotFoundPage());
@@ -152,7 +169,9 @@ export function registerFirstMessageVariantRoutes(
     const params = agentParamsSchema.safeParse(request.params);
     const parsed = modeSchema.safeParse(request.body);
     if (params.success && parsed.success) {
+      const agent = await sdrAgentRepository.findById(params.data.id);
       await sdrAgentRepository.setFirstMessageMode(params.data.id, parsed.data.mode);
+      if (agent) await configChanges.record(diffAgentConfig(agent, { firstMessageMode: parsed.data.mode }, `portal:${user.email}`));
       return reply.redirect(`/sdr-agents/${params.data.id}/first-messages`);
     }
     return reply.status(404).type('text/html').send(renderSdrAgentNotFoundPage());
