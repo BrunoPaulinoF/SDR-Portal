@@ -865,3 +865,101 @@ describe('bloqueio do WhatsApp para novas conversas', () => {
     expect(ai.calls).toHaveLength(2);
   });
 });
+
+describe('cadencia de follow-up', () => {
+  async function harness(maxTouches: number) {
+    const agent = await makeAgent({ id: 'sdr-1', followupMaxTouches: maxTouches, followupAfterHours: 24 });
+    const leads = createMemoryLeadRepository([makeLead({ status: 'initial_sent', lastInboundAt: null })]);
+    const ai = fakeAiClient(aiReply('Oi! Passando de novo por aqui.'));
+    const uazapi = fakeUazapiClient();
+    const service = createFollowupOutreachService({
+      aiClient: ai,
+      aiRunRepository: createMemoryAiRunRepository(),
+      conversationRepository: createMemoryConversationRepository(),
+      jobLogRepository: createMemoryJobLogRepository(),
+      leadRepository: leads,
+      sdrAgentRepository: createMemorySdrAgentRepository([agent]),
+      uazapiClient: uazapi,
+    });
+    return { ai, leads, service, uazapi };
+  }
+
+  it('com um toque so, o follow-up acaba no primeiro, como sempre foi', async () => {
+    const { leads, service } = await harness(1);
+
+    await service.runOnce(NOW);
+
+    const lead = await leads.findById('lead-1');
+    expect(lead?.followupCount).toBe(1);
+    expect(lead?.followupDisabledAt).toEqual(NOW);
+    expect((await service.runOnce(new Date(NOW.getTime() + 25 * HOUR))).sent).toBe(0);
+  });
+
+  it('com dois toques, o segundo sai depois do mesmo silencio e encerra a cadencia', async () => {
+    const { ai, leads, service } = await harness(2);
+
+    await service.runOnce(NOW);
+    const afterFirst = await leads.findById('lead-1');
+    expect(afterFirst?.followupDisabledAt).toBeNull();
+    expect(afterFirst?.followupDueAt).toEqual(new Date(NOW.getTime() + 24 * HOUR));
+
+    // Antes do silencio de 24h, nada.
+    expect((await service.runOnce(new Date(NOW.getTime() + 12 * HOUR))).sent).toBe(0);
+
+    const second = await service.runOnce(new Date(NOW.getTime() + 25 * HOUR));
+    expect(second.sent).toBe(1);
+    const lastPrompt = ai.calls.at(-1)?.messages.map((message) => message.content).join('\n') ?? '';
+    expect(lastPrompt).toContain('Toque de follow-up: 2 de 2.');
+    expect(lastPrompt).toContain('E o ultimo toque');
+
+    const afterSecond = await leads.findById('lead-1');
+    expect(afterSecond?.followupCount).toBe(2);
+    expect(afterSecond?.followupDisabledAt).not.toBeNull();
+    expect((await service.runOnce(new Date(NOW.getTime() + 60 * HOUR))).sent).toBe(0);
+  });
+
+  it('com um toque so, o prompt fica exatamente como era', async () => {
+    const { ai, service } = await harness(1);
+
+    await service.runOnce(NOW);
+
+    expect(ai.calls[0]?.messages.map((message) => message.content).join('\n')).not.toContain('Toque de follow-up');
+  });
+});
+
+describe('trava por SDR', () => {
+  it('dois follow-ups rodando juntos nao processam o mesmo SDR', async () => {
+    const agent = await makeAgent({ id: 'sdr-1' });
+    const leads = createMemoryLeadRepository([makeLead()]);
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const slowAi: AiClient = {
+      async generate() {
+        await gate;
+        return { outputText: aiReply('Oi, posso retomar?'), promptTokens: 1, completionTokens: 1, totalTokens: 2, promptCacheHitTokens: null };
+      },
+    };
+    const deps = {
+      aiClient: slowAi,
+      aiRunRepository: createMemoryAiRunRepository(),
+      conversationRepository: createMemoryConversationRepository(),
+      jobLogRepository: createMemoryJobLogRepository(),
+      leadRepository: leads,
+      sdrAgentRepository: createMemorySdrAgentRepository([agent]),
+      uazapiClient: fakeUazapiClient(),
+    };
+    // O cron e o botao do portal: duas instancias do mesmo servico.
+    const cron = createFollowupOutreachService(deps);
+    const botao = createFollowupOutreachService(deps);
+
+    const first = cron.runOnce(NOW);
+    const second = await botao.runOnce(NOW);
+    release();
+    const firstResult = await first;
+
+    expect(second.details.join(' ')).toContain('outro follow-up deste SDR ja esta rodando');
+    expect(firstResult.sent + second.sent).toBe(1);
+  });
+});

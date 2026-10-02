@@ -21,6 +21,7 @@ import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
 import { describeNowInTimeZone, startOfDayInTimeZone } from '../timezone.js';
 import type { UazapiClient } from '../uazapi/uazapi-client.js';
 import { createChannelGuard } from './channel-guard.js';
+import { withAgentLock } from './agent-lock.js';
 import { createSendBackoff, reachoutTimelockFrom, UazapiSendError } from './send-backoff.js';
 
 /** Resolve o nivel salvo para a escala do provider deste SDR; `null` omite o parametro. */
@@ -276,6 +277,23 @@ function configuredPromptFor(agent: SdrAgent, mode: FollowupMode): string {
   return resolveSdrPlaybook(agent.playbook) === 'convite' ? '' : (agent.followupPrompt?.trim() ?? '');
 }
 
+/**
+ * Com mais de um toque o modelo precisa saber em qual esta: o segundo follow-up nao pode
+ * repetir o primeiro, e o ultimo deixa a porta aberta em vez de cobrar. Vai na parte volatil
+ * do prompt; com um toque so (o padrao) o texto fica exatamente como era.
+ */
+function touchLine(agent: SdrAgent, lead: Lead): string {
+  if (agent.followupMaxTouches <= 1) return '';
+  const touch = (lead.followupCount ?? 0) + 1;
+  const last = touch >= agent.followupMaxTouches;
+  const previous =
+    touch > 1
+      ? ` Ja houve ${touch - 1} follow-up(s) seu(s) sem resposta: nao repita o que ja disse, mude o angulo e seja ainda mais curta.`
+      : '';
+  const closing = last ? ' E o ultimo toque: deixe a porta aberta, sem cobrar resposta.' : '';
+  return `\nToque de follow-up: ${touch} de ${agent.followupMaxTouches}.${previous}${closing}`;
+}
+
 function followupAiMessages(agent: SdrAgent, lead: Lead, history: Message[], mode: FollowupMode): AiChatMessage[] {
   // interpolate() mantem o texto byte-identico quando nao ha placeholders, preservando o cache.
   const configuredPrompt = interpolate(configuredPromptFor(agent, mode), agent, lead).trim();
@@ -300,7 +318,7 @@ Cidade/UF: ${[lead.city, lead.state].filter(Boolean).join('/')}
 Dados extras: ${lead.extraData ?? ''}
 WhatsApp lead: ${lead.whatsappNumber}
 Etapa atual: ${lead.conversationStage}
-Momento agora no fuso do lead: ${describeNowInTimeZone(new Date(), agent.timezone)}
+Momento agora no fuso do lead: ${describeNowInTimeZone(new Date(), agent.timezone)}${touchLine(agent, lead)}
 
 Historico da conversa (mais antigo primeiro):
 ${historyBlock(history)}`,
@@ -486,7 +504,7 @@ export function createFollowupOutreachService(deps: FollowupOutreachDependencies
 
     // So faz follow-up de conversa realmente fria: nenhuma mensagem no chat na ultima janela.
     const quietSince = new Date(now.getTime() - agent.followupAfterHours * 60 * 60 * 1000);
-    const lead = await deps.leadRepository.findNextFollowupDueForSdr(agent.id, now, { quietSince });
+    const lead = await deps.leadRepository.findNextFollowupDueForSdr(agent.id, now, { quietSince, maxTouches: agent.followupMaxTouches });
     if (!lead) {
       details.push(`${agent.name}: nenhum follow-up vencido.`);
       return 'skipped';
@@ -574,7 +592,10 @@ export function createFollowupOutreachService(deps: FollowupOutreachDependencies
       delivered = true;
 
       await recordFollowupMessage(agent, lead, conversation, text, result.body, now);
-      await deps.leadRepository.markFollowupSent(lead.id, now);
+      // Cadencia: sobrou toque, o proximo vence depois do mesmo silencio; senao o follow-up acaba.
+      const touch = (lead.followupCount ?? 0) + 1;
+      const nextDueAt = touch < agent.followupMaxTouches ? new Date(now.getTime() + agent.followupAfterHours * 60 * 60 * 1000) : null;
+      await deps.leadRepository.markFollowupSent(lead.id, now, nextDueAt);
       await deps.jobLogRepository.create({
         jobName: 'followup-outreach',
         jobKey: `followup-${lead.id}`,
@@ -644,7 +665,11 @@ export function createFollowupOutreachService(deps: FollowupOutreachDependencies
       const result: FollowupOutreachResult = { sent: 0, skipped: 0, errors: 0, details: [] };
 
       for (const agent of agents) {
-        const status = await processAgent(agent, now, result.details);
+        let status = await withAgentLock(`followup-outreach:${agent.id}`, () => processAgent(agent, now, result.details));
+        if (!status) {
+          result.details.push(`${agent.name}: outro follow-up deste SDR ja esta rodando.`);
+          status = 'skipped';
+        }
         if (status === 'sent') result.sent += 1;
         if (status === 'skipped') result.skipped += 1;
         if (status === 'error') result.errors += 1;

@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { and, asc, eq, ilike, or } from 'drizzle-orm';
 
 import { closeDb, db } from './client.js';
-import { firstMessageVariants, sdrAgents, type NewSdrAgent, type SdrAgent } from './schema.js';
+import { firstMessageVariants, sdrAgents, sdrConfigChanges, type NewSdrAgent, type SdrAgent } from './schema.js';
 import { isSdrPlaybook, type SdrPlaybook } from '../modules/ai/sdr-playbooks.js';
 import {
   FIRST_MESSAGE_FILE,
@@ -11,6 +11,7 @@ import {
   PROMPT_FILES,
   PROMPTS_ROOT,
   planPromptUpdate,
+  type CurrentVariant,
   readPromptBundle,
   type PromptUpdatePlan,
   promptDirNameFor,
@@ -89,6 +90,12 @@ async function findAgent(reference: string): Promise<SdrAgent> {
   return first;
 }
 
+/** Todas as variantes gravadas: a secao de variantes do markdown e comparada com elas. */
+async function currentVariants(agentId: string): Promise<CurrentVariant[]> {
+  const rows = await db.select().from(firstMessageVariants).where(eq(firstMessageVariants.sdrAgentId, agentId));
+  return rows.map((row) => ({ label: row.label, body: row.body, isActive: row.isActive }));
+}
+
 /** Mensagem fixa que o SDR usa hoje: so ha uma quando existe exatamente uma variante ativa. */
 async function currentFixedFirstMessage(agentId: string): Promise<string | null> {
   const active = await db
@@ -154,6 +161,44 @@ async function applyPlan(agent: SdrAgent, plan: PromptUpdatePlan): Promise<void>
         .update(sdrAgents)
         .set({ ...patch, updatedAt: new Date() })
         .where(eq(sdrAgents.id, agent.id));
+    }
+
+    // Rastro de tudo que o script gravou, na mesma transacao: historico que diz "mudou" sem ter
+    // mudado (ou o contrario) e pior do que nenhum.
+    if (plan.changes.length > 0) {
+      await tx.insert(sdrConfigChanges).values(
+        plan.changes.map((change) => ({
+          sdrAgentId: agent.id,
+          field: change.field,
+          before: change.before,
+          after: change.after,
+          changedBy: 'script:apply-sdr-prompts',
+        })),
+      );
+    }
+
+    if (plan.variantSync) {
+      for (const variant of plan.variantSync.upsert) {
+        const [existing] = await tx
+          .select()
+          .from(firstMessageVariants)
+          .where(and(eq(firstMessageVariants.sdrAgentId, agent.id), eq(firstMessageVariants.label, variant.label)))
+          .limit(1);
+        if (existing) {
+          await tx
+            .update(firstMessageVariants)
+            .set({ body: variant.body, isActive: true, updatedAt: new Date() })
+            .where(eq(firstMessageVariants.id, existing.id));
+        } else {
+          await tx.insert(firstMessageVariants).values({ sdrAgentId: agent.id, label: variant.label, body: variant.body, isActive: true });
+        }
+      }
+      for (const label of plan.variantSync.deactivate) {
+        await tx
+          .update(firstMessageVariants)
+          .set({ isActive: false, updatedAt: new Date() })
+          .where(and(eq(firstMessageVariants.sdrAgentId, agent.id), eq(firstMessageVariants.label, label)));
+      }
     }
 
     if (plan.firstMessage === null) return;
@@ -223,6 +268,7 @@ async function main(): Promise<void> {
     agent,
     bundle,
     currentFirstMessage: await currentFixedFirstMessage(agent.id),
+    currentVariants: await currentVariants(agent.id),
     playbook,
   });
 

@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gt, gte, inArray, isNotNull, isNull, lte, ne, notExists, notInArray, or, sql, type SQL } from 'drizzle-orm';
+import { and, count, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, notExists, notInArray, or, sql, type SQL } from 'drizzle-orm';
 import { alias, type PgColumn } from 'drizzle-orm/pg-core';
 
 import { db } from '../../db/client.js';
@@ -150,15 +150,17 @@ export function createDbLeadRepository(): LeadRepository {
 
       // Duas populacoes recebem follow-up: quem respondeu e esfriou (retomada) e quem nunca
       // respondeu a abordagem (segundo toque). A segunda ficava de fora e nunca era tocada.
+      // A terceira populacao e a cadencia: quem ja recebeu follow-up e ainda tem toque sobrando.
       const target = or(
         and(eq(leads.status, 'in_conversation'), isNotNull(leads.lastInboundAt)),
         and(eq(leads.status, 'initial_sent'), isNull(leads.lastInboundAt)),
+        eq(leads.status, 'followup_sent'),
       );
 
       const conditions: SQL[] = [
         eq(leads.sdrAgentId, sdrAgentId),
         lte(leads.followupDueAt, now),
-        isNull(leads.followupSentAt),
+        lt(leads.followupCount, options?.maxTouches ?? 1),
         isNull(leads.followupDisabledAt),
         notExists(
           db
@@ -204,6 +206,11 @@ export function createDbLeadRepository(): LeadRepository {
         .orderBy(desc(leads.createdAt))
         .limit(1);
       return lead ?? null;
+    },
+
+    async findByWhatsappNumbers(whatsappNumbers) {
+      if (whatsappNumbers.length === 0) return [];
+      return db.select().from(leads).where(inArray(leads.whatsappNumber, whatsappNumbers));
     },
 
     async list() {
@@ -333,10 +340,18 @@ export function createDbLeadRepository(): LeadRepository {
       return lead ?? null;
     },
 
-    async markFollowupSent(id, sentAt) {
+    async markFollowupSent(id, sentAt, nextDueAt = null) {
       const [lead] = await db
         .update(leads)
-        .set({ status: 'followup_sent', followupSentAt: sentAt, followupDisabledAt: sentAt, lastOutboundAt: sentAt, updatedAt: sentAt })
+        .set({
+          status: 'followup_sent',
+          followupSentAt: sentAt,
+          followupCount: sql`${leads.followupCount} + 1`,
+          ...(nextDueAt ? { followupDueAt: nextDueAt } : {}),
+          followupDisabledAt: nextDueAt ? null : sentAt,
+          lastOutboundAt: sentAt,
+          updatedAt: sentAt,
+        })
         .where(eq(leads.id, id))
         .returning();
       return lead ?? null;

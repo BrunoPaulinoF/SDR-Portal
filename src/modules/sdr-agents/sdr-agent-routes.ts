@@ -10,6 +10,7 @@ import type { CompanyRepository } from '../companies/company-repository.js';
 import { decryptSecret, encryptSecret } from '../security/secrets.js';
 import { configureInstanceWebhook, deleteInstance, isInstanceProvisioningEnabled, provisionInstance } from '../uazapi/instance-provisioning.js';
 import type { UazapiClient } from '../uazapi/uazapi-client.js';
+import { diffAgentConfig, type SdrConfigChangeRepository } from './config-history.js';
 import { findPromptDrift, type PromptDrift } from './prompt-bundle.js';
 import type { SdrAgentInput, SdrAgentRepository } from './sdr-agent-repository.js';
 import {
@@ -66,6 +67,8 @@ const sdrAgentFormSchema = z.object({
   followupCooldownMaxMinutes: z.coerce.number().int().nonnegative(),
   dailyInitialSendLimit: z.coerce.number().int().positive(),
   dailyFollowupSendLimit: z.coerce.number().int().positive(),
+  // Ausente em formulario antigo: 1 e o comportamento de sempre.
+  followupMaxTouches: z.coerce.number().int().min(1).max(5).optional().default(1),
   responseDelayBaseMs: z.coerce.number().int().nonnegative(),
   responseDelayPerCharMs: z.coerce.number().int().nonnegative(),
   responseDelayMaxMs: z.coerce.number().int().nonnegative(),
@@ -155,6 +158,7 @@ function parseSdrAgentInput(body: unknown, current?: SdrAgentInput): { input: Sd
       followupCooldownMaxMinutes: data.followupCooldownMaxMinutes,
       dailyInitialSendLimit: data.dailyInitialSendLimit,
       dailyFollowupSendLimit: data.dailyFollowupSendLimit,
+      followupMaxTouches: data.followupMaxTouches,
       responseDelayBaseMs: data.responseDelayBaseMs,
       responseDelayPerCharMs: data.responseDelayPerCharMs,
       responseDelayMaxMs: data.responseDelayMaxMs,
@@ -180,6 +184,7 @@ export function registerSdrAgentRoutes(
   companyRepository: CompanyRepository,
   sdrAgentRepository: SdrAgentRepository,
   uazapiClient: UazapiClient,
+  configChanges: SdrConfigChangeRepository,
 ): void {
   app.get('/sdr-agents', async (request, reply) => {
     const user = await requireUser(request, reply, authRepository);
@@ -289,7 +294,8 @@ export function registerSdrAgentRoutes(
       request.log.warn({ sdrAgentId: agent.id, error }, 'Prompt drift check failed');
     }
 
-    return reply.type('text/html').send(renderEditSdrAgentPage(agent, companies, undefined, drift));
+    const history = await configChanges.listForAgent(agent.id, 40);
+    return reply.type('text/html').send(renderEditSdrAgentPage(agent, companies, undefined, drift, history));
   });
 
   app.post('/sdr-agents/:id', async (request, reply) => {
@@ -319,6 +325,7 @@ export function registerSdrAgentRoutes(
       return reply.status(400).type('text/html').send(renderEditSdrAgentPage(agent, companies, message));
     }
 
+    await configChanges.record(diffAgentConfig(agent, input, `portal:${user.email}`));
     await sdrAgentRepository.update(params.data.id, input);
     return reply.redirect('/sdr-agents');
   });
@@ -336,6 +343,7 @@ export function registerSdrAgentRoutes(
 
       if (agent) {
         await sdrAgentRepository.setActive(agent.id, !agent.isActive);
+        await configChanges.record(diffAgentConfig(agent, { isActive: !agent.isActive }, `portal:${user.email}`));
       }
     }
 

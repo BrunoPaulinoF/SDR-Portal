@@ -250,6 +250,35 @@ real. "Entregues" ficou de fora do funil: o portal não guarda confirmação de 
    primeira mensagem, e a explicação só quando a pessoa perguntar. Medir contra a atual com o
    A/B da Fase 2.
 
+**Andamento (02/10):**
+
+- **Feito.** Item 1: a fonte e o repositorio, com rastro no banco. Toda mudanca de
+  configuracao (tela ou script) vai para `sdr_config_changes` (migracao 0034) e aparece na tela
+  do SDR; as variantes da primeira mensagem passaram a morar em
+  `docs/prompts/<sdr>/first-message-variants.md` (secao `Variantes no ar`) e o
+  `apply-sdr-prompts` grava as do arquivo e pausa as que sairam.
+- **Feito, com uma troca.** Item 3: cadencia de ate 5 toques por SDR
+  (`followup_max_touches`/`followup_count`, migracao 0032; o padrao 1 mantem o comportamento
+  de hoje). A reserva do lead ficou numa trava por SDR dentro do processo, nao em
+  `FOR UPDATE SKIP LOCKED`: com uma instancia so do portal ela basta, e o banco nao precisou
+  mudar. Com duas instancias, a trava tem de ir para o banco.
+- **Feito em parte.** Item 2: a resposta ao lead saiu da memoria para a fila do pg-boss
+  (`reply-conversation`) — deploy no meio da espera nao apaga mais a resposta, e uma conversa
+  nunca gera duas respostas ao mesmo tempo. O `pending-reply` **continua** como rede de
+  seguranca ate a fila provar que basta. O worker separado do portal nao foi feito: e um
+  segundo servico no EasyPanel, decisao de operacao antes de ser codigo.
+- **Feito em parte.** Item 6: lista de nao contatar valendo para todos os SDRs (migracao
+  0033) e importacao que nao duplica a loja dentro da empresa nem reimporta numero sem
+  WhatsApp. Validar o numero na importacao e priorizar loja sem robo ficaram para depois — o
+  `/chat/check` antes do envio ja impede a mensagem para numero inexistente.
+- **Feito em parte.** Itens 5 e 7: a secao do robo da loja no prompt da Mariana caiu de ~1.800
+  para ~700 caracteres e parou de mandar ela se reapresentar (o webhook ja filtra o robo). Duas
+  variantes novas, curtas e sem pitch ("Nao e pedido" e "Nao sou cliente"), estao no arquivo;
+  entram no ar quando o script for rodado depois do deploy, e a antiga sai pausada. O corte
+  maior de regras do prompt base ficou para depois de medir as variantes.
+- **Nao feito.** Item 4, a camada de canal. Os testes de SQL contra Postgres de verdade
+  (`tests/banco-de-verdade.test.ts`) entraram como base para essas mudancas.
+
 ## Metas para saber se melhorou
 
 | Indicador | Hoje | Meta em 30 dias |

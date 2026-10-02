@@ -1,4 +1,5 @@
-import type { Company, SdrAgent } from '../../db/schema.js';
+import type { Company, SdrAgent, SdrConfigChange } from '../../db/schema.js';
+import { formatDateTimeInTimeZone } from '../timezone.js';
 import { lockedBasePromptPreview } from '../ai/sdr-base-prompt.js';
 import { DEFAULT_SDR_PLAYBOOK, SDR_PLAYBOOK_LABELS, SDR_PLAYBOOKS, resolveSdrPlaybook } from '../ai/sdr-playbooks.js';
 import { DEFAULT_LEAD_QUALIFICATION_PROMPT } from '../leads/lead-qualification-prompt.js';
@@ -53,6 +54,7 @@ interface SdrAgentFormData {
   followupCooldownMaxMinutes: string;
   dailyInitialSendLimit: string;
   dailyFollowupSendLimit: string;
+  followupMaxTouches: string;
   responseDelayBaseMs: string;
   responseDelayPerCharMs: string;
   responseDelayMaxMs: string;
@@ -158,11 +160,12 @@ const fieldHelp: Partial<Record<keyof SdrAgentFormData, string>> = {
   aiProvider: 'Escolha onde a IA sera chamada. DeepSeek usa a API oficial da DeepSeek (recomendado). OpenAI usa sua chave OpenAI; OpenRouter usa sua chave OpenRouter.',
   aiTemperature: 'Controla variacao/criatividade. Para SDR, valores baixos como 0.3 a 0.6 tendem a ser mais consistentes. Modelos com raciocinio ligado (como o deepseek-v4-pro) ignoram este campo.',
   dailyFollowupSendLimit: 'Maximo de follow-ups enviados por este SDR em um dia.',
+  followupMaxTouches: 'Quantos follow-ups cada lead pode receber no total enquanto nao responde (1 a 5). 1 = um so, como sempre foi. Cada toque a mais e mais uma mensagem de numero desconhecido: suba aos poucos e olhe a saude do WhatsApp.',
   dailyInitialSendLimit: 'Maximo de primeiras mensagens enviadas por este SDR em um dia.',
   displayName: 'Nome que a IA usa ao se apresentar na conversa. Ex: Kyane.',
   playbook: 'Estrategia de conversa. Consultivo: a IA diz do que se trata, entende a rotina do lead e so depois chama o humano. Convite: a IA nao apresenta o produto, so gera curiosidade e passa o lead para o humano no primeiro sim.',
   leadQualificationPrompt: 'Prompt usado antes da primeira mensagem para decidir se o lead deve ser abordado ou descartado. A IA deve retornar qualified=false apenas quando houver baixo fit claro.',
-  followupAfterHours: 'Quantidade de horas apos a primeira mensagem para tentar o follow-up unico, somente se o lead ja respondeu.',
+  followupAfterHours: 'Horas de silencio antes de cada follow-up: depois da primeira mensagem e, com mais de um toque, depois de cada follow-up.',
   followupCooldownMaxMinutes: 'Intervalo maximo entre follow-ups automaticos.',
   followupCooldownMinMinutes: 'Intervalo minimo entre follow-ups automaticos.',
   followupEnabled: 'Quando ativo, o sistema tenta enviar um unico follow-up somente para leads que ja responderam.',
@@ -241,6 +244,7 @@ const defaultForm: SdrAgentFormData = {
   followupCooldownMaxMinutes: '30',
   dailyInitialSendLimit: '40',
   dailyFollowupSendLimit: '50',
+  followupMaxTouches: '1',
   responseDelayBaseMs: '1200',
   responseDelayPerCharMs: '35',
   responseDelayMaxMs: '12000',
@@ -300,6 +304,7 @@ function agentToForm(agent?: SdrAgent): SdrAgentFormData {
     followupCooldownMaxMinutes: String(agent.followupCooldownMaxMinutes),
     dailyInitialSendLimit: String(agent.dailyInitialSendLimit),
     dailyFollowupSendLimit: String(agent.dailyFollowupSendLimit),
+    followupMaxTouches: String(agent.followupMaxTouches),
     responseDelayBaseMs: String(agent.responseDelayBaseMs),
     responseDelayPerCharMs: String(agent.responseDelayPerCharMs),
     responseDelayMaxMs: String(agent.responseDelayMaxMs),
@@ -606,6 +611,7 @@ function renderSdrAgentForm(action: string, companies: Company[], agent?: SdrAge
       ${renderField('followupCooldownMinMinutes', 'Cooldown follow-up minimo em minutos', data.followupCooldownMinMinutes, true, 'number')}
       ${renderField('followupCooldownMaxMinutes', 'Cooldown follow-up maximo em minutos', data.followupCooldownMaxMinutes, true, 'number')}
       ${renderField('dailyFollowupSendLimit', 'Limite diario de follow-ups', data.dailyFollowupSendLimit, true, 'number')}
+      ${renderField('followupMaxTouches', 'Follow-ups por lead (maximo)', data.followupMaxTouches, true, 'number')}
         `,
       )}
 
@@ -723,10 +729,46 @@ function renderPromptDrift(agent: SdrAgent, drift: PromptDrift | null): string {
     <p class="muted">Se os arquivos estao certos, grave pelo Console do EasyPanel: <code>cd /app &amp;&amp; node dist/src/db/apply-sdr-prompts.js --agent="${escapeHtml(agent.name)}" --apply</code>. Se a edicao feita aqui e a certa, leve o texto para os arquivos no repositorio.</p></section>`;
 }
 
-export function renderEditSdrAgentPage(agent: SdrAgent, companies: Company[], error?: string, drift: PromptDrift | null = null): string {
+function clip(value: string | null, max = 400): string {
+  if (value === null) return '(vazio)';
+  return value.length > max ? `${value.slice(0, max)}…` : value;
+}
+
+/**
+ * O que mudou neste SDR, quando e por quem. E para ler junto do funil: resultado que mudou de
+ * uma semana para a outra quase sempre tem uma linha aqui explicando.
+ */
+function renderConfigHistory(agent: SdrAgent, history: SdrConfigChange[]): string {
+  if (history.length === 0) {
+    return '<section class="panel spacing-top"><h2>Historico de mudancas</h2><p class="muted">Nada registrado ainda. Toda mudanca de prompt, variante, modelo ou limite feita daqui em diante aparece aqui.</p></section>';
+  }
+  const rows = history
+    .map(
+      (change) => `<tr>
+        <td>${escapeHtml(formatDateTimeInTimeZone(change.createdAt, agent.timezone))}</td>
+        <td>${escapeHtml(change.field)}</td>
+        <td class="muted">${escapeHtml(change.changedBy)}</td>
+        <td><details><summary>Ver</summary><p class="muted">Antes</p><pre style="white-space:pre-wrap;max-height:160px;overflow:auto;">${escapeHtml(clip(change.before))}</pre><p class="muted">Depois</p><pre style="white-space:pre-wrap;max-height:160px;overflow:auto;">${escapeHtml(clip(change.after))}</pre></details></td>
+      </tr>`,
+    )
+    .join('');
+  return `<section class="panel spacing-top">
+    <h2>Historico de mudancas</h2>
+    <p class="muted">As ${history.length} mudancas mais recentes. Mude uma coisa por vez: assim da para saber qual mexeu no resultado.</p>
+    <div class="table-wrap"><table><thead><tr><th>Quando</th><th>O que</th><th>Quem</th><th>Antes e depois</th></tr></thead><tbody>${rows}</tbody></table></div>
+  </section>`;
+}
+
+export function renderEditSdrAgentPage(
+  agent: SdrAgent,
+  companies: Company[],
+  error?: string,
+  drift: PromptDrift | null = null,
+  history: SdrConfigChange[] = [],
+): string {
   return renderLayout({
     title: 'Editar SDR - SDR Portal',
-    body: `<main class="app-shell"><header class="topbar"><div><h1>Editar SDR</h1><p class="muted">Atualize as configuracoes do agente.</p></div></header>${renderPromptDrift(agent, drift)}<section class="panel">${renderSdrAgentForm(`/sdr-agents/${agent.id}`, companies, agent, error)}</section>${renderUazapiActions(agent)}</main>`,
+    body: `<main class="app-shell"><header class="topbar"><div><h1>Editar SDR</h1><p class="muted">Atualize as configuracoes do agente.</p></div></header>${renderPromptDrift(agent, drift)}<section class="panel">${renderSdrAgentForm(`/sdr-agents/${agent.id}`, companies, agent, error)}</section>${renderUazapiActions(agent)}${renderConfigHistory(agent, history)}</main>`,
   });
 }
 

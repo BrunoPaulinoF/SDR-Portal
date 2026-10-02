@@ -96,6 +96,12 @@ export const sdrAgents = pgTable('sdr_agents', {
   followupCooldownMaxMinutes: integer('followup_cooldown_max_minutes').default(30).notNull(),
   dailyInitialSendLimit: integer('daily_initial_send_limit').default(40).notNull(),
   dailyFollowupSendLimit: integer('daily_followup_send_limit').default(50).notNull(),
+  /**
+   * Quantos follow-ups um lead pode receber no total. 1 e o comportamento de sempre (um so);
+   * acima disso cada toque a mais sai `followup_after_hours` depois do anterior, enquanto o lead
+   * nao responder. Cada toque e mais uma mensagem de numero desconhecido: subir com cuidado.
+   */
+  followupMaxTouches: integer('followup_max_touches').default(1).notNull(),
   responseDelayBaseMs: integer('response_delay_base_ms').default(1200).notNull(),
   responseDelayPerCharMs: integer('response_delay_per_char_ms').default(35).notNull(),
   responseDelayMaxMs: integer('response_delay_max_ms').default(12000).notNull(),
@@ -156,6 +162,8 @@ export const leads = pgTable(
     followupDisabledAt: timestamp('followup_disabled_at', { withTimezone: true }),
     /** Geracoes de follow-up que falharam por erro tecnico. Zera quando o lead responde. */
     followupAttempts: integer('followup_attempts').default(0).notNull(),
+    /** Follow-ups ja enviados a este lead: a cadencia para em `sdr_agents.followup_max_touches`. */
+    followupCount: integer('followup_count').default(0).notNull(),
     humanPausedUntil: timestamp('human_paused_until', { withTimezone: true }),
     aiPausedAt: timestamp('ai_paused_at', { withTimezone: true }),
     aiPauseReason: text('ai_pause_reason'),
@@ -485,3 +493,55 @@ export const sdrConnectionEvents = pgTable(
 
 export type SdrConnectionEvent = typeof sdrConnectionEvents.$inferSelect;
 export type NewSdrConnectionEvent = typeof sdrConnectionEvents.$inferInsert;
+
+/**
+ * Numeros que nenhum SDR aborda mais: quem pediu para nao ser contatado, numero que nao e do
+ * ramo (taxi, consultorio), dono que ja disse nao para todos os produtos. Vale para a importacao
+ * e para o disparo de qualquer SDR. Ate 02/10 a unica protecao era o lead existir no mesmo SDR
+ * com o mesmo numero exato — reimportar a planilha devolvia quem tinha recusado.
+ */
+export const contactBlocks = pgTable(
+  'contact_blocks',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    /** So digitos, como `leads.whatsapp_number`. A busca usa as variantes com e sem o 9. */
+    whatsappNumber: text('whatsapp_number').notNull(),
+    reason: text('reason'),
+    /** Quem bloqueou: `portal:<email>` ou o lead de onde veio. */
+    source: text('source').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex('contact_blocks_number_unique_idx').on(table.whatsappNumber)],
+);
+
+export type ContactBlock = typeof contactBlocks.$inferSelect;
+export type NewContactBlock = typeof contactBlocks.$inferInsert;
+
+/**
+ * Historico de configuracao de cada SDR: prompt, variante da primeira mensagem, modelo, limites.
+ * Uma linha por campo alterado, com o antes e o depois e quem mudou (tela ou script).
+ *
+ * Existe para responder "o que mudou e quando" ao lado do funil: em agosto e setembro a
+ * abertura, o prompt, o modelo e o limite mudaram juntos varias vezes, ninguem sabia a data de
+ * cada um, e a variante da Mariana ficou dez dias no ar diferente do que a documentacao dizia.
+ */
+export const sdrConfigChanges = pgTable(
+  'sdr_config_changes',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    sdrAgentId: uuid('sdr_agent_id')
+      .notNull()
+      .references(() => sdrAgents.id, { onDelete: 'cascade' }),
+    /** Campo do SDR (`prompt`, `aiModel`...) ou `variante:<rotulo>`. */
+    field: text('field').notNull(),
+    before: text('before'),
+    after: text('after'),
+    /** `portal:<email>` ou `script:apply-sdr-prompts`. */
+    changedBy: text('changed_by').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('sdr_config_changes_agent_time_idx').on(table.sdrAgentId, table.createdAt)],
+);
+
+export type SdrConfigChange = typeof sdrConfigChanges.$inferSelect;
+export type NewSdrConfigChange = typeof sdrConfigChanges.$inferInsert;

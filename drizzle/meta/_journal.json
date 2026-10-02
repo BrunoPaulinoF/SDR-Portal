@@ -225,6 +225,27 @@
       "when": 1790948151888,
       "tag": "0031_sdr_connection_events",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1790949300561,
+      "tag": "0032_followup_cadence",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1790949546308,
+      "tag": "0033_contact_blocks",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1790949795347,
+      "tag": "0034_sdr_config_changes",
+      "breakpoints": true
     }
   ]
 }

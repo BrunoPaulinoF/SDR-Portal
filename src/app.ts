@@ -8,6 +8,7 @@ import { createHttpAiClient, type AiClient } from './modules/ai/ai-client.js';
 import { createMemoryAiRunRepository, type AiRunRepository } from './modules/ai/ai-run-repository.js';
 import { createAiResponseService } from './modules/ai/ai-response-service.js';
 import { createInboundResponseBuffer } from './modules/ai/inbound-response-buffer.js';
+import { createReplyDispatcher, type ReplyTransportSlot } from './modules/ai/reply-queue.js';
 import { createAudioTranscriptionService } from './modules/audio/audio-transcription-service.js';
 import { createElevenLabsTextToSpeechClient, type TextToSpeechClient } from './modules/audio/text-to-speech-client.js';
 import { registerAiRunRoutes } from './modules/ai/ai-run-routes.js';
@@ -57,6 +58,8 @@ import {
   type InstanceShareLinkRepository,
 } from './modules/uazapi/instance-share-link-repository.js';
 import { registerAssetsRoutes } from './modules/web/assets.js';
+import { createMemoryContactBlockRepository, type ContactBlockRepository } from './modules/leads/contact-block-repository.js';
+import { createMemorySdrConfigChangeRepository, type SdrConfigChangeRepository } from './modules/sdr-agents/config-history.js';
 import { registerWebhookEventRoutes } from './modules/webhooks/webhook-event-routes.js';
 import { createMemoryWebhookEventRepository, type WebhookEventRepository } from './modules/webhooks/webhook-event-repository.js';
 import { createResetConversationService } from './modules/webhooks/reset-conversation-service.js';
@@ -69,6 +72,8 @@ export interface AppOptions extends FastifyServerOptions {
   aiRunRepository?: AiRunRepository;
   authRepository?: AuthRepository;
   companyRepository?: CompanyRepository;
+  configChangeRepository?: SdrConfigChangeRepository;
+  contactBlockRepository?: ContactBlockRepository;
   conversationRepository?: ConversationRepository;
   firstMessageVariantRepository?: FirstMessageVariantRepository;
   jobLogRepository?: JobLogRepository;
@@ -78,6 +83,8 @@ export interface AppOptions extends FastifyServerOptions {
   leadRepository?: LeadRepository;
   connectionMonitorRepository?: ConnectionMonitorRepository;
   inboundResponseBufferMs?: number;
+  /** Fila de respostas no banco, ligada pelo `server.ts` depois que o pg-boss sobe. */
+  replyTransport?: ReplyTransportSlot;
   instanceShareLinkRepository?: InstanceShareLinkRepository;
   sdrAgentRepository?: SdrAgentRepository;
   textToSpeechClient?: TextToSpeechClient;
@@ -463,9 +470,9 @@ function createLazyDbLeadRepository(): LeadRepository {
       return createDbLeadRepository().markOutboundSent(id, sentAt);
     },
 
-    async markFollowupSent(id, sentAt) {
+    async markFollowupSent(id, sentAt, nextDueAt) {
       const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
-      return createDbLeadRepository().markFollowupSent(id, sentAt);
+      return createDbLeadRepository().markFollowupSent(id, sentAt, nextDueAt);
     },
 
     async rescheduleFollowup(id, followupDueAt, updatedAt) {
@@ -516,6 +523,10 @@ function createLazyDbLeadRepository(): LeadRepository {
     async setFirstMessageVariant(id, variantId) {
       const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
       return createDbLeadRepository().setFirstMessageVariant(id, variantId);
+    },
+    async findByWhatsappNumbers(whatsappNumbers) {
+      const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
+      return createDbLeadRepository().findByWhatsappNumbers(whatsappNumbers);
     },
     async setOutcome(id, outcome, updatedAt) {
       const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
@@ -605,12 +616,48 @@ function createLazyDbLeadResearchRepository(): LeadResearchRepository {
   };
 }
 
+function createLazyDbSdrConfigChangeRepository(): SdrConfigChangeRepository {
+  return {
+    async record(changes) {
+      const { createDbSdrConfigChangeRepository } = await import('./modules/sdr-agents/db-config-history.js');
+      return createDbSdrConfigChangeRepository().record(changes);
+    },
+    async listForAgent(sdrAgentId, limit) {
+      const { createDbSdrConfigChangeRepository } = await import('./modules/sdr-agents/db-config-history.js');
+      return createDbSdrConfigChangeRepository().listForAgent(sdrAgentId, limit);
+    },
+  };
+}
+
+function createLazyDbContactBlockRepository(): ContactBlockRepository {
+  return {
+    async add(input) {
+      const { createDbContactBlockRepository } = await import('./modules/leads/db-contact-block-repository.js');
+      return createDbContactBlockRepository().add(input);
+    },
+    async findBlocked(whatsappNumber) {
+      const { createDbContactBlockRepository } = await import('./modules/leads/db-contact-block-repository.js');
+      return createDbContactBlockRepository().findBlocked(whatsappNumber);
+    },
+    async list() {
+      const { createDbContactBlockRepository } = await import('./modules/leads/db-contact-block-repository.js');
+      return createDbContactBlockRepository().list();
+    },
+    async remove(id) {
+      const { createDbContactBlockRepository } = await import('./modules/leads/db-contact-block-repository.js');
+      return createDbContactBlockRepository().remove(id);
+    },
+  };
+}
+
 export function buildApp(options: AppOptions = {}): AppInstance {
   const {
     aiClient,
     aiRunRepository,
     authRepository,
     companyRepository,
+    configChangeRepository,
+    contactBlockRepository,
     conversationRepository,
     firstMessageVariantRepository,
     jobLogRepository,
@@ -621,6 +668,7 @@ export function buildApp(options: AppOptions = {}): AppInstance {
     connectionMonitorRepository,
     inboundResponseBufferMs,
     instanceShareLinkRepository,
+    replyTransport,
     sdrAgentRepository,
     textToSpeechClient,
     uazapiClient,
@@ -634,6 +682,10 @@ export function buildApp(options: AppOptions = {}): AppInstance {
   const sdrAgents =
     sdrAgentRepository ?? (env.NODE_ENV === 'test' ? createMemorySdrAgentRepository() : createLazyDbSdrAgentRepository());
   const leads = leadRepository ?? (env.NODE_ENV === 'test' ? createMemoryLeadRepository() : createLazyDbLeadRepository());
+  const configChanges =
+    configChangeRepository ?? (env.NODE_ENV === 'test' ? createMemorySdrConfigChangeRepository() : createLazyDbSdrConfigChangeRepository());
+  const contactBlocks =
+    contactBlockRepository ?? (env.NODE_ENV === 'test' ? createMemoryContactBlockRepository() : createLazyDbContactBlockRepository());
   const jobLogs = jobLogRepository ?? (env.NODE_ENV === 'test' ? createMemoryJobLogRepository() : createLazyDbJobLogRepository());
   const conversations =
     conversationRepository ?? (env.NODE_ENV === 'test' ? createMemoryConversationRepository() : createLazyDbConversationRepository());
@@ -661,6 +713,7 @@ export function buildApp(options: AppOptions = {}): AppInstance {
   const initialOutreach = createInitialOutreachService({
     aiClient: ai,
     aiRunRepository: aiRuns,
+    contactBlockRepository: contactBlocks,
     conversationRepository: conversations,
     firstMessageVariantRepository: firstMessageVariants,
     jobLogRepository: jobLogs,
@@ -697,11 +750,16 @@ export function buildApp(options: AppOptions = {}): AppInstance {
     textToSpeechClient: textToSpeech,
     uazapiClient: uazapi,
   });
-  const bufferedAiResponseService = createInboundResponseBuffer({
-    aiResponseService,
-    conversationRepository: conversations,
-    delayMs: inboundResponseBufferMs ?? (env.NODE_ENV === 'test' ? 0 : env.INBOUND_RESPONSE_BUFFER_MS),
-    leadRepository: leads,
+  const replyDelayMs = inboundResponseBufferMs ?? (env.NODE_ENV === 'test' ? 0 : env.INBOUND_RESPONSE_BUFFER_MS);
+  const bufferedAiResponseService = createReplyDispatcher({
+    delayMs: replyDelayMs,
+    fallback: createInboundResponseBuffer({
+      aiResponseService,
+      conversationRepository: conversations,
+      delayMs: replyDelayMs,
+      leadRepository: leads,
+    }),
+    transport: replyTransport,
   });
   const pendingReply = createPendingReplyService({
     aiResponseService,
@@ -754,9 +812,9 @@ export function buildApp(options: AppOptions = {}): AppInstance {
   registerAuthRoutes(app, repository);
   registerDashboardRoutes(app, repository, companies, sdrAgents, leads, conversations, aiRuns, jobLogs, connectionMonitors);
   registerCompanyRoutes(app, repository, companies);
-  registerSdrAgentRoutes(app, repository, companies, sdrAgents, uazapi);
-  registerFirstMessageVariantRoutes(app, repository, sdrAgents, firstMessageVariants);
-  registerLeadRoutes(app, repository, companies, sdrAgents, leads, aiRuns, jobLogs);
+  registerSdrAgentRoutes(app, repository, companies, sdrAgents, uazapi, configChanges);
+  registerFirstMessageVariantRoutes(app, repository, sdrAgents, firstMessageVariants, configChanges);
+  registerLeadRoutes(app, repository, companies, sdrAgents, leads, aiRuns, jobLogs, contactBlocks);
   registerUazapiRoutes(app, repository, sdrAgents, uazapi, textToSpeech);
   registerInstanceConnectRoutes(app, repository, sdrAgents, instanceShareLinks, uazapi);
   registerSchedulerRoutes(app, repository, initialOutreach, followupOutreach, pendingReply);

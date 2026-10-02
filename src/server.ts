@@ -3,12 +3,14 @@ import { env } from './config/env.js';
 import { createHttpAiClient } from './modules/ai/ai-client.js';
 import { createAiResponseService } from './modules/ai/ai-response-service.js';
 import { createDbAiRunRepository } from './modules/ai/db-ai-run-repository.js';
+import { createReplyJobProcessor, createReplyTransportSlot } from './modules/ai/reply-queue.js';
 import { createElevenLabsTextToSpeechClient } from './modules/audio/text-to-speech-client.js';
 import { createDbConversationRepository } from './modules/conversations/db-conversation-repository.js';
 import { createDbFirstMessageVariantRepository } from './modules/first-message-variants/db-first-message-variant-repository.js';
 import { createDbJobLogRepository } from './modules/jobs/db-job-log-repository.js';
 import { createDbLeadResearchRepository } from './modules/leads/db-lead-research-repository.js';
 import { createHttpLeadResearchProvider, createLeadResearchService } from './modules/leads/lead-research-service.js';
+import { createDbContactBlockRepository } from './modules/leads/db-contact-block-repository.js';
 import { createDbLeadRepository } from './modules/leads/db-lead-repository.js';
 import { createDbConnectionMonitorRepository } from './modules/monitoring/db-connection-monitor-repository.js';
 import { createConnectionMonitorService } from './modules/monitoring/connection-monitor-service.js';
@@ -24,25 +26,50 @@ import {
   startPgBossFollowupScheduler,
   startPgBossInitialOutreachScheduler,
   startPgBossPendingReplyScheduler,
+  startPgBossReplyQueue,
 } from './modules/scheduler/pg-boss-scheduler.js';
 import { createDbSdrAgentRepository } from './modules/sdr-agents/db-sdr-agent-repository.js';
 import { createHttpUazapiClient } from './modules/uazapi/uazapi-client.js';
 import type PgBoss from 'pg-boss';
 
+const replyTransport = createReplyTransportSlot();
 const app = buildApp({
   logger: {
     level: env.LOG_LEVEL,
   },
+  replyTransport,
 });
 const bosses: PgBoss[] = [];
 
 async function start(): Promise<void> {
   try {
     await app.listen({ host: env.HOST, port: env.PORT });
+    // Primeiro a fila de respostas: lead esperando resposta vale mais do que qualquer cron.
+    const replyBoss = await startPgBossReplyQueue(
+      createReplyJobProcessor({
+        aiResponseService: createAiResponseService({
+          aiClient: createHttpAiClient(),
+          aiRunRepository: createDbAiRunRepository(),
+          conversationRepository: createDbConversationRepository(),
+          jobLogRepository: createDbJobLogRepository(),
+          leadRepository: createDbLeadRepository(),
+          textToSpeechClient: createElevenLabsTextToSpeechClient(),
+          uazapiClient: createHttpUazapiClient(),
+        }),
+        conversationRepository: createDbConversationRepository(),
+        delayMs: env.INBOUND_RESPONSE_BUFFER_MS,
+        leadRepository: createDbLeadRepository(),
+        sdrAgentRepository: createDbSdrAgentRepository(),
+        transport: replyTransport,
+      }),
+      replyTransport,
+    );
+    if (replyBoss) bosses.push(replyBoss);
     const initialBoss = await startPgBossInitialOutreachScheduler(
       createInitialOutreachService({
         aiClient: createHttpAiClient(),
         aiRunRepository: createDbAiRunRepository(),
+        contactBlockRepository: createDbContactBlockRepository(),
         conversationRepository: createDbConversationRepository(),
         firstMessageVariantRepository: createDbFirstMessageVariantRepository(),
         jobLogRepository: createDbJobLogRepository(),

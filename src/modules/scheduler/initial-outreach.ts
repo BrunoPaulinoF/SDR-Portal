@@ -26,6 +26,8 @@ import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
 import { describeNowInTimeZone, startOfDayInTimeZone } from '../timezone.js';
 import type { UazapiClient, UazapiCredentials } from '../uazapi/uazapi-client.js';
 import { createChannelGuard } from './channel-guard.js';
+import type { ContactBlockRepository } from '../leads/contact-block-repository.js';
+import { withAgentLock } from './agent-lock.js';
 import { createLeadSendFailures, createSendBackoff, reachoutTimelockFrom, UazapiSendError } from './send-backoff.js';
 
 /** Resolve o nivel salvo para a escala do provider deste SDR; `null` omite o parametro. */
@@ -48,6 +50,8 @@ export interface FirstMessageDependencies {
 }
 
 interface InitialOutreachDependencies extends FirstMessageDependencies {
+  /** Lista de "nao contatar". Opcional para os testes que nao tratam dela. */
+  contactBlockRepository?: ContactBlockRepository;
   conversationRepository: ConversationRepository;
   jobLogRepository: JobLogRepository;
   leadResearchService: LeadResearchService;
@@ -820,6 +824,28 @@ export function createInitialOutreachService(deps: InitialOutreachDependencies) 
           return { ...emptyProcessResult(), skipped };
         }
 
+        // Bloqueado depois da importacao (pediu para sair, nao e do ramo): nem consulta o numero.
+        const blocked = await deps.contactBlockRepository?.findBlocked(lead.whatsappNumber);
+        if (blocked) {
+          await deps.leadRepository.markDiscarded(lead.id, now);
+          await deps.jobLogRepository.create({
+            jobName: 'initial-outreach',
+            jobKey: `blocked-${lead.id}`,
+            sdrAgentId: agent.id,
+            leadId: lead.id,
+            status: 'skipped',
+            attempt: 1,
+            payload: JSON.stringify({ number: lead.whatsappNumber, companyName: lead.companyName }),
+            result: JSON.stringify({ reason: 'nao contatar', blockReason: blocked.reason, blockedBy: blocked.source }),
+            error: null,
+            startedAt,
+            finishedAt: new Date(),
+          });
+          skipped += 1;
+          details.push(`${agent.name}: ${lead.companyName} esta na lista de nao contatar.`);
+          continue;
+        }
+
         const phoneCheck = await checkWhatsappExists(deps, credentials, lead.whatsappNumber);
         if (!phoneCheck.exists) {
           await deps.leadRepository.markInvalidPhone(lead.id, now);
@@ -966,7 +992,11 @@ export function createInitialOutreachService(deps: InitialOutreachDependencies) 
       const result: InitialOutreachResult = { sent: 0, skipped: 0, errors: 0, details: [] };
 
       for (const agent of agents) {
-        const agentResult = await processAgent(agent, now, result.details);
+        let agentResult = await withAgentLock(`initial-outreach:${agent.id}`, () => processAgent(agent, now, result.details));
+        if (!agentResult) {
+          result.details.push(`${agent.name}: outro disparo deste SDR ja esta rodando.`);
+          agentResult = skippedProcessResult();
+        }
         result.sent += agentResult.sent;
         result.skipped += agentResult.skipped;
         result.errors += agentResult.errors;
