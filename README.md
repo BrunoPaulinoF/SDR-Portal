@@ -240,6 +240,7 @@ Motor IA de resposta:
 - Ao receber mensagem inbound via webhook, se o SDR estiver ativo e tiver credenciais de IA/UAZAPI, gera resposta, envia via UAZAPI e salva a mensagem outbound no historico.
 - Com a conversa pausada (`ai_paused_at` preenchido, ou `human_paused_until` no futuro em leads pausados antes dessa mudanca), a IA nao responde. Liberar no portal limpa a pausa e devolve o lead ao status que a conversa tinha.
 - Quando a IA retorna `notify_handoff` em `actions`, o sistema envia um resumo para o `handoff_phone` do SDR, marca o lead como `transferred`, salva `handoff_requested_at`/`handoff_summary` e desativa follow-up.
+- **Resposta em audio** (secao "Resposta em audio (ElevenLabs)" do SDR, coluna `audio_reply_mode`): `off` (padrao), `when_lead_sends_audio` ou `always`. Ligada, a resposta da IA vira voz na ElevenLabs (`elevenlabs_voice_id`, `elevenlabs_model`, chave do SDR ou `ELEVENLABS_API_KEY`) e sai pela UAZAPI como audio de voz (`/send/media`, `type: ptt`), com presenca "gravando audio". Vale so para a resposta a quem escreveu: abordagem e follow-up seguem em texto. Resposta com link, telefone, e-mail ou mais de 600 caracteres vai em texto, e se a ElevenLabs ou a UAZAPI falharem a mesma resposta sai em texto. Cada tentativa fica em `ai_runs` como `audio_generation`. O botao "Enviar audio teste" (`POST /sdr-agents/:id/uazapi/send-audio-test`) testa a voz antes de ligar.
 - O template `handoff_message_template` aceita `{{handoffName}}`, `{{companyName}}`, `{{whatsappNumber}}`, `{{leadWhatsapp}}`, `{{sdrName}}`, `{{productName}}` e `{{summary}}`.
 
 Buffer e divisao de resposta:
@@ -333,6 +334,7 @@ node -e "console.log(require('crypto').randomBytes(12).toString('hex'))"
 | `DEEPSEEK_API_KEY` | — | Chave DeepSeek fallback (provider padrao) |
 | `OPENAI_API_KEY` | — | Chave OpenAI fallback |
 | `OPENROUTER_API_KEY` | — | Chave OpenRouter fallback |
+| `ELEVENLABS_API_KEY` | — | Chave ElevenLabs fallback (resposta em audio) |
 | `WEBHOOK_SHARED_SECRET` | — | Protege endpoint de webhook |
 | `SCHEDULER_ENABLED` | `false` | Ativa pg-boss em producao |
 | `CONNECTION_MONITOR_CRON` | `*/5 * * * *` | Cron do monitor de conexao dos SDRs |

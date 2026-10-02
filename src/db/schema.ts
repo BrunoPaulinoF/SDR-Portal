@@ -106,6 +106,14 @@ export const sdrAgents = pgTable('sdr_agents', {
   handoffMessageTemplate: text('handoff_message_template'),
   demoContactName: text('demo_contact_name'),
   demoContactPhone: text('demo_contact_phone'),
+  /**
+   * Resposta em audio (voz da ElevenLabs): `off`, `when_lead_sends_audio` ou `always`. So
+   * vale para a resposta da IA a quem escreveu; abordagem e follow-up seguem em texto.
+   */
+  audioReplyMode: text('audio_reply_mode').default('off').notNull(),
+  elevenlabsApiKeyEncrypted: text('elevenlabs_api_key_encrypted'),
+  elevenlabsVoiceId: text('elevenlabs_voice_id'),
+  elevenlabsModel: text('elevenlabs_model').default('eleven_multilingual_v2').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });

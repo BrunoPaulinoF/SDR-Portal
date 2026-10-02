@@ -3,6 +3,14 @@ import { lockedBasePromptPreview } from '../ai/sdr-base-prompt.js';
 import { DEFAULT_SDR_PLAYBOOK, SDR_PLAYBOOK_LABELS, SDR_PLAYBOOKS, resolveSdrPlaybook } from '../ai/sdr-playbooks.js';
 import { DEFAULT_LEAD_QUALIFICATION_PROMPT } from '../leads/lead-qualification-prompt.js';
 import { reasoningEffortCatalogJson, reasoningEffortOptions } from '../ai/reasoning-effort.js';
+import {
+  AUDIO_REPLY_MODE_LABELS,
+  AUDIO_REPLY_MODES,
+  DEFAULT_AUDIO_REPLY_MODE,
+  DEFAULT_ELEVENLABS_MODEL,
+  MAX_AUDIO_REPLY_CHARS,
+  resolveAudioReplyMode,
+} from '../audio/audio-reply.js';
 import { escapeHtml, renderLayout } from '../web/html.js';
 
 interface SdrAgentFormData {
@@ -53,6 +61,10 @@ interface SdrAgentFormData {
   handoffMessageTemplate: string;
   demoContactName: string;
   demoContactPhone: string;
+  audioReplyMode: string;
+  elevenlabsApiKeyEncrypted: string;
+  elevenlabsVoiceId: string;
+  elevenlabsModel: string;
 }
 
 const exampleProductDescription = `Direcionamento estrategico gratuito com o Igor Moscheto, consultor empresarial senior da Kybernan Consultoria.
@@ -158,6 +170,10 @@ const fieldHelp: Partial<Record<keyof SdrAgentFormData, string>> = {
   handoffMessageTemplate: 'Mensagem enviada ao responsavel humano quando a IA solicita transferencia.',
   demoContactName: 'Nome que aparece no cartao de contato que a IA envia para o lead testar (deixe vazio para desativar).',
   demoContactPhone: 'WhatsApp que vai dentro do cartao de contato, com DDI e DDD. Ex.: 5519997353221.',
+  audioReplyMode: `Quando a IA responde com audio de voz em vez de texto. Vale so para a resposta a quem escreveu: a primeira mensagem e o follow-up continuam em texto. Resposta com link, telefone, e-mail ou mais de ${MAX_AUDIO_REPLY_CHARS} caracteres vai em texto. Se a ElevenLabs falhar (sem credito, conta bloqueada), a resposta sai em texto e o erro aparece em AI logs.`,
+  elevenlabsApiKeyEncrypted: 'Chave da API da ElevenLabs (elevenlabs.io > Developers > API Keys). Se ficar vazio, usa a chave global ELEVENLABS_API_KEY do ambiente quando existir. O plano gratuito nao permite uso comercial e costuma ser bloqueado quando usado de servidor.',
+  elevenlabsVoiceId: 'ID da voz na ElevenLabs (na biblioteca de vozes, botao "Copy voice ID"). Prefira uma voz em portugues do Brasil. Vozes da biblioteca da comunidade exigem plano pago para uso pela API.',
+  elevenlabsModel: 'Modelo de voz. eleven_multilingual_v2 (padrao) tem a fala mais natural; eleven_flash_v2_5 e mais rapido e gasta metade dos creditos.',
   handoffName: 'Nome do responsavel ou time que recebe handoffs.',
   handoffPhone: 'WhatsApp que recebera avisos de transferencia para humano.',
   initialCooldownMaxMinutes: 'Tempo maximo aleatorio entre primeiras mensagens.',
@@ -233,6 +249,10 @@ const defaultForm: SdrAgentFormData = {
   handoffMessageTemplate: exampleHandoffTemplate,
   demoContactName: '',
   demoContactPhone: '',
+  audioReplyMode: DEFAULT_AUDIO_REPLY_MODE,
+  elevenlabsApiKeyEncrypted: '',
+  elevenlabsVoiceId: '',
+  elevenlabsModel: DEFAULT_ELEVENLABS_MODEL,
 };
 
 function agentToForm(agent?: SdrAgent): SdrAgentFormData {
@@ -288,6 +308,10 @@ function agentToForm(agent?: SdrAgent): SdrAgentFormData {
     handoffMessageTemplate: agent.handoffMessageTemplate ?? '',
     demoContactName: agent.demoContactName ?? '',
     demoContactPhone: agent.demoContactPhone ?? '',
+    audioReplyMode: resolveAudioReplyMode(agent.audioReplyMode),
+    elevenlabsApiKeyEncrypted: '',
+    elevenlabsVoiceId: agent.elevenlabsVoiceId ?? '',
+    elevenlabsModel: agent.elevenlabsModel,
   };
 }
 
@@ -397,6 +421,24 @@ function renderPlaybookSelect(selected: string): string {
     ${renderLabel('playbook', 'Playbook de conversa')}
     <select id="playbook" name="playbook" required>${options}</select>
   </div>`;
+}
+
+function renderAudioReplyModeSelect(selected: string): string {
+  const options = AUDIO_REPLY_MODES.map(
+    (mode) => `<option value="${mode}"${mode === selected ? ' selected' : ''}>${escapeHtml(AUDIO_REPLY_MODE_LABELS[mode])}</option>`,
+  ).join('');
+
+  return `<div class="field field-full">
+    ${renderLabel('audioReplyMode', 'Responder em audio')}
+    <select id="audioReplyMode" name="audioReplyMode" required>${options}</select>
+  </div>`;
+}
+
+/** Diz na tela se a chave da ElevenLabs ja esta salva, ja que o campo de senha volta vazio. */
+function renderElevenLabsKeyStatus(agent?: SdrAgent): string {
+  if (!agent) return '';
+  const status = agent.elevenlabsApiKeyEncrypted ? 'Chave da ElevenLabs salva.' : 'Nenhuma chave da ElevenLabs salva neste SDR.';
+  return `<p class="muted field-full">${status} Depois de salvar, use "Enviar audio teste" no fim desta pagina para ouvir a voz antes de ligar.</p>`;
 }
 
 function renderLockedBasePrompt(playbook: string): string {
@@ -582,6 +624,18 @@ function renderSdrAgentForm(action: string, companies: Company[], agent?: SdrAge
         `,
       )}
 
+      ${renderFormSection(
+        'Resposta em audio (ElevenLabs)',
+        'Liga a voz da IA: a resposta ao lead sai como audio de WhatsApp em vez de texto.',
+        `
+      ${renderAudioReplyModeSelect(data.audioReplyMode)}
+      ${renderField('elevenlabsVoiceId', 'ID da voz', data.elevenlabsVoiceId)}
+      ${renderField('elevenlabsModel', 'Modelo de voz', data.elevenlabsModel)}
+      ${renderField('elevenlabsApiKeyEncrypted', 'Chave ElevenLabs', data.elevenlabsApiKeyEncrypted, false, 'password')}
+      ${renderElevenLabsKeyStatus(agent)}
+        `,
+      )}
+
       <div class="actions">
         <button type="submit">Salvar SDR</button>
         <a class="button button-secondary" href="/sdr-agents">Cancelar</a>
@@ -687,6 +741,18 @@ function renderUazapiActions(agent: SdrAgent): string {
         <textarea id="testText" name="text" rows="3" required>Mensagem de teste do SDR Portal.</textarea>
       </div>
       <div class="actions field-full"><button type="submit">Enviar mensagem teste</button></div>
+    </form>
+    <form method="post" action="/sdr-agents/${agent.id}/uazapi/send-audio-test" class="form-grid spacing-top">
+      <p class="muted field-full">Audio teste: gera a fala com a voz da ElevenLabs configurada acima e envia como audio de WhatsApp. Funciona mesmo com a resposta em audio desligada, para ouvir a voz antes de ligar.</p>
+      <div class="field">
+        <label for="testAudioNumber">Numero para teste</label>
+        <input id="testAudioNumber" name="number" value="${escapeHtml(agent.whatsappNumber ?? '')}" required>
+      </div>
+      <div class="field field-full">
+        <label for="testAudioText">Texto falado</label>
+        <textarea id="testAudioText" name="text" rows="3" maxlength="${MAX_AUDIO_REPLY_CHARS}" required>Oi, tudo bem? Aqui e ${escapeHtml(agent.displayName)}. Esse e um audio de teste do SDR Portal.</textarea>
+      </div>
+      <div class="actions field-full"><button type="submit">Enviar audio teste</button></div>
     </form>
   </section>`;
 }

@@ -4,6 +4,8 @@ import { z } from 'zod';
 import { env } from '../../config/env.js';
 import type { SdrAgent } from '../../db/schema.js';
 import { requireUser } from '../auth/access.js';
+import { MAX_AUDIO_REPLY_CHARS, voiceConfigOf } from '../audio/audio-reply.js';
+import type { TextToSpeechClient } from '../audio/text-to-speech-client.js';
 import type { AuthRepository } from '../auth/auth-repository.js';
 import { decryptSecret } from '../security/secrets.js';
 import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
@@ -17,6 +19,11 @@ const paramsSchema = z.object({
 const sendTestSchema = z.object({
   number: z.string().trim().min(10),
   text: z.string().trim().min(1),
+});
+
+const sendAudioTestSchema = z.object({
+  number: z.string().trim().min(10),
+  text: z.string().trim().min(1).max(MAX_AUDIO_REPLY_CHARS),
 });
 
 function getWebhookUrl(agentId: string): string | null {
@@ -86,6 +93,7 @@ export function registerUazapiRoutes(
   authRepository: AuthRepository,
   sdrAgentRepository: SdrAgentRepository,
   uazapiClient: UazapiClient,
+  textToSpeechClient: TextToSpeechClient,
 ): void {
   app.post('/sdr-agents/:id/uazapi/status', async (request, reply) => {
     const user = await requireUser(request, reply, authRepository);
@@ -163,6 +171,52 @@ export function registerUazapiRoutes(
           readchat: true,
           trackSource: 'sdr-portal-test',
           trackId: `test-${agent.id}`,
+        });
+      }),
+    );
+  });
+
+  app.post('/sdr-agents/:id/uazapi/send-audio-test', async (request, reply) => {
+    const user = await requireUser(request, reply, authRepository);
+
+    if (!user) {
+      return undefined;
+    }
+
+    const agent = await findAgentOrReply(request.params, sdrAgentRepository);
+    if (!agent) {
+      return reply.status(404).send('SDR nao encontrado');
+    }
+
+    const title = 'Enviar audio teste';
+    const body = sendAudioTestSchema.safeParse(request.body);
+    if (!body.success) {
+      return reply
+        .type('text/html')
+        .send(renderUazapiResultPage(agent, title, null, `Informe numero e um texto de ate ${MAX_AUDIO_REPLY_CHARS} caracteres.`));
+    }
+
+    const voice = voiceConfigOf(agent);
+    if (!voice) {
+      return reply
+        .type('text/html')
+        .send(renderUazapiResultPage(agent, title, null, 'Salve o ID da voz e a chave da ElevenLabs no SDR antes de testar o audio.'));
+    }
+
+    // O teste nao cai para texto como a resposta da IA: aqui o objetivo e justamente ver o erro.
+    return reply.type('text/html').send(
+      await runUazapiAction(agent, title, async (credentials) => {
+        const speech = await textToSpeechClient.synthesize({ ...voice, text: body.data.text });
+        await uazapiClient.sendPresence({ ...credentials, number: body.data.number, presence: 'recording', delay: 1000 });
+        return uazapiClient.sendMedia({
+          ...credentials,
+          number: body.data.number,
+          type: 'ptt',
+          file: `data:${speech.mimeType};base64,${speech.audio.toString('base64')}`,
+          mimetype: speech.mimeType,
+          readchat: true,
+          trackSource: 'sdr-portal-test',
+          trackId: `test-audio-${agent.id}`,
         });
       }),
     );

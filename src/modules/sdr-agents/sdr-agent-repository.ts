@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import type { NewSdrAgent, SdrAgent } from '../../db/schema.js';
 import { DEFAULT_SDR_PLAYBOOK } from '../ai/sdr-playbooks.js';
+import { DEFAULT_AUDIO_REPLY_MODE, DEFAULT_ELEVENLABS_MODEL } from '../audio/audio-reply.js';
 
 export type SdrAgentInput = Omit<NewSdrAgent, 'id' | 'createdAt' | 'updatedAt'>;
 
@@ -81,6 +82,10 @@ function withDefaults(input: SdrAgentInput): Omit<SdrAgent, 'id' | 'createdAt' |
     handoffMessageTemplate: nullable(input.handoffMessageTemplate),
     demoContactName: nullable(input.demoContactName),
     demoContactPhone: nullable(input.demoContactPhone),
+    audioReplyMode: input.audioReplyMode ?? DEFAULT_AUDIO_REPLY_MODE,
+    elevenlabsApiKeyEncrypted: nullable(input.elevenlabsApiKeyEncrypted),
+    elevenlabsVoiceId: nullable(input.elevenlabsVoiceId),
+    elevenlabsModel: input.elevenlabsModel ?? DEFAULT_ELEVENLABS_MODEL,
   };
 }
 

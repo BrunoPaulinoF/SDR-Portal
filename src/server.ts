@@ -3,6 +3,7 @@ import { env } from './config/env.js';
 import { createHttpAiClient } from './modules/ai/ai-client.js';
 import { createAiResponseService } from './modules/ai/ai-response-service.js';
 import { createDbAiRunRepository } from './modules/ai/db-ai-run-repository.js';
+import { createElevenLabsTextToSpeechClient } from './modules/audio/text-to-speech-client.js';
 import { createDbConversationRepository } from './modules/conversations/db-conversation-repository.js';
 import { createDbFirstMessageVariantRepository } from './modules/first-message-variants/db-first-message-variant-repository.js';
 import { createDbJobLogRepository } from './modules/jobs/db-job-log-repository.js';
@@ -73,6 +74,7 @@ async function start(): Promise<void> {
           aiRunRepository: createDbAiRunRepository(),
           conversationRepository: createDbConversationRepository(),
           leadRepository: createDbLeadRepository(),
+          textToSpeechClient: createElevenLabsTextToSpeechClient(),
           uazapiClient: createHttpUazapiClient(),
         }),
         aiRunRepository: createDbAiRunRepository(),

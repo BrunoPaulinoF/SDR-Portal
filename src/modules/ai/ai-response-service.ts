@@ -1,4 +1,6 @@
 import type { Conversation, Lead, SdrAgent } from '../../db/schema.js';
+import { speakableText, voiceConfigOf, wantsAudioReply } from '../audio/audio-reply.js';
+import type { TextToSpeechClient } from '../audio/text-to-speech-client.js';
 import { aiHistoryText } from '../conversations/conversation-history.js';
 import type { ConversationRepository } from '../conversations/conversation-repository.js';
 import { isAiPaused } from '../leads/ai-pause.js';
@@ -31,6 +33,7 @@ interface AiResponseDependencies {
   aiRunRepository: AiRunRepository;
   conversationRepository: ConversationRepository;
   leadRepository: LeadRepository;
+  textToSpeechClient: TextToSpeechClient;
   uazapiClient: UazapiClient;
 }
 
@@ -47,7 +50,7 @@ function uazapiCredentials(agent: SdrAgent): { baseUrl: string; token: string } 
   return { baseUrl: agent.uazapiBaseUrl, token: decryptSecret(agent.uazapiInstanceTokenEncrypted) };
 }
 
-function systemPrompt(agent: SdrAgent, lead: Lead): string {
+function systemPrompt(agent: SdrAgent, lead: Lead, replyAsAudio: boolean): string {
   return buildSdrSystemPrompt({
     customPrompt: agent.prompt,
     conversationStage: lead.conversationStage,
@@ -62,6 +65,7 @@ function systemPrompt(agent: SdrAgent, lead: Lead): string {
     ownerName: ownerPersonName(lead) || contactDisplayName(lead),
     playbook: agent.playbook,
     productName: agent.productName,
+    replyAsAudio,
     sdrName: agent.displayName,
   });
 }
@@ -278,6 +282,147 @@ async function sendDemoContact(
   await deps.conversationRepository.touch(conversation.id, new Date());
 }
 
+async function sendTextReply(
+  deps: AiResponseDependencies,
+  input: RespondInput,
+  credentials: { baseUrl: string; token: string },
+  message: string,
+): Promise<void> {
+  const parts = buildResponseParts(message, {
+    baseDelayMs: input.agent.responseDelayBaseMs,
+    maxDelayMs: input.agent.responseDelayMaxMs,
+    maxPartChars: input.agent.messageSplitMaxChars,
+    perCharDelayMs: input.agent.responseDelayPerCharMs,
+  });
+
+  for (const [index, part] of parts.entries()) {
+    await deps.uazapiClient.sendPresence({
+      ...credentials,
+      number: input.lead.whatsappNumber,
+      presence: 'composing',
+      delay: part.delayMs,
+    });
+    await waitBeforeSending(part.delayMs);
+    const sendResult = await deps.uazapiClient.sendText({
+      ...credentials,
+      number: input.lead.whatsappNumber,
+      text: part.text,
+      readchat: true,
+      trackSource: 'sdr-portal-ai',
+      trackId: `ai-${input.conversation.id}-${index + 1}`,
+    });
+    if (!sendResult.ok) throw new Error(`UAZAPI returned HTTP ${sendResult.status}`);
+    await deps.conversationRepository.createMessage({
+      conversationId: input.conversation.id,
+      leadId: input.lead.id,
+      sdrAgentId: input.agent.id,
+      direction: 'outbound',
+      senderType: 'ai',
+      whatsappMessageId: null,
+      messageType: 'conversation',
+      text: part.text,
+      transcription: null,
+      mediaUrl: null,
+      rawPayload: JSON.stringify(sendResult.body),
+      sentByApi: true,
+      fromMe: true,
+    });
+    await deps.conversationRepository.touch(input.conversation.id, new Date());
+  }
+}
+
+/**
+ * Fala a resposta com a voz do SDR e manda como audio de voz. Devolve `false` quando nao deu
+ * (ElevenLabs sem credito, conta bloqueada, UAZAPI recusou o arquivo): quem chama manda a
+ * mesma resposta em texto, porque lead esperando resposta vale mais do que o formato.
+ * Cada tentativa fica no /ai-runs como `audio_generation`, com o motivo quando falha.
+ */
+async function sendAudioReply(
+  deps: AiResponseDependencies,
+  input: RespondInput,
+  credentials: { baseUrl: string; token: string },
+  text: string,
+): Promise<boolean> {
+  const voice = voiceConfigOf(input.agent);
+  if (!voice) return false;
+
+  const startedAt = Date.now();
+  const logRun = (outputText: string | null, error: string | null) =>
+    deps.aiRunRepository.create({
+      sdrAgentId: input.agent.id,
+      leadId: input.lead.id,
+      conversationId: input.conversation.id,
+      provider: 'elevenlabs',
+      model: voice.model,
+      purpose: 'audio_generation',
+      inputMessages: JSON.stringify({ voiceId: voice.voiceId, text }),
+      outputText,
+      parsedJson: null,
+      error,
+      promptTokens: null,
+      completionTokens: null,
+      totalTokens: null,
+      promptCacheHitTokens: null,
+      latencyMs: Date.now() - startedAt,
+    });
+
+  let sendResult: Awaited<ReturnType<UazapiClient['sendMedia']>>;
+  let audioBytes: number;
+  try {
+    const speech = await deps.textToSpeechClient.synthesize({ ...voice, text });
+    audioBytes = speech.audio.length;
+    // Mesmo calculo do delay de digitacao, com "gravando audio..." no lugar de "digitando...".
+    const delayMs = Math.min(
+      input.agent.responseDelayMaxMs,
+      input.agent.responseDelayBaseMs + text.length * input.agent.responseDelayPerCharMs,
+    );
+    await deps.uazapiClient.sendPresence({
+      ...credentials,
+      number: input.lead.whatsappNumber,
+      presence: 'recording',
+      delay: delayMs,
+    });
+    await waitBeforeSending(delayMs);
+    sendResult = await deps.uazapiClient.sendMedia({
+      ...credentials,
+      number: input.lead.whatsappNumber,
+      type: 'ptt',
+      file: `data:${speech.mimeType};base64,${speech.audio.toString('base64')}`,
+      mimetype: speech.mimeType,
+      readchat: true,
+      trackSource: 'sdr-portal-ai-audio',
+      trackId: `ai-audio-${input.conversation.id}`,
+    });
+    if (!sendResult.ok) throw new Error(`UAZAPI recusou o audio: HTTP ${sendResult.status} ${JSON.stringify(sendResult.body)}`);
+  } catch (error) {
+    await logRun(null, error instanceof Error ? error.message : 'Erro desconhecido ao gerar o audio');
+    return false;
+  }
+
+  // Daqui para baixo o audio ja chegou ao lead: um erro aqui nao pode virar fallback em
+  // texto, senao o lead recebe a mesma resposta duas vezes.
+  await logRun(`audio enviado: ${text.length} caracteres, ${audioBytes} bytes`, null);
+  await deps.conversationRepository.createMessage({
+    conversationId: input.conversation.id,
+    leadId: input.lead.id,
+    sdrAgentId: input.agent.id,
+    direction: 'outbound',
+    senderType: 'ai',
+    whatsappMessageId: null,
+    messageType: 'ptt',
+    // O que foi falado fica como transcricao, igual ao audio que chega do lead: e isso que a
+    // tela de conversas mostra e que a IA le no historico da proxima resposta.
+    text: null,
+    transcription: text,
+    mediaUrl: null,
+    rawPayload: JSON.stringify(sendResult.body),
+    sentByApi: true,
+    fromMe: true,
+  });
+  await deps.conversationRepository.touch(input.conversation.id, new Date());
+  return true;
+}
+
 const MAX_GENERATE_ATTEMPTS = 3;
 
 /**
@@ -381,8 +526,9 @@ export function createAiResponseService(deps: AiResponseDependencies) {
       if (!apiKey || !credentials) return;
 
       const history = await deps.conversationRepository.listMessages(input.conversation.id);
+      const replyAsAudio = wantsAudioReply(input.agent, history);
       const messages: AiChatMessage[] = [
-        { role: 'system', content: systemPrompt(input.agent, input.lead) },
+        { role: 'system', content: systemPrompt(input.agent, input.lead, replyAsAudio) },
         ...history.slice(-20).map((message): AiChatMessage => ({
           role: message.direction === 'inbound' ? 'user' : 'assistant',
           content: aiHistoryText(message),
@@ -423,47 +569,9 @@ export function createAiResponseService(deps: AiResponseDependencies) {
           return;
         }
 
-        const parts = buildResponseParts(parsed.mensagem_usuario, {
-          baseDelayMs: input.agent.responseDelayBaseMs,
-          maxDelayMs: input.agent.responseDelayMaxMs,
-          maxPartChars: input.agent.messageSplitMaxChars,
-          perCharDelayMs: input.agent.responseDelayPerCharMs,
-        });
-
-        for (const [index, part] of parts.entries()) {
-          await deps.uazapiClient.sendPresence({
-            ...credentials,
-            number: input.lead.whatsappNumber,
-            presence: 'composing',
-            delay: part.delayMs,
-          });
-          await waitBeforeSending(part.delayMs);
-          const sendResult = await deps.uazapiClient.sendText({
-            ...credentials,
-            number: input.lead.whatsappNumber,
-            text: part.text,
-            readchat: true,
-            trackSource: 'sdr-portal-ai',
-            trackId: `ai-${input.conversation.id}-${index + 1}`,
-          });
-          if (!sendResult.ok) throw new Error(`UAZAPI returned HTTP ${sendResult.status}`);
-          await deps.conversationRepository.createMessage({
-            conversationId: input.conversation.id,
-            leadId: input.lead.id,
-            sdrAgentId: input.agent.id,
-            direction: 'outbound',
-            senderType: 'ai',
-            whatsappMessageId: null,
-            messageType: 'conversation',
-            text: part.text,
-            transcription: null,
-            mediaUrl: null,
-            rawPayload: JSON.stringify(sendResult.body),
-            sentByApi: true,
-            fromMe: true,
-          });
-          await deps.conversationRepository.touch(input.conversation.id, new Date());
-        }
+        const spoken = replyAsAudio ? speakableText(parsed.mensagem_usuario) : null;
+        const sentAsAudio = spoken ? await sendAudioReply(deps, input, credentials, spoken) : false;
+        if (!sentAsAudio) await sendTextReply(deps, input, credentials, parsed.mensagem_usuario);
 
         if (parsed.actions.some((action) => actionType(action) === 'send_demo_contact')) {
           await sendDemoContact(deps, input, credentials);
