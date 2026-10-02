@@ -9,6 +9,7 @@ import { createMemoryAiRunRepository, type AiRunRepository } from './modules/ai/
 import { createAiResponseService } from './modules/ai/ai-response-service.js';
 import { createInboundResponseBuffer } from './modules/ai/inbound-response-buffer.js';
 import { createAudioTranscriptionService } from './modules/audio/audio-transcription-service.js';
+import { createElevenLabsTextToSpeechClient, type TextToSpeechClient } from './modules/audio/text-to-speech-client.js';
 import { registerAiRunRoutes } from './modules/ai/ai-run-routes.js';
 import { registerPromptAssistantRoutes } from './modules/ai/prompt-assistant-routes.js';
 import { createMemoryAuthRepository, type AuthRepository } from './modules/auth/auth-repository.js';
@@ -79,6 +80,7 @@ export interface AppOptions extends FastifyServerOptions {
   inboundResponseBufferMs?: number;
   instanceShareLinkRepository?: InstanceShareLinkRepository;
   sdrAgentRepository?: SdrAgentRepository;
+  textToSpeechClient?: TextToSpeechClient;
   uazapiClient?: UazapiClient;
   webhookEventRepository?: WebhookEventRepository;
 }
@@ -608,6 +610,7 @@ export function buildApp(options: AppOptions = {}): AppInstance {
     inboundResponseBufferMs,
     instanceShareLinkRepository,
     sdrAgentRepository,
+    textToSpeechClient,
     uazapiClient,
     webhookEventRepository,
     ...fastifyOptions
@@ -629,6 +632,7 @@ export function buildApp(options: AppOptions = {}): AppInstance {
     webhookEventRepository ??
     (env.NODE_ENV === 'test' ? createMemoryWebhookEventRepository() : createLazyDbWebhookEventRepository());
   const uazapi = uazapiClient ?? createHttpUazapiClient();
+  const textToSpeech = textToSpeechClient ?? createElevenLabsTextToSpeechClient();
   const instanceShareLinks =
     instanceShareLinkRepository ??
     (env.NODE_ENV === 'test' ? createMemoryInstanceShareLinkRepository() : createLazyDbInstanceShareLinkRepository());
@@ -677,6 +681,7 @@ export function buildApp(options: AppOptions = {}): AppInstance {
     aiRunRepository: aiRuns,
     conversationRepository: conversations,
     leadRepository: leads,
+    textToSpeechClient: textToSpeech,
     uazapiClient: uazapi,
   });
   const bufferedAiResponseService = createInboundResponseBuffer({
@@ -739,7 +744,7 @@ export function buildApp(options: AppOptions = {}): AppInstance {
   registerSdrAgentRoutes(app, repository, companies, sdrAgents, uazapi);
   registerFirstMessageVariantRoutes(app, repository, sdrAgents, firstMessageVariants);
   registerLeadRoutes(app, repository, companies, sdrAgents, leads, aiRuns, jobLogs);
-  registerUazapiRoutes(app, repository, sdrAgents, uazapi);
+  registerUazapiRoutes(app, repository, sdrAgents, uazapi, textToSpeech);
   registerInstanceConnectRoutes(app, repository, sdrAgents, instanceShareLinks, uazapi);
   registerSchedulerRoutes(app, repository, initialOutreach, followupOutreach, pendingReply);
   registerMonitorRoutes(

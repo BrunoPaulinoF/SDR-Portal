@@ -18,6 +18,8 @@ const envSchema = z
     OPENAI_API_KEY: z.string().optional(),
     OPENROUTER_API_KEY: z.string().optional(),
     DEEPSEEK_API_KEY: z.string().optional(),
+    // Chave global da ElevenLabs (voz das respostas em audio). Cada SDR pode ter a sua.
+    ELEVENLABS_API_KEY: z.string().optional(),
     WEBHOOK_SHARED_SECRET: z.string().optional(),
     WEB_RESEARCH_ENDPOINT: optionalUrl,
     WEB_RESEARCH_API_KEY: z.string().optional(),

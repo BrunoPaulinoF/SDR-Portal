@@ -112,6 +112,8 @@ export function buildSdrSystemPrompt(input: {
   ownerName?: string | null;
   playbook?: SdrPlaybook | string | null;
   productName?: string | null;
+  /** Esta resposta vai virar audio de voz: a IA precisa escrever como quem fala. */
+  replyAsAudio?: boolean;
   sdrName: string;
 }): string {
   // Ordem importa para cache de prompt: tudo que e igual em toda mensagem deste SDR
@@ -141,5 +143,12 @@ Dados desta conversa (mudam a cada lead/etapa, nao trate como regra geral):
 - Quem iniciou: ${input.leadInitiated ? 'o lead te chamou primeiro; voce NAO abordou e nao sabe nada sobre o negocio dele' : 'voce abordou o lead primeiro'}
 - WhatsApp do lead: ${input.leadWhatsapp ?? ''}
 - Segmento do lead: ${input.leadSegment ?? ''}
-- Etapa atual da conversa: ${input.conversationStage ?? 'permission'}`;
+- Etapa atual da conversa: ${input.conversationStage ?? 'permission'}${input.replyAsAudio ? AUDIO_REPLY_NOTE : ''}`;
 }
+
+/**
+ * Vai no fim, junto com os dados desta conversa: e decidido a cada resposta (o lead mandou
+ * audio agora?), entao no meio do prompt quebraria o cache do bloco fixo.
+ */
+const AUDIO_REPLY_NOTE = `
+- Formato desta resposta: o sistema vai transformar "mensagem_usuario" em AUDIO de voz no WhatsApp. Escreva como voce falaria num audio curto: frases simples e corridas, sem emoji, sem lista, sem asterisco e sem link. Se precisar mandar link, numero ou e-mail, escreva normalmente: nesse caso o sistema envia em texto.`;

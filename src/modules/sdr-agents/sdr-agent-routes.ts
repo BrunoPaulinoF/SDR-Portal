@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { allReasoningEffortValues, providerDefaultEffort } from '../ai/reasoning-effort.js';
 import { DEFAULT_SDR_PLAYBOOK, SDR_PLAYBOOKS } from '../ai/sdr-playbooks.js';
+import { AUDIO_REPLY_MODES, DEFAULT_AUDIO_REPLY_MODE, DEFAULT_ELEVENLABS_MODEL } from '../audio/audio-reply.js';
 import type { AuthRepository } from '../auth/auth-repository.js';
 import { requireUser } from '../auth/access.js';
 import type { CompanyRepository } from '../companies/company-repository.js';
@@ -73,6 +74,10 @@ const sdrAgentFormSchema = z.object({
   handoffMessageTemplate: z.string().trim().optional().default(''),
   demoContactName: z.string().trim().optional().default(''),
   demoContactPhone: z.string().trim().optional().default(''),
+  audioReplyMode: z.enum(AUDIO_REPLY_MODES).default(DEFAULT_AUDIO_REPLY_MODE),
+  elevenlabsApiKeyEncrypted: z.string().trim().optional().default(''),
+  elevenlabsVoiceId: z.string().trim().optional().default(''),
+  elevenlabsModel: z.string().trim().optional().default(''),
 }).refine((data) => data.responseDelayMaxMs >= data.responseDelayBaseMs, {
   // Teto abaixo do piso nao e detalhe: com base 15000 e maximo 12000 toda parte da resposta
   // esperava exatamente 12s e os campos base e por caractere paravam de fazer efeito, sem
@@ -160,6 +165,10 @@ function parseSdrAgentInput(body: unknown, current?: SdrAgentInput): { input: Sd
       handoffMessageTemplate: emptyToNull(data.handoffMessageTemplate),
       demoContactName: emptyToNull(data.demoContactName),
       demoContactPhone: emptyToNull(data.demoContactPhone),
+      audioReplyMode: data.audioReplyMode,
+      elevenlabsApiKeyEncrypted: secretOrCurrent(data.elevenlabsApiKeyEncrypted, current?.elevenlabsApiKeyEncrypted),
+      elevenlabsVoiceId: emptyToNull(data.elevenlabsVoiceId),
+      elevenlabsModel: data.elevenlabsModel || DEFAULT_ELEVENLABS_MODEL,
     },
   };
 }

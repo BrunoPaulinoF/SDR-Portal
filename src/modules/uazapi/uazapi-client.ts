@@ -27,6 +27,19 @@ export interface SendContactInput extends UazapiCredentials {
   trackSource?: string;
 }
 
+export interface SendMediaInput extends UazapiCredentials {
+  number: string;
+  /** `ptt` = audio de voz (bolinha azul, como gravado na hora). */
+  type: 'audio' | 'document' | 'image' | 'ptt' | 'video';
+  /** URL publica ou data URI em base64 (`data:audio/mpeg;base64,...`). */
+  file: string;
+  mimetype?: string;
+  delay?: number;
+  readchat?: boolean;
+  trackId?: string;
+  trackSource?: string;
+}
+
 export interface SendPresenceInput extends UazapiCredentials {
   number: string;
   presence: 'composing' | 'recording' | 'paused';
@@ -82,6 +95,7 @@ export interface UazapiClient {
   getInstanceStatus(input: UazapiCredentials): Promise<UazapiResult>;
   listInstances(input: AdminInput): Promise<UazapiResult>;
   sendContact(input: SendContactInput): Promise<UazapiResult>;
+  sendMedia(input: SendMediaInput): Promise<UazapiResult>;
   sendPresence(input: SendPresenceInput): Promise<UazapiResult>;
   sendText(input: SendTextInput): Promise<UazapiResult>;
 }
@@ -198,6 +212,22 @@ export function createHttpUazapiClient(): UazapiClient {
           number: input.number,
           fullName: input.fullName,
           phoneNumber: input.phoneNumber,
+          delay: input.delay,
+          readchat: input.readchat,
+          track_id: input.trackId,
+          track_source: input.trackSource,
+        }),
+      });
+    },
+
+    sendMedia(input) {
+      return request('/send/media', input, {
+        method: 'POST',
+        body: JSON.stringify({
+          number: input.number,
+          type: input.type,
+          file: input.file,
+          mimetype: input.mimetype,
           delay: input.delay,
           readchat: input.readchat,
           track_id: input.trackId,
