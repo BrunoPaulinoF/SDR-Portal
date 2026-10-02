@@ -3,6 +3,7 @@ import type { Conversation, Lead, Message, SdrAgent } from '../../db/schema.js';
 import { speakableText, voiceConfigOf, wantsAudioReply } from '../audio/audio-reply.js';
 import type { TextToSpeechClient } from '../audio/text-to-speech-client.js';
 import { aiHistoryText } from '../conversations/conversation-history.js';
+import type { ContactBlockRepository } from '../leads/contact-block-repository.js';
 import type { ConversationRepository } from '../conversations/conversation-repository.js';
 import type { JobLogRepository } from '../jobs/job-log-repository.js';
 import { isAiPaused } from '../leads/ai-pause.js';
@@ -34,6 +35,8 @@ function reasoningEffortOf(agent: Pick<SdrAgent, 'aiProvider' | 'aiReasoningEffo
 interface AiResponseDependencies {
   aiClient: AiClient;
   aiRunRepository: AiRunRepository;
+  /** Lista de nao contatar, para o `opt_out`. Sem ela o pedido vira so `not_interested`. */
+  contactBlockRepository?: ContactBlockRepository;
   conversationRepository: ConversationRepository;
   /** Onde o aviso de handoff deixa rastro (enviado ou nao). Sem ele, a falha so vai para o log do processo. */
   jobLogRepository?: JobLogRepository;
@@ -574,8 +577,12 @@ async function applyLeadActions(
   const hasAction = (type: string): boolean => parsed.actions.some((action) => actionType(action) === type);
   const setStageAction = parsed.actions.find((action) => actionType(action) === 'set_stage');
   const requestedStage = normalizeStage(actionString(setStageAction ?? '', 'stage') ?? parsed.stage_sugerido);
+  const optOut = parsed.actions.find((action) => actionType(action) === 'opt_out');
   const shouldMarkNotInterested =
-    hasAction('mark_not_interested') || parsed.status_sugerido === 'not_interested' || requestedStage === 'not_interested';
+    Boolean(optOut) ||
+    hasAction('mark_not_interested') ||
+    parsed.status_sugerido === 'not_interested' ||
+    requestedStage === 'not_interested';
   const shouldDisableFollowup = hasAction('disable_followup') || shouldMarkNotInterested;
   const shouldNotifyHandoff = hasNotifyHandoff(parsed) && !input.lead.handoffRequestedAt;
 
@@ -589,6 +596,17 @@ async function applyLeadActions(
 
   if (shouldMarkNotInterested) {
     await deps.leadRepository.markNotInterested(input.lead.id, now);
+  }
+
+  // Pediu para nao ser mais procurado: vale para todos os SDRs, nao so para esta conversa.
+  // Mensagem repetida para quem ja disse "para" e o que vira denuncia — e denuncia derruba o
+  // numero do SDR inteiro, nao so este lead.
+  if (optOut) {
+    await deps.contactBlockRepository?.add({
+      whatsappNumber: input.lead.whatsappNumber,
+      reason: actionString(optOut, 'reason') ?? 'pediu para nao receber mais mensagens',
+      source: `ia:${input.agent.name}`,
+    });
   }
 
   if (shouldNotifyHandoff) {

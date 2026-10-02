@@ -762,6 +762,7 @@ export function buildApp(options: AppOptions = {}): AppInstance {
   const followupOutreach = createFollowupOutreachService({
     aiClient: ai,
     aiRunRepository: aiRuns,
+    contactBlockRepository: contactBlocks,
     conversationRepository: conversations,
     jobLogRepository: jobLogs,
     leadRepository: leads,
@@ -771,6 +772,7 @@ export function buildApp(options: AppOptions = {}): AppInstance {
   const aiResponseService = createAiResponseService({
     aiClient: ai,
     aiRunRepository: aiRuns,
+    contactBlockRepository: contactBlocks,
     conversationRepository: conversations,
     jobLogRepository: jobLogs,
     leadRepository: leads,

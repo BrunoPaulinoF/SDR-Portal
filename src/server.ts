@@ -52,6 +52,7 @@ async function start(): Promise<void> {
         aiResponseService: createAiResponseService({
           aiClient: createHttpAiClient(),
           aiRunRepository: createDbAiRunRepository(),
+          contactBlockRepository: createDbContactBlockRepository(),
           conversationRepository: createDbConversationRepository(),
           jobLogRepository: createDbJobLogRepository(),
           leadRepository: createDbLeadRepository(),
@@ -93,6 +94,7 @@ async function start(): Promise<void> {
       createFollowupOutreachService({
         aiClient: createHttpAiClient(),
         aiRunRepository: createDbAiRunRepository(),
+        contactBlockRepository: createDbContactBlockRepository(),
         conversationRepository: createDbConversationRepository(),
         jobLogRepository: createDbJobLogRepository(),
         leadRepository: createDbLeadRepository(),
@@ -106,6 +108,7 @@ async function start(): Promise<void> {
         aiResponseService: createAiResponseService({
           aiClient: createHttpAiClient(),
           aiRunRepository: createDbAiRunRepository(),
+          contactBlockRepository: createDbContactBlockRepository(),
           conversationRepository: createDbConversationRepository(),
           jobLogRepository: createDbJobLogRepository(),
           leadRepository: createDbLeadRepository(),
