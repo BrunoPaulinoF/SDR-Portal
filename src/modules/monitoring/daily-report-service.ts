@@ -8,12 +8,16 @@ import type { UazapiClient } from '../uazapi/uazapi-client.js';
 import type { ConnectionMonitorRepository } from './connection-monitor-repository.js';
 import { monitorCredentials } from './connection-monitor-service.js';
 import { buildDailyReport, type DailyReportLine } from './daily-report-message.js';
+import type { ChannelLimitsRepository } from './channel-limits.js';
+import { describeWarmup } from '../sdr-agents/warmup.js';
 import { parseAlertRecipients } from './alert-recipients.js';
 import { sendToRecipients } from './monitor-sender.js';
 
 export const DAILY_REPORT_JOB = 'daily-report';
 
 export interface DailyReportDeps {
+  /** Ultima leitura dos limites do WhatsApp. Opcional: sem ela o relatorio sai como antes. */
+  channelLimitsRepository?: ChannelLimitsRepository;
   connectionMonitorRepository: ConnectionMonitorRepository;
   jobLogRepository: JobLogRepository;
   leadRepository: LeadRepository;
@@ -84,7 +88,13 @@ export function createDailyReportService(deps: DailyReportDeps) {
       // A memoria do monitor de conexao, nao uma leitura nova: o relatorio nao consulta a UAZAPI.
       const state = await connectionMonitorRepository.findState(agent.id);
       const down = state?.status === 'disconnected' ? { disconnectedSince: state.disconnectedAt ?? state.lastCheckedAt } : {};
-      linhas.push({ name: agent.name, ...activity, ...down });
+      const limits = await deps.channelLimitsRepository?.find(agent.id);
+      const blocked =
+        limits?.blockedUntil && limits.blockedUntil.getTime() > now.getTime()
+          ? { blockedUntil: limits.blockedUntil, blockReason: limits.blockReason }
+          : {};
+      const warmup = describeWarmup(agent, now);
+      linhas.push({ name: agent.name, ...activity, ...down, ...blocked, ...(warmup ? { warmup } : {}) });
     }
 
     return linhas;

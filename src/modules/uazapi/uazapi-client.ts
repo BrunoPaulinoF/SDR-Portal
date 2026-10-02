@@ -93,6 +93,8 @@ export interface UazapiClient {
   deleteInstance(input: UazapiCredentials): Promise<UazapiResult>;
   downloadMessage(input: DownloadMessageInput): Promise<UazapiResult>;
   getInstanceStatus(input: UazapiCredentials): Promise<UazapiResult>;
+  /** `GET /instance/wa_messages_limits`: se o WhatsApp deixa a conta iniciar conversas novas. */
+  getMessageLimits(input: UazapiCredentials): Promise<UazapiResult>;
   listInstances(input: AdminInput): Promise<UazapiResult>;
   sendContact(input: SendContactInput): Promise<UazapiResult>;
   sendMedia(input: SendMediaInput): Promise<UazapiResult>;
@@ -193,6 +195,10 @@ export function createHttpUazapiClient(): UazapiClient {
 
     getInstanceStatus(input) {
       return request('/instance/status', input, { method: 'GET' });
+    },
+
+    getMessageLimits(input) {
+      return request('/instance/wa_messages_limits', input, { method: 'GET' });
     },
 
     async listInstances(input) {

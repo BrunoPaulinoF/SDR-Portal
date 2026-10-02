@@ -53,6 +53,7 @@ interface SdrAgentFormData {
   followupCooldownMinMinutes: string;
   followupCooldownMaxMinutes: string;
   dailyInitialSendLimit: string;
+  warmupActive: boolean;
   dailyFollowupSendLimit: string;
   followupMaxTouches: string;
   responseDelayBaseMs: string;
@@ -160,6 +161,8 @@ const fieldHelp: Partial<Record<keyof SdrAgentFormData, string>> = {
   aiProvider: 'Escolha onde a IA sera chamada. DeepSeek usa a API oficial da DeepSeek (recomendado). OpenAI usa sua chave OpenAI; OpenRouter usa sua chave OpenRouter.',
   aiTemperature: 'Controla variacao/criatividade. Para SDR, valores baixos como 0.3 a 0.6 tendem a ser mais consistentes. Modelos com raciocinio ligado (como o deepseek-v4-pro) ignoram este campo.',
   dailyFollowupSendLimit: 'Maximo de follow-ups enviados por este SDR em um dia.',
+  warmupActive:
+    'Numero novo ou recem-reconectado: o limite diario de abordagens sobe aos poucos — 10 por dia nos dias 1 a 3, 20 ate o dia 7, 30 ate o dia 14 — e depois volta ao limite cadastrado (que continua sendo o teto). Marcar de novo nao reinicia a contagem: para reiniciar, desmarque, salve e marque outra vez.',
   followupMaxTouches: 'Quantos follow-ups cada lead pode receber no total enquanto nao responde (1 a 5). 1 = um so, como sempre foi. Cada toque a mais e mais uma mensagem de numero desconhecido: suba aos poucos e olhe a saude do WhatsApp.',
   dailyInitialSendLimit: 'Maximo de primeiras mensagens enviadas por este SDR em um dia.',
   displayName: 'Nome que a IA usa ao se apresentar na conversa. Ex: Kyane.',
@@ -243,6 +246,7 @@ const defaultForm: SdrAgentFormData = {
   followupCooldownMinMinutes: '10',
   followupCooldownMaxMinutes: '30',
   dailyInitialSendLimit: '40',
+  warmupActive: false,
   dailyFollowupSendLimit: '50',
   followupMaxTouches: '1',
   responseDelayBaseMs: '1200',
@@ -303,6 +307,7 @@ function agentToForm(agent?: SdrAgent): SdrAgentFormData {
     followupCooldownMinMinutes: String(agent.followupCooldownMinMinutes),
     followupCooldownMaxMinutes: String(agent.followupCooldownMaxMinutes),
     dailyInitialSendLimit: String(agent.dailyInitialSendLimit),
+    warmupActive: Boolean(agent.warmupStartedAt),
     dailyFollowupSendLimit: String(agent.dailyFollowupSendLimit),
     followupMaxTouches: String(agent.followupMaxTouches),
     responseDelayBaseMs: String(agent.responseDelayBaseMs),
@@ -599,6 +604,7 @@ function renderSdrAgentForm(action: string, companies: Company[], agent?: SdrAge
       ${renderField('initialCooldownMinMinutes', 'Cooldown inicial minimo em minutos', data.initialCooldownMinMinutes, true, 'number')}
       ${renderField('initialCooldownMaxMinutes', 'Cooldown inicial maximo em minutos', data.initialCooldownMaxMinutes, true, 'number')}
       ${renderField('dailyInitialSendLimit', 'Limite diario de mensagens iniciais', data.dailyInitialSendLimit, true, 'number')}
+      <div class="field">${renderCheckbox('warmupActive', 'Numero em aquecimento', data.warmupActive)}</div>
         `,
       )}
 
@@ -780,6 +786,9 @@ function renderUazapiActions(agent: SdrAgent): string {
       <a class="button" href="/sdr-agents/${agent.id}/conectar">Conectar / ver QR code</a>
       <form method="post" action="/sdr-agents/${agent.id}/uazapi/status">
         <button type="submit">Testar status</button>
+      </form>
+      <form method="post" action="/sdr-agents/${agent.id}/uazapi/limites">
+        <button type="submit">Limites do WhatsApp</button>
       </form>
       <form method="post" action="/sdr-agents/${agent.id}/uazapi/configure-webhook">
         <button type="submit">Configurar webhook</button>

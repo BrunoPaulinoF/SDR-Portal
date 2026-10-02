@@ -59,6 +59,11 @@ import {
 } from './modules/uazapi/instance-share-link-repository.js';
 import { registerAssetsRoutes } from './modules/web/assets.js';
 import { createMemoryContactBlockRepository, type ContactBlockRepository } from './modules/leads/contact-block-repository.js';
+import {
+  createChannelLimitsGate,
+  createMemoryChannelLimitsRepository,
+  type ChannelLimitsRepository,
+} from './modules/monitoring/channel-limits.js';
 import { createMemorySdrConfigChangeRepository, type SdrConfigChangeRepository } from './modules/sdr-agents/config-history.js';
 import { registerWebhookEventRoutes } from './modules/webhooks/webhook-event-routes.js';
 import { createMemoryWebhookEventRepository, type WebhookEventRepository } from './modules/webhooks/webhook-event-repository.js';
@@ -71,6 +76,7 @@ export interface AppOptions extends FastifyServerOptions {
   aiClient?: AiClient;
   aiRunRepository?: AiRunRepository;
   authRepository?: AuthRepository;
+  channelLimitsRepository?: ChannelLimitsRepository;
   companyRepository?: CompanyRepository;
   configChangeRepository?: SdrConfigChangeRepository;
   contactBlockRepository?: ContactBlockRepository;
@@ -629,6 +635,23 @@ function createLazyDbSdrConfigChangeRepository(): SdrConfigChangeRepository {
   };
 }
 
+function createLazyDbChannelLimitsRepository(): ChannelLimitsRepository {
+  return {
+    async find(sdrAgentId) {
+      const { createDbChannelLimitsRepository } = await import('./modules/monitoring/db-channel-limits-repository.js');
+      return createDbChannelLimitsRepository().find(sdrAgentId);
+    },
+    async list() {
+      const { createDbChannelLimitsRepository } = await import('./modules/monitoring/db-channel-limits-repository.js');
+      return createDbChannelLimitsRepository().list();
+    },
+    async save(row) {
+      const { createDbChannelLimitsRepository } = await import('./modules/monitoring/db-channel-limits-repository.js');
+      return createDbChannelLimitsRepository().save(row);
+    },
+  };
+}
+
 function createLazyDbContactBlockRepository(): ContactBlockRepository {
   return {
     async add(input) {
@@ -655,6 +678,7 @@ export function buildApp(options: AppOptions = {}): AppInstance {
     aiClient,
     aiRunRepository,
     authRepository,
+    channelLimitsRepository,
     companyRepository,
     configChangeRepository,
     contactBlockRepository,
@@ -686,6 +710,8 @@ export function buildApp(options: AppOptions = {}): AppInstance {
     configChangeRepository ?? (env.NODE_ENV === 'test' ? createMemorySdrConfigChangeRepository() : createLazyDbSdrConfigChangeRepository());
   const contactBlocks =
     contactBlockRepository ?? (env.NODE_ENV === 'test' ? createMemoryContactBlockRepository() : createLazyDbContactBlockRepository());
+  const channelLimitsRows =
+    channelLimitsRepository ?? (env.NODE_ENV === 'test' ? createMemoryChannelLimitsRepository() : createLazyDbChannelLimitsRepository());
   const jobLogs = jobLogRepository ?? (env.NODE_ENV === 'test' ? createMemoryJobLogRepository() : createLazyDbJobLogRepository());
   const conversations =
     conversationRepository ?? (env.NODE_ENV === 'test' ? createMemoryConversationRepository() : createLazyDbConversationRepository());
@@ -713,6 +739,7 @@ export function buildApp(options: AppOptions = {}): AppInstance {
   const initialOutreach = createInitialOutreachService({
     aiClient: ai,
     aiRunRepository: aiRuns,
+    channelLimits: createChannelLimitsGate({ jobLogRepository: jobLogs, repository: channelLimitsRows, uazapiClient: uazapi }),
     contactBlockRepository: contactBlocks,
     conversationRepository: conversations,
     firstMessageVariantRepository: firstMessageVariants,
@@ -784,6 +811,7 @@ export function buildApp(options: AppOptions = {}): AppInstance {
     uazapiClient: uazapi,
   });
   const dailyReportService = createDailyReportService({
+    channelLimitsRepository: channelLimitsRows,
     connectionMonitorRepository: connectionMonitors,
     jobLogRepository: jobLogs,
     leadRepository: leads,
@@ -810,7 +838,7 @@ export function buildApp(options: AppOptions = {}): AppInstance {
 
   registerAssetsRoutes(app);
   registerAuthRoutes(app, repository);
-  registerDashboardRoutes(app, repository, companies, sdrAgents, leads, conversations, aiRuns, jobLogs, connectionMonitors);
+  registerDashboardRoutes(app, repository, companies, sdrAgents, leads, conversations, aiRuns, jobLogs, connectionMonitors, channelLimitsRows);
   registerCompanyRoutes(app, repository, companies);
   registerSdrAgentRoutes(app, repository, companies, sdrAgents, uazapi, configChanges);
   registerFirstMessageVariantRoutes(app, repository, sdrAgents, firstMessageVariants, configChanges);

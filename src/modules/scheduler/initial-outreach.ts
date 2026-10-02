@@ -28,6 +28,8 @@ import type { UazapiClient, UazapiCredentials } from '../uazapi/uazapi-client.js
 import { createChannelGuard } from './channel-guard.js';
 import type { ContactBlockRepository } from '../leads/contact-block-repository.js';
 import { withAgentLock } from './agent-lock.js';
+import { dailyInitialLimit } from '../sdr-agents/warmup.js';
+import type { ChannelLimitsGate } from '../monitoring/channel-limits.js';
 import { createLeadSendFailures, createSendBackoff, reachoutTimelockFrom, UazapiSendError } from './send-backoff.js';
 
 /** Resolve o nivel salvo para a escala do provider deste SDR; `null` omite o parametro. */
@@ -50,6 +52,8 @@ export interface FirstMessageDependencies {
 }
 
 interface InitialOutreachDependencies extends FirstMessageDependencies {
+  /** Limites do WhatsApp para conversa nova. Opcional: sem ele o disparo funciona como antes. */
+  channelLimits?: ChannelLimitsGate;
   /** Lista de "nao contatar". Opcional para os testes que nao tratam dela. */
   contactBlockRepository?: ContactBlockRepository;
   conversationRepository: ConversationRepository;
@@ -770,8 +774,13 @@ export function createInitialOutreachService(deps: InitialOutreachDependencies) 
     }
 
     const sentToday = await deps.leadRepository.countInitialSentForSdrSince(agent.id, startOfDayInTimeZone(now, agent.timezone));
-    if (sentToday >= agent.dailyInitialSendLimit) {
-      details.push(`${agent.name}: limite diario atingido.`);
+    const today = dailyInitialLimit(agent, now);
+    if (sentToday >= today.limit) {
+      details.push(
+        today.warmupDay === null
+          ? `${agent.name}: limite diario atingido.`
+          : `${agent.name}: limite do aquecimento atingido (dia ${today.warmupDay}, ${today.limit} por dia).`,
+      );
       return skippedProcessResult();
     }
 
@@ -800,6 +809,15 @@ export function createInitialOutreachService(deps: InitialOutreachDependencies) 
       const channel = await ensureChannel('initial-outreach', agent.id, credentials, now);
       if (!channel.usable) {
         details.push(`${agent.name}: ${channel.reason}`);
+        return skippedProcessResult();
+      }
+
+      // Antes de pagar pesquisa e geracao: o WhatsApp deixa esta conta abrir conversa nova?
+      // O bloqueio fica no banco, entao um restart nao faz o disparo bater nele de novo — e vem
+      // antes do recuo em memoria porque diz o motivo e ate quando.
+      const limits = await deps.channelLimits?.check(agent.id, credentials, now);
+      if (limits && !limits.allowed) {
+        details.push(`${agent.name}: ${limits.reason} — o disparo volta em ${limits.until.toISOString()}.`);
         return skippedProcessResult();
       }
 
@@ -955,6 +973,7 @@ export function createInitialOutreachService(deps: InitialOutreachDependencies) 
       if (error instanceof UazapiSendError) {
         timelock = reachoutTimelockFrom(error.body);
         sendBackoff.recordFailure(agent.id, now, timelock?.until ?? null);
+        await deps.channelLimits?.recordSendRefusal(agent.id, error.body, now);
         // Bloqueio de conta nao e culpa do lead: contar a falha nele tiraria da fila leads
         // perfeitos por um motivo que nao tem nada a ver com eles.
         if (attemptedLead && !timelock) leftQueue = leadSendFailures.record(attemptedLead.id);
