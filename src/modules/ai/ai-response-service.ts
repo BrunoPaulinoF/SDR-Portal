@@ -1,4 +1,4 @@
-import type { Conversation, Lead, SdrAgent } from '../../db/schema.js';
+import type { Conversation, Lead, Message, SdrAgent } from '../../db/schema.js';
 import { speakableText, voiceConfigOf, wantsAudioReply } from '../audio/audio-reply.js';
 import type { TextToSpeechClient } from '../audio/text-to-speech-client.js';
 import { aiHistoryText } from '../conversations/conversation-history.js';
@@ -477,6 +477,32 @@ async function sendAudioReply(
 
 const MAX_GENERATE_ATTEMPTS = 3;
 
+/** Texto gravado no /ai-runs quando a resposta pronta e jogada fora por ter ficado velha. */
+export const SUPERSEDED_REPLY_ERROR = 'Descartada: o lead mandou mensagem nova enquanto a IA gerava. A proxima resposta cobre as duas.';
+
+/**
+ * O lead escreveu de novo (gente, nao automatica) depois do historico que a IA leu? Entao a
+ * resposta pronta ja nasceu velha.
+ *
+ * Mensagem que chega durante a geracao (modelo com raciocinio leva 10-30s) abria uma segunda
+ * geracao em paralelo, e o lead recebia duas respostas para a mesma conversa, um minuto uma da
+ * outra — "No pico de sexta, quem fica no zap?" seguido de "Nesses dias, quem fica atendendo?"
+ * (Serginho Lanches, `docs/analises/mariana-2026-08-28.md`). Descartando a velha, sai so a que
+ * leu tudo.
+ */
+function hasNewerLeadMessage(seen: Message[], latest: Message[]): boolean {
+  const seenIds = new Set(seen.map((message) => message.id));
+  // So conta mensagem que vai chamar outra geracao: figurinha ou midia sem texto nao chamam, e
+  // descartar por causa delas deixaria o lead sem resposta nenhuma.
+  return latest.some(
+    (message) =>
+      !seenIds.has(message.id) &&
+      message.direction === 'inbound' &&
+      !message.autoReply &&
+      Boolean(message.text?.trim() || message.transcription?.trim()),
+  );
+}
+
 /**
  * Resposta sem texto, sem acao e sem "nao_responder" nao e uma decisao de ficar quieto: e
  * geracao perdida. Ate esta checagem existir, ela passava como resposta valida e o lead
@@ -599,6 +625,7 @@ export function createAiResponseService(deps: AiResponseDependencies) {
           reasoningEffort: reasoningEffortOf(input.agent),
           temperature: input.agent.aiTemperature,
         });
+        const superseded = hasNewerLeadMessage(history, await deps.conversationRepository.listMessages(input.conversation.id));
         await deps.aiRunRepository.create({
           sdrAgentId: input.agent.id,
           leadId: input.lead.id,
@@ -609,13 +636,16 @@ export function createAiResponseService(deps: AiResponseDependencies) {
           inputMessages: JSON.stringify(messages),
           outputText: aiResult.outputText,
           parsedJson: JSON.stringify(parsed),
-          error: null,
+          error: superseded ? SUPERSEDED_REPLY_ERROR : null,
           promptTokens: aiResult.promptTokens,
           completionTokens: aiResult.completionTokens,
           totalTokens: aiResult.totalTokens,
           promptCacheHitTokens: aiResult.promptCacheHitTokens,
           latencyMs: Date.now() - startedAt,
         });
+        // Nada desta geracao vale: nem a mensagem, nem as acoes. A mensagem nova do lead ja
+        // chamou outra geracao (webhook -> buffer), e e ela que decide com o historico inteiro.
+        if (superseded) return;
 
         if (parsed.nao_responder || !parsed.mensagem_usuario.trim()) {
           await applyLeadActions(deps, parsed, input, credentials, messages);

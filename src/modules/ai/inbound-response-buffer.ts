@@ -30,13 +30,20 @@ export function createInboundResponseBuffer(deps: InboundResponseBufferDependenc
     if (!item) return;
     pending.delete(conversationId);
 
-    const [conversation, lead] = await Promise.all([
-      deps.conversationRepository.findById(item.conversation.id),
-      deps.leadRepository.findById(item.lead.id),
-    ]);
-    if (!conversation || !lead) return;
+    // Roda solto num setTimeout: um erro que escape daqui e rejeicao sem dono, e o Node 22
+    // derruba o processo — levando junto todas as respostas que estavam esperando no buffer.
+    try {
+      const [conversation, lead] = await Promise.all([
+        deps.conversationRepository.findById(item.conversation.id),
+        deps.leadRepository.findById(item.lead.id),
+      ]);
+      if (!conversation || !lead) return;
 
-    await deps.aiResponseService.respondToInbound({ agent: item.agent, conversation, lead });
+      await deps.aiResponseService.respondToInbound({ agent: item.agent, conversation, lead });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`inbound-response-buffer: conversa ${conversationId} sem resposta: ${message}\n`);
+    }
   }
 
   return {
