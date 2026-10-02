@@ -119,6 +119,28 @@ começou", "virou cliente", "perdido". Os 35 handoffs da história do sistema n�
 registrado. Sem isso, toda decisão (abertura, prompt, modelo, limite) é tomada olhando taxa de
 resposta, que é o número mais fácil de enganar.
 
+### 7. Defeitos no código que perdem lead ou resultado
+
+Revisão do código do `main` (348 testes passando, lint e `tsc` limpos — os defeitos abaixo são
+de lógica, não de compilação):
+
+| Gravidade | Defeito | Onde | Efeito |
+| --- | --- | --- | --- |
+| Crítico | Handoff some em silêncio: com `handoffPhone` vazio o aviso não sai e o lead vira `transferred` mesmo assim; se a UAZAPI recusar o aviso, o erro estoura **antes** de marcar o lead e nada tenta de novo | `ai/ai-response-service.ts` (`notifyHandoff` antes de `markTransferred`) | o único resultado que o sistema registra pode se perder |
+| Alto | **Um follow-up por lead, para sempre**: `markFollowupSent` grava `followupDisabledAt` e nada limpa | `leads/db-lead-repository.ts` | quem respondeu ao segundo toque e esfriou nunca mais é procurado |
+| Alto | Liberar a IA depois da pausa por foto não religa o follow-up (`resumeAi` não limpa `followupDisabledAt`) | `leads/db-lead-repository.ts` | o lead continua morto mesmo depois do clique |
+| Alto | Filtro de robô pega frase de gente: "obrigado pelo contato, mas não temos interesse", "vou encaminhar pro meu sócio", "só um momento", qualquer link | `conversations/store-auto-reply.ts` | recusa não é registrada e sinal quente é ignorado |
+| Alto | Mensagem que chega enquanto a IA está gerando dispara uma segunda resposta em paralelo | `ai/inbound-response-buffer.ts` | duas respostas seguidas = cara de robô |
+| Alto | Erro de banco dentro do buffer derruba o processo (sem `catch`) e apaga todas as respostas pendentes | `ai/inbound-response-buffer.ts` | lead fica sem resposta |
+| Médio | A rede de segurança só olha as 50 conversas mais recentes de todos os SDRs | `conversations/db-conversation-repository.ts` | lead que falou há poucas horas pode nunca ser visto |
+| Médio | Sem trava ao pegar o lead: o botão manual e o cron podem mandar a primeira mensagem duas vezes; timeout da UAZAPI também | `scheduler/initial-outreach.ts` | mensagem duplicada para lead frio |
+| Médio | Erro de envio no follow-up não reagenda: o mesmo lead trava a fila do SDR e a IA gera texto a cada 5 min sem enviar | `scheduler/followup-outreach.ts` | follow-ups param |
+| Médio | Importação compara número exato e só dentro do SDR; não há lista de "não contatar" | `leads/lead-importer.ts` | mesma loja abordada por dois números; quem recusou volta |
+| Médio | Dashboard carrega tabelas inteiras (inclusive o prompt de cada chamada de IA) a cada visita; banco sem índices de busca | `dashboard/`, `db/schema.ts` | lentidão e risco de estourar memória do container |
+
+Segurança: o segredo do webhook vai na URL e aparece nos logs; o cookie de sessão não expira;
+o login não limita tentativas.
+
 ## Onde o sistema está falhando para não dar resultado (as causas de fundo)
 
 1. **Ninguém é dono do canal.** O alerta chega, mas não existe rotina de "caiu → reconecta na
@@ -169,6 +191,10 @@ resposta, que é o número mais fácil de enganar.
 | 5 | Reconhecer "Bom dia + foto" repetido todo dia e bot de IA da loja como automática | `store-auto-reply.ts` | broadcast diário ainda conta como "respondeu" |
 | 6 | Aviso no portal quando o prompt/variante no banco for diferente de `docs/prompts/` | tela do SDR / `apply-sdr-prompts` | a variante errada ficou no ar por 10 dias sem ninguém ver |
 | 7 | Botão "falar com humano agora" para lead em `handoff_offer` parado há mais de 2 h | dashboard | o "Tenho interesse" não pode esperar o SDR voltar |
+| 8 | Handoff: marcar o lead primeiro, avisar depois, com nova tentativa; recusar salvar SDR sem telefone de handoff | `ai/ai-response-service.ts`, tela do SDR | handoff não pode sumir |
+| 9 | Tirar do filtro de robô as frases que gente também escreve ("obrigado pelo contato", "vou encaminhar", "só um momento", link solto) | `store-auto-reply.ts` | recusa e sinal quente voltam a ser vistos |
+| 10 | Trava de "resposta em andamento" por conversa e `catch` no buffer | `inbound-response-buffer.ts` | acaba resposta dupla e queda do processo |
+| 11 | Follow-up com erro de envio reagenda e conta tentativa, como o disparo inicial | `followup-outreach.ts` | um lead não trava a fila |
 
 ### Fase 2 — 2 a 4 semanas: medir o que importa
 
@@ -189,17 +215,22 @@ resposta, que é o número mais fácil de enganar.
    deploy automático — nunca os dois sem conferência.
 2. **Separar o "motor" do "portal".** Hoje o mesmo processo serve a tela, recebe o webhook e roda
    os disparos. Webhook e envios viram um worker próprio, com fila persistente (pg-boss) em vez
-   de buffer na memória: deploy não pode derrubar resposta de lead.
-3. **Camada de canal** isolando a UAZAPI: status, reconexão, limites (`wa_messages_limits`),
+   de buffer na memória: deploy não pode derrubar resposta de lead. Um job por conversa
+   (debounce + uma resposta por vez) substitui o buffer **e** o `pending-reply`, e resolve de uma
+   vez perda no restart, resposta dupla, a janela de 50 conversas e o filtro de robô.
+3. **Cadência de verdade.** Trocar as colunas únicas `followupSentAt`/`followupDisabledAt` por
+   uma sequência de N toques por lead, e reservar o lead (`FOR UPDATE SKIP LOCKED`) antes de
+   qualquer envio.
+4. **Camada de canal** isolando a UAZAPI: status, reconexão, limites (`wa_messages_limits`),
    aquecimento de número novo e troca de instância num lugar só. Permite trocar de provedor ou
    ter um número reserva por SDR.
-4. **Prompts menores.** Hoje cada resposta leva ~10 mil tokens de regras (base + playbook +
+5. **Prompts menores.** Hoje cada resposta leva ~10 mil tokens de regras (base + playbook +
    prompt da Mariana). Regra que o código já garante (robô, link, preço) sai do prompt. Menos
    regra, menos contradição, modelo mais obediente.
-5. **Lista de leads melhor antes de gastar mensagem**: validar o número no WhatsApp na
+6. **Lista de leads melhor antes de gastar mensagem**: validar o número no WhatsApp na
    importação (não só na hora do envio), descartar quem não faz delivery, e priorizar lojas que
    **não** têm robô de atendimento.
-6. **Abordagem da Mariana nos moldes da que funcionou**: curta e humana, sem pitch de IA na
+7. **Abordagem da Mariana nos moldes da que funcionou**: curta e humana, sem pitch de IA na
    primeira mensagem, e a explicação só quando a pessoa perguntar. Medir contra a atual com o
    A/B da Fase 2.
 
