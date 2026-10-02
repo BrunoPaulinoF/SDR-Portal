@@ -739,7 +739,9 @@ export function buildApp(options: AppOptions = {}): AppInstance {
   const initialOutreach = createInitialOutreachService({
     aiClient: ai,
     aiRunRepository: aiRuns,
-    channelLimits: createChannelLimitsGate({ jobLogRepository: jobLogs, repository: channelLimitsRows, uazapiClient: uazapi }),
+    channelLimits: env.WHATSAPP_LIMITS_CHECK
+      ? createChannelLimitsGate({ jobLogRepository: jobLogs, repository: channelLimitsRows, uazapiClient: uazapi })
+      : undefined,
     contactBlockRepository: contactBlocks,
     conversationRepository: conversations,
     firstMessageVariantRepository: firstMessageVariants,

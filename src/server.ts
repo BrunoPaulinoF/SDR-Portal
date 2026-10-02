@@ -72,11 +72,13 @@ async function start(): Promise<void> {
       createInitialOutreachService({
         aiClient: createHttpAiClient(),
         aiRunRepository: createDbAiRunRepository(),
-        channelLimits: createChannelLimitsGate({
-          jobLogRepository: createDbJobLogRepository(),
-          repository: createDbChannelLimitsRepository(),
-          uazapiClient: createHttpUazapiClient(),
-        }),
+        channelLimits: env.WHATSAPP_LIMITS_CHECK
+          ? createChannelLimitsGate({
+              jobLogRepository: createDbJobLogRepository(),
+              repository: createDbChannelLimitsRepository(),
+              uazapiClient: createHttpUazapiClient(),
+            })
+          : undefined,
         contactBlockRepository: createDbContactBlockRepository(),
         conversationRepository: createDbConversationRepository(),
         firstMessageVariantRepository: createDbFirstMessageVariantRepository(),

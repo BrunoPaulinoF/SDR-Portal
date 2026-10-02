@@ -337,6 +337,7 @@ node -e "console.log(require('crypto').randomBytes(12).toString('hex'))"
 | `ELEVENLABS_API_KEY` | — | Chave ElevenLabs fallback (resposta em audio) |
 | `WEBHOOK_SHARED_SECRET` | — | Protege endpoint de webhook |
 | `SCHEDULER_ENABLED` | `false` | Ativa pg-boss em producao |
+| `WHATSAPP_LIMITS_CHECK` | `true` | Disparo consulta `/instance/wa_messages_limits` e nao abre conversa nova enquanto o WhatsApp bloqueia; `false` desliga a trava |
 | `CONNECTION_MONITOR_CRON` | `*/5 * * * *` | Cron do monitor de conexao dos SDRs |
 | `WEB_RESEARCH_ENDPOINT` | — | Endpoint de pesquisa web |
 | `ADMIN_NAME/EMAIL/PASSWORD` | — | Cria usuario admin na migracao |

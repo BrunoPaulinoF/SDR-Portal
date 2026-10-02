@@ -29,6 +29,11 @@ const envSchema = z
     SCHEDULER_ENABLED: z
       .preprocess((value) => (typeof value === 'string' ? ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase()) : value), z.boolean())
       .default(false),
+    // Disparo consulta os limites do WhatsApp (`/instance/wa_messages_limits`) antes de abrir
+    // conversa nova. Desligar so se a UAZAPI passar a responder errado e segurar a prospeccao.
+    WHATSAPP_LIMITS_CHECK: z
+      .preprocess((value) => (typeof value === 'string' ? ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase()) : value), z.boolean())
+      .default(true),
     INITIAL_OUTREACH_CRON: z.string().default('* * * * *'),
     FOLLOWUP_CRON: z.string().default('*/5 * * * *'),
     INBOUND_RESPONSE_BUFFER_MS: z.coerce.number().int().min(20000).default(20000),
