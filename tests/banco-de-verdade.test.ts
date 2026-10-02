@@ -33,6 +33,7 @@ async function loadRepos() {
     monitors: (await import('../src/modules/monitoring/db-connection-monitor-repository.js')).createDbConnectionMonitorRepository(),
     blocks: (await import('../src/modules/leads/db-contact-block-repository.js')).createDbContactBlockRepository(),
     history: (await import('../src/modules/sdr-agents/db-config-history.js')).createDbSdrConfigChangeRepository(),
+    channelLimits: (await import('../src/modules/monitoring/db-channel-limits-repository.js')).createDbChannelLimitsRepository(),
   };
 }
 
@@ -207,6 +208,41 @@ dbDescribe('repositorios no Postgres', () => {
     const events = await repos.monitors.listConnectionEvents(new Date(t0.getTime() - MINUTE));
 
     expect(events.map((event) => event.status)).toEqual(['connected', 'disconnected']);
+  });
+
+  it('limites do WhatsApp: grava, regrava por cima e some junto com o SDR', async () => {
+    const { agent } = await agentAndLead();
+    const checkedAt = new Date('2026-10-01T14:00:00.000Z');
+    const blocked = {
+      sdrAgentId: agent.id,
+      canStartConversations: false,
+      blockedUntil: new Date('2026-10-02T09:00:00.000Z'),
+      blockReason: 'WhatsApp bloqueou novas conversas (BIZ_QUALITY)',
+      quotaUsed: 4,
+      quotaTotal: 10,
+      quotaResetsAt: null,
+      source: 'consulta',
+      checkedAt,
+    };
+    await repos.channelLimits.save(blocked);
+    await repos.channelLimits.save({ ...blocked, canStartConversations: true, blockedUntil: null, blockReason: null, source: 'envio' });
+
+    expect(await repos.channelLimits.list()).toHaveLength(1);
+    expect(await repos.channelLimits.find(agent.id)).toMatchObject({ canStartConversations: true, blockedUntil: null, source: 'envio', quotaUsed: 4 });
+
+    await repos.agents.delete(agent.id);
+    expect(await repos.channelLimits.find(agent.id)).toBeNull();
+  });
+
+  it('aquecimento: a data de inicio vai e volta do banco', async () => {
+    const { agent } = await agentAndLead();
+    const startedAt = new Date('2026-10-01T12:00:00.000Z');
+
+    await repos.agents.update(agent.id, { companyId: agent.companyId, name: agent.name, displayName: agent.displayName, warmupStartedAt: startedAt });
+    expect((await repos.agents.findById(agent.id))?.warmupStartedAt?.toISOString()).toBe(startedAt.toISOString());
+
+    await repos.agents.update(agent.id, { companyId: agent.companyId, name: agent.name, displayName: agent.displayName, warmupStartedAt: null });
+    expect((await repos.agents.findById(agent.id))?.warmupStartedAt).toBeNull();
   });
 
   it('as migracoes estao todas no journal', () => {

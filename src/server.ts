@@ -13,6 +13,8 @@ import { createHttpLeadResearchProvider, createLeadResearchService } from './mod
 import { createDbContactBlockRepository } from './modules/leads/db-contact-block-repository.js';
 import { createDbLeadRepository } from './modules/leads/db-lead-repository.js';
 import { createDbConnectionMonitorRepository } from './modules/monitoring/db-connection-monitor-repository.js';
+import { createChannelLimitsGate } from './modules/monitoring/channel-limits.js';
+import { createDbChannelLimitsRepository } from './modules/monitoring/db-channel-limits-repository.js';
 import { createConnectionMonitorService } from './modules/monitoring/connection-monitor-service.js';
 import { createDailyReportService } from './modules/monitoring/daily-report-service.js';
 import { createLeadQueueMonitorService } from './modules/monitoring/lead-queue-monitor-service.js';
@@ -50,6 +52,7 @@ async function start(): Promise<void> {
         aiResponseService: createAiResponseService({
           aiClient: createHttpAiClient(),
           aiRunRepository: createDbAiRunRepository(),
+          contactBlockRepository: createDbContactBlockRepository(),
           conversationRepository: createDbConversationRepository(),
           jobLogRepository: createDbJobLogRepository(),
           leadRepository: createDbLeadRepository(),
@@ -69,6 +72,13 @@ async function start(): Promise<void> {
       createInitialOutreachService({
         aiClient: createHttpAiClient(),
         aiRunRepository: createDbAiRunRepository(),
+        channelLimits: env.WHATSAPP_LIMITS_CHECK
+          ? createChannelLimitsGate({
+              jobLogRepository: createDbJobLogRepository(),
+              repository: createDbChannelLimitsRepository(),
+              uazapiClient: createHttpUazapiClient(),
+            })
+          : undefined,
         contactBlockRepository: createDbContactBlockRepository(),
         conversationRepository: createDbConversationRepository(),
         firstMessageVariantRepository: createDbFirstMessageVariantRepository(),
@@ -86,6 +96,7 @@ async function start(): Promise<void> {
       createFollowupOutreachService({
         aiClient: createHttpAiClient(),
         aiRunRepository: createDbAiRunRepository(),
+        contactBlockRepository: createDbContactBlockRepository(),
         conversationRepository: createDbConversationRepository(),
         jobLogRepository: createDbJobLogRepository(),
         leadRepository: createDbLeadRepository(),
@@ -99,6 +110,7 @@ async function start(): Promise<void> {
         aiResponseService: createAiResponseService({
           aiClient: createHttpAiClient(),
           aiRunRepository: createDbAiRunRepository(),
+          contactBlockRepository: createDbContactBlockRepository(),
           conversationRepository: createDbConversationRepository(),
           jobLogRepository: createDbJobLogRepository(),
           leadRepository: createDbLeadRepository(),
@@ -123,6 +135,7 @@ async function start(): Promise<void> {
     );
     const dailyReportBoss = await startPgBossDailyReportScheduler(
       createDailyReportService({
+        channelLimitsRepository: createDbChannelLimitsRepository(),
         connectionMonitorRepository: createDbConnectionMonitorRepository(),
         jobLogRepository: createDbJobLogRepository(),
         leadRepository: createDbLeadRepository(),

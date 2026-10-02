@@ -66,6 +66,7 @@ const sdrAgentFormSchema = z.object({
   followupCooldownMinMinutes: z.coerce.number().int().nonnegative(),
   followupCooldownMaxMinutes: z.coerce.number().int().nonnegative(),
   dailyInitialSendLimit: z.coerce.number().int().positive(),
+  warmupActive: checkbox.default(false),
   dailyFollowupSendLimit: z.coerce.number().int().positive(),
   // Ausente em formulario antigo: 1 e o comportamento de sempre.
   followupMaxTouches: z.coerce.number().int().min(1).max(5).optional().default(1),
@@ -157,6 +158,8 @@ function parseSdrAgentInput(body: unknown, current?: SdrAgentInput): { input: Sd
       followupCooldownMinMinutes: data.followupCooldownMinMinutes,
       followupCooldownMaxMinutes: data.followupCooldownMaxMinutes,
       dailyInitialSendLimit: data.dailyInitialSendLimit,
+      // Marcado mantem a data de inicio que ja existe: salvar o formulario nao reinicia a rampa.
+      warmupStartedAt: data.warmupActive ? (current?.warmupStartedAt ?? new Date()) : null,
       dailyFollowupSendLimit: data.dailyFollowupSendLimit,
       followupMaxTouches: data.followupMaxTouches,
       responseDelayBaseMs: data.responseDelayBaseMs,

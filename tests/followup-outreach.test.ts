@@ -963,3 +963,35 @@ describe('trava por SDR', () => {
     expect(firstResult.sent + second.sent).toBe(1);
   });
 });
+
+describe('lista de nao contatar no follow-up', () => {
+  it('numero bloqueado depois da abordagem nao recebe follow-up, nem paga a geracao', async () => {
+    const { createMemoryContactBlockRepository } = await import('../src/modules/leads/contact-block-repository.js');
+    const agent = await makeAgent({ id: 'sdr-1' });
+    const lead = makeLead({ status: 'initial_sent', lastInboundAt: null });
+    const leads = createMemoryLeadRepository([lead]);
+    const blocks = createMemoryContactBlockRepository();
+    // Pediu para sair na conversa de outro SDR: o bloqueio vale para todos.
+    await blocks.add({ whatsappNumber: lead.whatsappNumber, reason: 'pediu para nao receber mais mensagens', source: 'ia:Francielly' });
+    const ai = fakeAiClient(aiReply('nao deveria sair'));
+    const uazapi = fakeUazapiClient();
+    const jobLogs = createMemoryJobLogRepository();
+    const service = createFollowupOutreachService({
+      aiClient: ai,
+      aiRunRepository: createMemoryAiRunRepository(),
+      contactBlockRepository: blocks,
+      conversationRepository: createMemoryConversationRepository(),
+      jobLogRepository: jobLogs,
+      leadRepository: leads,
+      sdrAgentRepository: createMemorySdrAgentRepository([agent]),
+      uazapiClient: uazapi,
+    });
+
+    const result = await service.runOnce(NOW);
+
+    expect(result.sent).toBe(0);
+    expect(ai.calls).toHaveLength(0);
+    expect((await leads.findById(lead.id))?.followupDisabledAt).toEqual(NOW);
+    expect((await jobLogs.list()).some((log) => log.jobKey === `blocked-${lead.id}`)).toBe(true);
+  });
+});

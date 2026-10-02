@@ -134,6 +134,7 @@ function renderChannelHealth(model: DashboardViewModel): string {
         <td>${row.drops}</td>
         <td>${escapeHtml(row.reconnectLabel)}</td>
         <td>${escapeHtml(row.downNowLabel)}</td>
+        <td>${row.newChatsBlocked ? `<span class="status-pill status-off">${escapeHtml(row.newChatsLabel)}</span>` : escapeHtml(row.newChatsLabel)}</td>
         <td class="muted">${escapeHtml(row.detail)}</td>
       </tr>`,
     )
@@ -141,7 +142,7 @@ function renderChannelHealth(model: DashboardViewModel): string {
 
   return `<section class="page-section">
     <div class="section-heading"><h2>Saude do WhatsApp</h2><p class="muted">Quanto do horario de envio cada SDR ficou conectado nos ultimos 7 dias. Meta: 95%.</p></div>
-    <div class="table-wrap"><table><thead><tr><th>SDR</th><th>Conectado</th><th>Quedas</th><th>Tempo medio para voltar</th><th>Fora agora ha</th><th>Base</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="table-wrap"><table><thead><tr><th>SDR</th><th>Conectado</th><th>Quedas</th><th>Tempo medio para voltar</th><th>Fora agora ha</th><th>Conversas novas</th><th>Base</th></tr></thead><tbody>${rows}</tbody></table></div>
   </section>`;
 }
 

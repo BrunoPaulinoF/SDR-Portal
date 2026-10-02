@@ -43,6 +43,7 @@ export const TRACKED_AGENT_FIELDS = [
   'initialCooldownMinMinutes',
   'initialCooldownMaxMinutes',
   'dailyInitialSendLimit',
+  'warmupStartedAt',
   'followupEnabled',
   'followupAfterHours',
   'followupMaxTouches',
@@ -54,6 +55,7 @@ export const TRACKED_AGENT_FIELDS = [
 
 function asText(value: unknown): string | null {
   if (value === null || value === undefined) return null;
+  if (value instanceof Date) return value.toISOString();
   return typeof value === 'string' ? value : String(value);
 }
 

@@ -6,6 +6,7 @@ import { parseAiResponse } from '../ai/ai-response.js';
 import { resolveAiApiKey } from '../ai/resolve-api-key.js';
 import { resolveSdrPlaybook, type SdrPlaybook } from '../ai/sdr-playbooks.js';
 import { aiHistoryText } from '../conversations/conversation-history.js';
+import type { ContactBlockRepository } from '../leads/contact-block-repository.js';
 import type { ConversationRepository } from '../conversations/conversation-repository.js';
 import type { JobLogRepository } from '../jobs/job-log-repository.js';
 import {
@@ -60,6 +61,8 @@ export interface FollowupOutreachResult {
 interface FollowupOutreachDependencies {
   aiClient: AiClient;
   aiRunRepository: AiRunRepository;
+  /** Lista de nao contatar. Opcional para os testes que nao tratam dela. */
+  contactBlockRepository?: ContactBlockRepository;
   conversationRepository: ConversationRepository;
   jobLogRepository: JobLogRepository;
   leadRepository: LeadRepository;
@@ -507,6 +510,28 @@ export function createFollowupOutreachService(deps: FollowupOutreachDependencies
     const lead = await deps.leadRepository.findNextFollowupDueForSdr(agent.id, now, { quietSince, maxTouches: agent.followupMaxTouches });
     if (!lead) {
       details.push(`${agent.name}: nenhum follow-up vencido.`);
+      return 'skipped';
+    }
+
+    // Pediu para sair — nesta conversa ou na de outro SDR, de outra empresa — depois de ter
+    // recebido a primeira mensagem: o follow-up para aqui, antes de pagar a geracao.
+    const blocked = await deps.contactBlockRepository?.findBlocked(lead.whatsappNumber);
+    if (blocked) {
+      await deps.leadRepository.disableFollowup(lead.id, now);
+      await deps.jobLogRepository.create({
+        jobName: 'followup-outreach',
+        jobKey: `blocked-${lead.id}`,
+        sdrAgentId: agent.id,
+        leadId: lead.id,
+        status: 'skipped',
+        attempt: 1,
+        payload: JSON.stringify({ number: lead.whatsappNumber, companyName: lead.companyName }),
+        result: JSON.stringify({ reason: 'nao contatar', blockReason: blocked.reason, blockedBy: blocked.source }),
+        error: null,
+        startedAt: now,
+        finishedAt: new Date(),
+      });
+      details.push(`${agent.name}: ${lead.companyName} esta na lista de nao contatar; follow-up desligado.`);
       return 'skipped';
     }
 

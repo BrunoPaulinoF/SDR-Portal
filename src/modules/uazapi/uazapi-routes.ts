@@ -111,6 +111,25 @@ export function registerUazapiRoutes(
     return reply.type('text/html').send(await runUazapiAction(agent, 'Status UAZAPI', (credentials) => uazapiClient.getInstanceStatus(credentials)));
   });
 
+  // O que o WhatsApp diz sobre a conta iniciar conversas novas: bloqueio temporario e cota.
+  app.post('/sdr-agents/:id/uazapi/limites', async (request, reply) => {
+    const user = await requireUser(request, reply, authRepository);
+
+    if (!user) {
+      return undefined;
+    }
+
+    const agent = await findAgentOrReply(request.params, sdrAgentRepository);
+
+    if (!agent) {
+      return reply.status(404).send('SDR nao encontrado');
+    }
+
+    return reply
+      .type('text/html')
+      .send(await runUazapiAction(agent, 'Limites do WhatsApp', (credentials) => uazapiClient.getMessageLimits(credentials)));
+  });
+
   app.post('/sdr-agents/:id/uazapi/configure-webhook', async (request, reply) => {
     const user = await requireUser(request, reply, authRepository);
 

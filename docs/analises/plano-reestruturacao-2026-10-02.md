@@ -279,6 +279,32 @@ real. "Entregues" ficou de fora do funil: o portal não guarda confirmação de 
 - **Nao feito.** Item 4, a camada de canal. Os testes de SQL contra Postgres de verdade
   (`tests/banco-de-verdade.test.ts`) entraram como base para essas mudancas.
 
+### Fase 4 — o que ficou da Fase 3: proteger o numero
+
+O plano original acabava na Fase 3. A Fase 4 junta o que ela deixou de fora, comecando pelo
+que mais derrubou resultado em setembro: o WhatsApp do SDR fora do ar ou bloqueado.
+
+1. **Limites do WhatsApp antes de prospectar.** A UAZAPI expoe em
+   `GET /instance/wa_messages_limits` o mesmo diagnostico que so aparecia quando um envio ja
+   tinha sido recusado (`provider_code: 463`): bloqueio temporario de conversa nova, com data, e
+   cota de conversas novas por ciclo. O disparo consulta antes, para enquanto o WhatsApp diz que
+   nao pode e guarda o bloqueio no banco — um restart nao faz mais o disparo insistir.
+2. **Aquecimento de numero novo.** Numero recem-pareado comeca com 10 abordagens por dia e sobe
+   ate o limite cadastrado em 14 dias. E o que se faz com a Francielly (ou um numero novo para
+   ela) e com a Mariana quando voltarem.
+3. **Pedido para sair vira bloqueio automatico.** Quando o lead pede para nao ser mais
+   procurado, a IA poe o numero na lista de nao contatar de todos os SDRs. Mensagem repetida
+   para quem ja disse "para" e o que vira denuncia, e denuncia derruba o numero inteiro.
+4. **Separar o motor do portal** (ficou da Fase 3). Precisa de um segundo servico no EasyPanel
+   e de trocar as travas de processo por travas no banco: decisao de operacao antes de codigo.
+5. **Validar numero na importacao e priorizar loja sem robo** (ficou da Fase 3). Conferir
+   centenas de numeros de uma vez no WhatsApp e, ele mesmo, comportamento de disparo em massa;
+   o `/chat/check` espacado antes de cada envio ja impede mensagem para numero inexistente.
+   Fica para quando houver um provedor de validacao que nao use o numero do SDR.
+
+**Andamento (02/10):** itens 1, 2 e 3 no codigo (migracao 0035). Os itens 4 e 5 ficam
+parados de proposito, pelos motivos acima.
+
 ## Metas para saber se melhorou
 
 | Indicador | Hoje | Meta em 30 dias |

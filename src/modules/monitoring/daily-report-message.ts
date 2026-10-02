@@ -8,6 +8,11 @@ export interface DailyReportLine extends SdrDailyActivity {
    * que separa "dia fraco" de "SDR morto" num relatorio que mostra zero.
    */
   disconnectedSince?: Date;
+  /** WhatsApp proibindo conversa nova (timelock ou cota), ate quando e por que. */
+  blockedUntil?: Date;
+  blockReason?: string | null;
+  /** Numero em aquecimento: "dia 5 de 14, ate 20 por dia". */
+  warmup?: string | null;
 }
 
 export interface DailyReportInput {
@@ -45,6 +50,12 @@ function describeSdr(sdr: DailyReportLine, now: Date, timeZone: string): string 
       `⚠️ WhatsApp DESCONECTADO desde ${formatDateTimeInTimeZone(sdr.disconnectedSince, timeZone)} (${describeDowntime(sdr.disconnectedSince, now)}). Nada sai ate reconectar no portal.`,
     );
   }
+  if (sdr.blockedUntil) {
+    lines.push(
+      `⛔ WhatsApp nao deixa iniciar conversas novas ate ${formatDateTimeInTimeZone(sdr.blockedUntil, timeZone)}${sdr.blockReason ? ` (${sdr.blockReason})` : ''}. A prospeccao volta sozinha depois disso; respostas continuam saindo.`,
+    );
+  }
+  if (sdr.warmup) lines.push(`🌱 Numero em aquecimento: ${sdr.warmup}.`);
   lines.push(
     `• Prospectados: ${sdr.prospected}`,
     `• Responderam: ${sdr.responded}`,

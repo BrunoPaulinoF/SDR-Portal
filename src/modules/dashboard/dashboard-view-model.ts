@@ -1,6 +1,7 @@
-import type { AiRun, Company, Conversation, JobLog, Lead, Message, SdrAgent, SdrConnectionEvent } from '../../db/schema.js';
+import type { AiRun, Company, Conversation, JobLog, Lead, Message, SdrAgent, SdrChannelLimits, SdrConnectionEvent } from '../../db/schema.js';
 import { hasOutcome } from '../leads/lead-outcome.js';
 import { CHANNEL_HEALTH_TARGET_PERCENT, computeChannelHealth } from '../monitoring/channel-health.js';
+import { dailyInitialLimit } from '../sdr-agents/warmup.js';
 import { formatDateTimeInTimeZone, startOfDayInTimeZone } from '../timezone.js';
 
 export type DashboardPeriod = 'today' | '7d' | '30d' | 'all';
@@ -124,6 +125,9 @@ export interface DashboardChannelRow {
   drops: number;
   reconnectLabel: string;
   downNowLabel: string;
+  /** O que o WhatsApp disse sobre abrir conversa nova: liberado, cota, bloqueado ate quando. */
+  newChatsLabel: string;
+  newChatsBlocked: boolean;
   /** Explica de onde vem o numero (ex.: historico desde quando). */
   detail: string;
 }
@@ -248,6 +252,8 @@ interface BuildDashboardInput {
   now?: Date;
   /** Transicoes de conexao (monitor). Leia com folga antes dos 7 dias: o estado inicial vem delas. */
   connectionEvents?: SdrConnectionEvent[];
+  /** Ultima leitura dos limites do WhatsApp por SDR (`sdr_channel_limits`). */
+  channelLimits?: SdrChannelLimits[];
   sdrAgents: SdrAgent[];
   userLabel: string;
 }
@@ -382,7 +388,26 @@ function isFollowupDue(lead: Lead, now: Date): boolean {
   );
 }
 
-function buildDispatchRow(agent: SdrAgent, company: Company | undefined, agentLeads: Lead[], now: Date): DashboardDispatchRow {
+function isChannelBlocked(limits: SdrChannelLimits | undefined, now: Date): limits is SdrChannelLimits & { blockedUntil: Date } {
+  return Boolean(limits?.blockedUntil && limits.blockedUntil.getTime() > now.getTime());
+}
+
+/** "Liberado (8/10)", "Bloqueado ate 03/10 14:00" ou "-" sem leitura ainda. */
+function newChatsLabel(agent: SdrAgent, limits: SdrChannelLimits | undefined, now: Date): string {
+  if (!limits) return '-';
+  if (isChannelBlocked(limits, now)) return `Bloqueado ate ${formatDateTimeInTimeZone(limits.blockedUntil, agent.timezone)}`;
+  if (limits.canStartConversations === null) return 'Sem leitura';
+  const quota = limits.quotaUsed !== null && limits.quotaTotal !== null ? ` (${limits.quotaUsed}/${limits.quotaTotal} na cota)` : '';
+  return `Liberado${quota}`;
+}
+
+function buildDispatchRow(
+  agent: SdrAgent,
+  company: Company | undefined,
+  agentLeads: Lead[],
+  now: Date,
+  limits?: SdrChannelLimits,
+): DashboardDispatchRow {
   const pending = agentLeads.filter((lead) => lead.status === 'pending');
   const nextLead = nextPendingLead(agentLeads);
   const today = startOfDayInTimeZone(now, agent.timezone);
@@ -393,6 +418,7 @@ function buildDispatchRow(agent: SdrAgent, company: Company | undefined, agentLe
   const lastSentAt = lastSent?.firstMessageSentAt ?? null;
   const minCooldown = Math.min(agent.initialCooldownMinMinutes, agent.initialCooldownMaxMinutes);
   const maxCooldown = Math.max(agent.initialCooldownMinMinutes, agent.initialCooldownMaxMinutes);
+  const todayLimit = dailyInitialLimit(agent, now);
   const base: Omit<DashboardDispatchRow, 'detail' | 'etaLabel' | 'status' | 'statusLabel'> = {
     companyName: company?.name ?? '-',
     followupsDue,
@@ -403,7 +429,7 @@ function buildDispatchRow(agent: SdrAgent, company: Company | undefined, agentLe
     pendingCount: pending.length,
     sdrName: agent.displayName || agent.name,
     sentToday,
-    sendLimitLabel: `${sentToday}/${agent.dailyInitialSendLimit}`,
+    sendLimitLabel: `${sentToday}/${todayLimit.limit}${todayLimit.warmupDay === null ? '' : ` (aquecimento, dia ${todayLimit.warmupDay})`}`,
   };
 
   if (!agent.isActive) {
@@ -418,8 +444,29 @@ function buildDispatchRow(agent: SdrAgent, company: Company | undefined, agentLe
     return { ...base, detail: 'Nenhum lead pendente para este SDR.', etaLabel: '-', status: 'muted', statusLabel: 'Sem fila' };
   }
 
-  if (sentToday >= agent.dailyInitialSendLimit) {
-    return { ...base, detail: 'Limite diario de abordagens atingido.', etaLabel: 'proximo dia', status: 'blocked', statusLabel: 'Limite atingido' };
+  // Antes do limite e do "Parado": com o WhatsApp proibindo conversa nova, nada sai e a tela
+  // tem de dizer quem segurou e ate quando.
+  if (isChannelBlocked(limits, now)) {
+    return {
+      ...base,
+      detail: `${limits.blockReason ?? 'WhatsApp nao deixa iniciar conversas agora'}. A prospeccao volta sozinha; respostas continuam saindo.`,
+      etaLabel: formatDateTimeInTimeZone(limits.blockedUntil, agent.timezone),
+      status: 'blocked',
+      statusLabel: 'Bloqueado pelo WhatsApp',
+    };
+  }
+
+  if (sentToday >= todayLimit.limit) {
+    return {
+      ...base,
+      detail:
+        todayLimit.warmupDay === null
+          ? 'Limite diario de abordagens atingido.'
+          : `Limite do aquecimento atingido (dia ${todayLimit.warmupDay}): o numero novo sobe aos poucos.`,
+      etaLabel: 'proximo dia',
+      status: 'blocked',
+      statusLabel: 'Limite atingido',
+    };
   }
 
   const windowWait = minutesUntilSendWindow(agent, now);
@@ -546,12 +593,14 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
   const totalTokens = aiRunsInPeriod.reduce((sum, run) => sum + (run.totalTokens ?? 0), 0);
   const totalKnownSends = initialSent + followupsSent + outboundMessages;
   const responseRate = formatPercent(respondedLeadIds.size, initialSent || scopedLeads.filter((lead) => lead.firstMessageSentAt !== null).length);
+  const limitsByAgent = new Map((input.channelLimits ?? []).map((row) => [row.sdrAgentId, row]));
   const dispatchRows = scopedAgents.map((agent) =>
     buildDispatchRow(
       agent,
       companyById.get(agent.companyId),
       scopedLeads.filter((lead) => lead.sdrAgentId === agent.id),
       now,
+      limitsByAgent.get(agent.id),
     ),
   );
   const readyCount = dispatchRows.filter((row) => row.statusLabel === 'Pronto').length;
@@ -608,8 +657,8 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
   // Limite diario acima do que a janela comporta e limite que nunca chega: quem segura o volume
   // passa a ser o cooldown, e a tela mostraria "0/40" para sempre sem dizer por que.
   const overCapacitySdrs = scopedAgents
-    .filter((agent) => agent.isActive && dailySendCapacity(agent) < agent.dailyInitialSendLimit)
-    .map((agent) => `${agent.displayName || agent.name} (~${dailySendCapacity(agent)}/${agent.dailyInitialSendLimit})`);
+    .filter((agent) => agent.isActive && dailySendCapacity(agent) < dailyInitialLimit(agent, now).limit)
+    .map((agent) => `${agent.displayName || agent.name} (~${dailySendCapacity(agent)}/${dailyInitialLimit(agent, now).limit})`);
   const stalledHandoffOffers = scopedLeads.filter(
     (lead) =>
       lead.conversationStage === 'handoff_offer' &&
@@ -637,6 +686,8 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
         drops: health.drops,
         reconnectLabel: health.averageReconnectMinutes === null ? '-' : formatDuration(health.averageReconnectMinutes),
         downNowLabel: health.downForMinutes === null ? '-' : formatDuration(health.downForMinutes),
+        newChatsLabel: newChatsLabel(agent, limitsByAgent.get(agent.id), now),
+        newChatsBlocked: isChannelBlocked(limitsByAgent.get(agent.id), now),
         detail: !health.coveredFrom
           ? 'Sem historico ainda: o monitor de conexao grava a partir da proxima leitura.'
           : partial
@@ -654,7 +705,17 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
   const failedNoticeLeads = failedHandoffNotices
     .map((log) => scopedLeads.find((lead) => lead.id === log.leadId)?.companyName)
     .filter((name): name is string => Boolean(name));
+  const blockedChannels = scopedAgents.filter((agent) => agent.isActive && isChannelBlocked(limitsByAgent.get(agent.id), now));
   const alerts = [
+    blockedChannels.length > 0
+      ? `WhatsApp proibindo conversa nova: ${blockedChannels
+          .map((agent) => {
+            const limits = limitsByAgent.get(agent.id);
+            const until = limits?.blockedUntil ? formatDateTimeInTimeZone(limits.blockedUntil, agent.timezone) : '-';
+            return `${agent.displayName || agent.name} ate ${until}${limits?.blockReason ? ` (${limits.blockReason})` : ''}`;
+          })
+          .join(', ')}. A prospeccao para sozinha ate la; insistir e o que alonga o bloqueio. Vale baixar o limite diario ou ligar o aquecimento.`
+      : null,
     unhealthyChannels.length > 0
       ? `WhatsApp abaixo da meta de ${CHANNEL_HEALTH_TARGET_PERCENT}% conectado no horario de envio: ${unhealthyChannels.map((row) => `${row.sdrName} (${row.connectedLabel}${row.downNowLabel !== '-' ? `, fora ha ${row.downNowLabel}` : ''})`).join(', ')}. Cada hora fora e abordagem que nao sai.`
       : null,

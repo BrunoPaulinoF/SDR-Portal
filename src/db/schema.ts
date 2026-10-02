@@ -95,6 +95,13 @@ export const sdrAgents = pgTable('sdr_agents', {
   followupCooldownMinMinutes: integer('followup_cooldown_min_minutes').default(10).notNull(),
   followupCooldownMaxMinutes: integer('followup_cooldown_max_minutes').default(30).notNull(),
   dailyInitialSendLimit: integer('daily_initial_send_limit').default(40).notNull(),
+  /**
+   * Inicio do aquecimento do numero: enquanto preenchido, o limite diario do disparo segue a
+   * rampa de `warmupDailyLimit` (sdr-agents/warmup.ts) em vez de `daily_initial_send_limit`
+   * cheio. Numero novo ou recem-reconectado que comeca com 40 conversas novas por dia e o
+   * caminho mais curto para o `WHATSAPP_REACHOUT_TIMELOCK`.
+   */
+  warmupStartedAt: timestamp('warmup_started_at', { withTimezone: true }),
   dailyFollowupSendLimit: integer('daily_followup_send_limit').default(50).notNull(),
   /**
    * Quantos follow-ups um lead pode receber no total. 1 e o comportamento de sempre (um so);
@@ -545,3 +552,28 @@ export const sdrConfigChanges = pgTable(
 
 export type SdrConfigChange = typeof sdrConfigChanges.$inferSelect;
 export type NewSdrConfigChange = typeof sdrConfigChanges.$inferInsert;
+
+/**
+ * O que o WhatsApp disse por ultimo sobre a conta de cada SDR poder iniciar conversas novas
+ * (`GET /instance/wa_messages_limits` da UAZAPI, ou o corpo de um envio recusado). E a memoria
+ * que o recuo em processo nao tinha: depois de um restart, o disparo voltava a bater no
+ * bloqueio — e cada tentativa contra um bloqueio de qualidade reforca o motivo dele.
+ */
+export const sdrChannelLimits = pgTable('sdr_channel_limits', {
+  sdrAgentId: uuid('sdr_agent_id')
+    .primaryKey()
+    .references(() => sdrAgents.id, { onDelete: 'cascade' }),
+  /** `null` quando a consulta nao conseguiu concluir. */
+  canStartConversations: boolean('can_start_conversations'),
+  /** Ate quando o disparo nao tenta: fim do timelock, fim do ciclo da cota ou proxima consulta. */
+  blockedUntil: timestamp('blocked_until', { withTimezone: true }),
+  blockReason: text('block_reason'),
+  quotaUsed: integer('quota_used'),
+  quotaTotal: integer('quota_total'),
+  quotaResetsAt: timestamp('quota_resets_at', { withTimezone: true }),
+  /** `consulta` (o endpoint de limites) ou `envio` (o corpo de um envio recusado). */
+  source: text('source').notNull(),
+  checkedAt: timestamp('checked_at', { withTimezone: true }).notNull(),
+});
+
+export type SdrChannelLimits = typeof sdrChannelLimits.$inferSelect;
