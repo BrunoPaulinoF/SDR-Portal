@@ -159,13 +159,15 @@ describe('relatorio do fim do dia', () => {
     const result = await service.runOnce(DEPOIS_DA_HORA);
 
     expect(result.skipped).toBeNull();
-    expect(result.sdrs).toEqual([{ name: 'Franc', prospected: 3, responded: 2, handoffs: 1 }]);
+    expect(result.sdrs).toEqual([{ name: 'Franc', prospected: 3, responded: 2, handoffs: 1, meetings: 0, won: 0 }]);
     expect(uazapi.sent).toHaveLength(1);
     const texto = uazapi.sent[0]?.text ?? '';
     expect(texto).toContain('Franc');
     expect(texto).toContain('Prospectados: 3');
     expect(texto).toContain('Responderam: 2');
-    expect(texto).toContain('Possiveis clientes: 1');
+    expect(texto).toContain('Passados para o time: 1');
+    expect(texto).toContain('Reunioes marcadas: 0');
+    expect(texto).toContain('Viraram cliente: 0');
     expect(texto).toContain('01/09/2026');
   });
 
@@ -324,19 +326,19 @@ describe('texto do relatorio', () => {
       ...base,
       template: null,
       sdrs: [
-        { name: 'Franc', prospected: 3, responded: 2, handoffs: 1 },
-        { name: 'Mariana', prospected: 5, responded: 1, handoffs: 0 },
+        { name: 'Franc', prospected: 3, responded: 2, handoffs: 1, meetings: 1, won: 1 },
+        { name: 'Mariana', prospected: 5, responded: 1, handoffs: 0, meetings: 0, won: 0 },
       ],
     });
 
-    expect(texto).toContain('Total: 8 prospectado(s), 3 responderam, 1 possivel(is) cliente(s).');
+    expect(texto).toContain('Total: 8 prospectado(s), 3 responderam, 1 passado(s) para o time, 1 cliente(s).');
   });
 
   it('aceita texto proprio com marcadores', () => {
     const texto = buildDailyReport({
       ...base,
       template: 'Fechamento {data}\n{sdrs}',
-      sdrs: [{ name: 'Franc', prospected: 1, responded: 0, handoffs: 0 }],
+      sdrs: [{ name: 'Franc', prospected: 1, responded: 0, handoffs: 0, meetings: 0, won: 0 }],
     });
 
     expect(texto.startsWith('Fechamento 01/09/2026')).toBe(true);

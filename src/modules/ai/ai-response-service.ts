@@ -1,3 +1,4 @@
+import { env } from '../../config/env.js';
 import type { Conversation, Lead, Message, SdrAgent } from '../../db/schema.js';
 import { speakableText, voiceConfigOf, wantsAudioReply } from '../audio/audio-reply.js';
 import type { TextToSpeechClient } from '../audio/text-to-speech-client.js';
@@ -154,6 +155,11 @@ async function notifyReferral(
   if (!result.ok) throw new Error(`UAZAPI returned HTTP ${result.status}`);
 }
 
+/** Tela do lead no portal, onde se marca o desfecho. `null` sem `APP_URL` configurada. */
+function leadUrl(lead: Lead): string | null {
+  return env.APP_URL ? `${env.APP_URL.replace(/\/+$/, '')}/leads/${lead.id}` : null;
+}
+
 function interpolateHandoffTemplate(template: string, agent: SdrAgent, lead: Lead, summary: string): string {
   const cleanName = cleanLeadName(lead);
   const replacements: Record<string, string> = {
@@ -167,6 +173,7 @@ function interpolateHandoffTemplate(template: string, agent: SdrAgent, lead: Lea
     city: lead.city ?? '',
     state: lead.state ?? '',
     handoffName: agent.handoffName ?? '',
+    leadUrl: leadUrl(lead) ?? '',
     leadWhatsapp: lead.whatsappNumber,
     productName: agent.productName ?? '',
     sdrName: agent.displayName,
@@ -187,9 +194,14 @@ async function notifyHandoff(
   if (!agent.handoffPhone) return;
 
   const defaultMessage = `Novo handoff solicitado.\nLead: ${lead.companyName}\nWhatsApp: ${lead.whatsappNumber}\nResumo: ${summary}`;
-  const text = agent.handoffMessageTemplate
+  const body = agent.handoffMessageTemplate
     ? interpolateHandoffTemplate(agent.handoffMessageTemplate, agent, lead, summary).trim()
     : defaultMessage;
+  // Quem recebe o aviso e quem sabe o que aconteceu depois: o link leva direto para marcar
+  // reuniao, teste, cliente ou perdido. Vai ate no texto proprio do SDR, a nao ser que ele ja
+  // traga o link pelo {{leadUrl}}.
+  const url = leadUrl(lead);
+  const text = url && !body.includes(url) ? `${body}\n\nDepois, marque o que aconteceu: ${url}` : body;
 
   const result = await deps.uazapiClient.sendText({
     ...credentials,

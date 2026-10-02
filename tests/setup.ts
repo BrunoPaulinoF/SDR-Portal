@@ -30,3 +30,7 @@ const REMOVED_KEYS = [
 for (const key of REMOVED_KEYS) {
   delete process.env[key];
 }
+
+// Endereco do portal fixo: os links que vao no WhatsApp (handoff, pausa por foto) nao podem
+// depender da maquina em que o teste roda.
+process.env.APP_URL = 'https://portal.test';

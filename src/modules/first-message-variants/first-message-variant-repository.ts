@@ -20,7 +20,10 @@ export interface FirstMessageVariantUpdate {
 export interface FirstMessageVariantMetrics {
   variant: FirstMessageVariant;
   sent: number;
+  /** Leads com resposta de gente (`last_inbound_at`: automatica da loja nao escreve ali). */
   replied: number;
+  /** Leads passados para o time: a taxa que diz se o texto traz conversa que vale. */
+  handoffs: number;
 }
 
 export interface FirstMessageVariantRepository {
@@ -132,7 +135,7 @@ export function createMemoryFirstMessageVariantRepository(
     async metricsForAgent(sdrAgentId) {
       // Impl em memoria nao tem acesso a leads/messages; expoe apenas os envios (assignedCount).
       // A metrica real de respostas vem da impl de banco.
-      return forAgent(sdrAgentId).map((variant) => ({ variant, sent: variant.assignedCount, replied: 0 }));
+      return forAgent(sdrAgentId).map((variant) => ({ variant, sent: variant.assignedCount, replied: 0, handoffs: 0 }));
     },
   };
 }

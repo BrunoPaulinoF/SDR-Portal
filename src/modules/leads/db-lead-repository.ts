@@ -27,13 +27,15 @@ export function createDbLeadRepository(): LeadRepository {
         return row?.value ?? 0;
       };
 
-      const [prospected, responded, handoffs] = await Promise.all([
+      const [prospected, responded, handoffs, meetings, won] = await Promise.all([
         contar(leads.firstMessageSentAt),
         contar(leads.lastInboundAt),
         contar(leads.handoffRequestedAt),
+        contar(leads.meetingAt),
+        contar(leads.wonAt),
       ]);
 
-      return { prospected, responded, handoffs };
+      return { prospected, responded, handoffs, meetings, won };
     },
 
     async countPendingForSdr(sdrAgentId) {
@@ -396,6 +398,22 @@ export function createDbLeadRepository(): LeadRepository {
       const [lead] = await db
         .update(leads)
         .set({ firstMessageVariantId: variantId, updatedAt: new Date() })
+        .where(eq(leads.id, id))
+        .returning();
+      return lead ?? null;
+    },
+
+    async setOutcome(id, outcome, updatedAt) {
+      const [lead] = await db
+        .update(leads)
+        .set({
+          meetingAt: outcome.meetingAt,
+          trialStartedAt: outcome.trialStartedAt,
+          wonAt: outcome.wonAt,
+          lostAt: outcome.lostAt,
+          lostReason: outcome.lostReason,
+          updatedAt,
+        })
         .where(eq(leads.id, id))
         .returning();
       return lead ?? null;

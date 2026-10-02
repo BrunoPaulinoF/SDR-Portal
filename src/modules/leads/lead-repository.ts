@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import type { Lead, LeadImport, NewLead, NewLeadImport } from '../../db/schema.js';
 import { followupDisabledAfterAiResume, statusAfterAiResume } from './ai-pause.js';
+import type { LeadOutcome } from './lead-outcome.js';
 
 export type LeadInput = Pick<
   NewLead,
@@ -45,6 +46,10 @@ export interface SdrDailyActivity {
   responded: number;
   /** Leads passados para humano no periodo — o "possivel cliente". */
   handoffs: number;
+  /** Reunioes marcadas no periodo (marcadas por quem atendeu, na tela do lead). */
+  meetings: number;
+  /** Leads que viraram cliente no periodo. */
+  won: number;
 }
 
 export interface LeadRepository {
@@ -90,6 +95,8 @@ export interface LeadRepository {
   disableFollowup(id: string, disabledAt: Date): Promise<Lead | null>;
   updateStage(id: string, stage: string, updatedAt: Date): Promise<Lead | null>;
   setFirstMessageVariant(id: string, variantId: string): Promise<Lead | null>;
+  /** Grava o desfecho depois do handoff ja calculado (`lead-outcome.ts`); nao mexe no status. */
+  setOutcome(id: string, outcome: LeadOutcome, updatedAt: Date): Promise<Lead | null>;
   update(id: string, input: LeadInput): Promise<Lead | null>;
 }
 
@@ -125,6 +132,11 @@ function normalize(input: LeadInput): Omit<Lead, 'id' | 'createdAt' | 'updatedAt
     handoffRequestedAt: null,
     handoffSummary: null,
     notInterestedAt: null,
+    meetingAt: null,
+    trialStartedAt: null,
+    wonAt: null,
+    lostAt: null,
+    lostReason: null,
   };
 }
 
@@ -159,6 +171,8 @@ export function createMemoryLeadRepository(seedLeads: Lead[] = []): LeadReposito
         prospected: agentLeads.filter((lead) => inPeriod(lead.firstMessageSentAt, start, end)).length,
         responded: agentLeads.filter((lead) => inPeriod(lead.lastInboundAt, start, end)).length,
         handoffs: agentLeads.filter((lead) => inPeriod(lead.handoffRequestedAt, start, end)).length,
+        meetings: agentLeads.filter((lead) => inPeriod(lead.meetingAt, start, end)).length,
+        won: agentLeads.filter((lead) => inPeriod(lead.wonAt, start, end)).length,
       };
     },
 
@@ -497,6 +511,14 @@ export function createMemoryLeadRepository(seedLeads: Lead[] = []): LeadReposito
       const current = rows.get(id);
       if (!current) return null;
       const lead: Lead = { ...current, firstMessageVariantId: variantId, updatedAt: new Date() };
+      rows.set(id, lead);
+      return lead;
+    },
+
+    async setOutcome(id, outcome, updatedAt) {
+      const current = rows.get(id);
+      if (!current) return null;
+      const lead: Lead = { ...current, ...outcome, updatedAt };
       rows.set(id, lead);
       return lead;
     },

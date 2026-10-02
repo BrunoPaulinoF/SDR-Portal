@@ -1,4 +1,6 @@
-import type { AiRun, Company, Conversation, JobLog, Lead, Message, SdrAgent } from '../../db/schema.js';
+import type { AiRun, Company, Conversation, JobLog, Lead, Message, SdrAgent, SdrConnectionEvent } from '../../db/schema.js';
+import { hasOutcome } from '../leads/lead-outcome.js';
+import { CHANNEL_HEALTH_TARGET_PERCENT, computeChannelHealth } from '../monitoring/channel-health.js';
 import { formatDateTimeInTimeZone, startOfDayInTimeZone } from '../timezone.js';
 
 export type DashboardPeriod = 'today' | '7d' | '30d' | 'all';
@@ -21,6 +23,13 @@ export const stalledDispatchMinutes = 180;
 export const stalledHandoffOfferMinutes = 120;
 /** Depois disso o lead some do alerta: aviso que nunca sai da tela vira paisagem. */
 const stalledHandoffOfferMaxDays = 14;
+
+/**
+ * Handoff sem desfecho marcado depois deste prazo vira cobranca no painel: sem a marcacao o
+ * funil para no handoff de novo. Mais velho que o teto, sai da lista.
+ */
+export const handoffOutcomeDueDays = 3;
+const handoffOutcomeMaxDays = 30;
 
 /** Mesmo nome de job que `ai-response-service` grava no aviso de handoff. */
 const HANDOFF_NOTICE_JOB = 'handoff-notify';
@@ -77,6 +86,17 @@ export interface DashboardFunnelRow {
   percent: number;
 }
 
+/** Um degrau do funil da safra: quantos dos leads abordados no periodo chegaram ate aqui. */
+export interface DashboardCohortRow {
+  count: number;
+  help: string;
+  label: string;
+  /** Sobre os abordados: a taxa que compara periodos e SDRs. */
+  percentOfBase: number;
+  /** Sobre o degrau anterior: onde o funil vaza. `null` no primeiro degrau. */
+  percentOfPrevious: number | null;
+}
+
 export interface DashboardCompanyRow {
   activeSdrs: number;
   companyId: string;
@@ -94,13 +114,29 @@ export interface DashboardCompanyRow {
   totalSdrs: number;
 }
 
+/** Saude do WhatsApp de um SDR nos ultimos 7 dias, so no horario de envio. */
+export interface DashboardChannelRow {
+  sdrName: string;
+  /** "93%" ou "-" sem historico. */
+  connectedLabel: string;
+  /** Abaixo da meta, ou fora do ar agora. */
+  belowTarget: boolean;
+  drops: number;
+  reconnectLabel: string;
+  downNowLabel: string;
+  /** Explica de onde vem o numero (ex.: historico desde quando). */
+  detail: string;
+}
+
 export interface DashboardViewModel {
   alerts: string[];
+  channelRows: DashboardChannelRow[];
+  cohortLost: number;
+  cohortRows: DashboardCohortRow[];
   companies: Company[];
   companyRows: DashboardCompanyRow[];
   dispatchRows: DashboardDispatchRow[];
   filters: DashboardFilters;
-  funnelRows: DashboardFunnelRow[];
   metrics: DashboardMetric[];
   periodLabel: string;
   sdrAgents: SdrAgent[];
@@ -154,6 +190,53 @@ export const stageOptions = [
   { value: 'discarded', label: 'Descartado' },
 ];
 
+const PROPOSAL_STAGES = new Set(['solution', 'handoff_offer', 'handoff_done']);
+
+function percentOf(count: number, base: number): number {
+  return base > 0 ? Math.round((count / base) * 100) : 0;
+}
+
+/**
+ * O funil unico: dos leads abordados no periodo (a safra), quantos chegaram a cada degrau, em
+ * qualquer momento depois. Ate 02/10 o painel mostrava "eventos do periodo" misturados (leads
+ * criados, descartados, em conversa agora), e nenhuma linha dizia quantos abordados viraram
+ * cliente. Cada degrau conta quem chegou nele ou passou dele — cliente fechado sem reuniao
+ * marcada conta como reuniao, senao o funil teria degrau maior que o anterior.
+ *
+ * "Gente respondeu" segue a definicao do resto do portal: resposta automatica da loja nao conta.
+ */
+export function buildCohortFunnel(cohort: Lead[], humanRepliedLeadIds: ReadonlySet<string>): { rows: DashboardCohortRow[]; lost: number } {
+  const won = cohort.filter((lead) => lead.wonAt);
+  const trial = cohort.filter((lead) => lead.trialStartedAt || lead.wonAt);
+  const meeting = cohort.filter((lead) => lead.meetingAt || lead.trialStartedAt || lead.wonAt);
+  const handoff = cohort.filter((lead) => lead.handoffRequestedAt || lead.meetingAt || lead.trialStartedAt || lead.wonAt);
+  const proposal = cohort.filter((lead) => PROPOSAL_STAGES.has(lead.conversationStage) || handoff.includes(lead));
+  const replied = cohort.filter((lead) => humanRepliedLeadIds.has(lead.id) || lead.lastInboundAt || proposal.includes(lead));
+
+  const steps: Array<{ label: string; leads: Lead[]; help: string }> = [
+    { label: 'Abordados', leads: cohort, help: 'Receberam a primeira mensagem no periodo.' },
+    { label: 'Gente respondeu', leads: replied, help: 'Uma pessoa respondeu. Robo e transmissao da loja nao contam.' },
+    { label: 'Ouviu a proposta', leads: proposal, help: 'A conversa chegou na etapa de solucao ou alem.' },
+    { label: 'Handoff', leads: handoff, help: 'Passado para alguem do time.' },
+    { label: 'Reuniao marcada', leads: meeting, help: 'Marcado na tela do lead por quem atendeu.' },
+    { label: 'Teste comecou', leads: trial, help: 'Marcado na tela do lead por quem atendeu.' },
+    { label: 'Virou cliente', leads: won, help: 'Marcado na tela do lead por quem atendeu.' },
+  ];
+
+  const rows = steps.map((step, index) => {
+    const previous = index > 0 ? steps[index - 1] : undefined;
+    return {
+      count: step.leads.length,
+      help: step.help,
+      label: step.label,
+      percentOfBase: percentOf(step.leads.length, cohort.length),
+      percentOfPrevious: previous ? percentOf(step.leads.length, previous.leads.length) : null,
+    };
+  });
+
+  return { rows, lost: cohort.filter((lead) => lead.lostAt).length };
+}
+
 interface BuildDashboardInput {
   aiRuns: AiRun[];
   companies: Company[];
@@ -163,9 +246,13 @@ interface BuildDashboardInput {
   leads: Lead[];
   messages: Message[];
   now?: Date;
+  /** Transicoes de conexao (monitor). Leia com folga antes dos 7 dias: o estado inicial vem delas. */
+  connectionEvents?: SdrConnectionEvent[];
   sdrAgents: SdrAgent[];
   userLabel: string;
 }
+
+export const CHANNEL_HEALTH_DAYS = 7;
 
 function periodStart(period: DashboardPeriod, now: Date): Date | null {
   if (period === 'all') return null;
@@ -436,10 +523,8 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
   const initialSent = scopedLeads.filter((lead) => isDateInPeriod(lead.firstMessageSentAt, start, now)).length;
   const followupsSent = scopedLeads.filter((lead) => isDateInPeriod(lead.followupSentAt, start, now)).length;
   const handoffs = scopedLeads.filter((lead) => isDateInPeriod(lead.handoffRequestedAt, start, now)).length;
-  const notInterested = scopedLeads.filter((lead) => isDateInPeriod(lead.notInterestedAt, start, now)).length;
   const discarded = scopedLeads.filter((lead) => lead.status === 'discarded' && isDateInPeriod(lead.updatedAt, start, now)).length;
   const invalidPhone = scopedLeads.filter((lead) => lead.status === 'invalid_phone' && isDateInPeriod(lead.updatedAt, start, now)).length;
-  const created = scopedLeads.filter((lead) => isDateInPeriod(lead.createdAt, start, now)).length;
   const outboundMessages = messagesInPeriod.filter((message) => message.direction === 'outbound').length;
   const inboundMessages = messagesInPeriod.filter((message) => message.direction === 'inbound').length;
   // Resposta automatica da loja nao e resposta: contar o robo dava 60% de taxa numa caixa em que
@@ -478,27 +563,13 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
     addCount(statusCounts, lead.status);
     addCount(stageCounts, lead.conversationStage);
   }
-  const funnelItems = [
-    { value: 'created', label: 'Leads criados' },
-    { value: 'initial_sent', label: 'Abordagens iniciais' },
-    { value: 'responded', label: 'Responderam' },
-    { value: 'in_conversation', label: 'Em conversa agora' },
-    { value: 'transferred', label: 'Handoffs' },
-    { value: 'discarded', label: 'Descartados' },
-    { value: 'invalid_phone', label: 'Telefone inexistente' },
-    { value: 'not_interested', label: 'Sem interesse' },
-  ];
-  const funnelValues = new Map<string, number>([
-    ['created', created],
-    ['initial_sent', initialSent],
-    ['responded', respondedLeadIds.size],
-    ['in_conversation', scopedLeads.filter((lead) => lead.status === 'in_conversation').length],
-    ['transferred', handoffs],
-    ['discarded', discarded],
-    ['invalid_phone', invalidPhone],
-    ['not_interested', notInterested],
-  ]);
-  const funnelBase = Math.max(created, initialSent, scopedLeads.length, 1);
+  const cohort = scopedLeads.filter((lead) => isDateInPeriod(lead.firstMessageSentAt, start, now));
+  const cohortIds = new Set(cohort.map((lead) => lead.id));
+  const humanRepliedEver = new Set<string>();
+  for (const message of input.messages) {
+    if (message.direction === 'inbound' && !message.autoReply && cohortIds.has(message.leadId)) humanRepliedEver.add(message.leadId);
+  }
+  const cohortFunnel = buildCohortFunnel(cohort, humanRepliedEver);
   const companyRows = input.companies
     .filter((company) => !input.filters.companyId || company.id === input.filters.companyId)
     .map((company) => {
@@ -547,13 +618,51 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
       now.getTime() - lastActivityAt(lead).getTime() > stalledHandoffOfferMinutes * 60000 &&
       now.getTime() - lastActivityAt(lead).getTime() < stalledHandoffOfferMaxDays * 24 * 60 * 60000,
   );
+  const DAY_MS = 24 * 60 * 60000;
+  const healthFrom = new Date(now.getTime() - CHANNEL_HEALTH_DAYS * DAY_MS);
+  const channelRows: DashboardChannelRow[] = scopedAgents
+    .filter((agent) => agent.isActive)
+    .map((agent) => {
+      const health = computeChannelHealth({
+        events: (input.connectionEvents ?? []).filter((event) => event.sdrAgentId === agent.id),
+        from: healthFrom,
+        to: now,
+        isInsideWindow: (at) => isInsideSendWindow(agent, at),
+      });
+      const partial = health.coveredFrom && health.coveredFrom.getTime() > healthFrom.getTime();
+      return {
+        sdrName: agent.displayName || agent.name,
+        connectedLabel: health.percent === null ? '-' : `${health.percent}%`,
+        belowTarget: (health.percent !== null && health.percent < CHANNEL_HEALTH_TARGET_PERCENT) || health.downForMinutes !== null,
+        drops: health.drops,
+        reconnectLabel: health.averageReconnectMinutes === null ? '-' : formatDuration(health.averageReconnectMinutes),
+        downNowLabel: health.downForMinutes === null ? '-' : formatDuration(health.downForMinutes),
+        detail: !health.coveredFrom
+          ? 'Sem historico ainda: o monitor de conexao grava a partir da proxima leitura.'
+          : partial
+            ? `Historico desde ${formatDateTimeInTimeZone(health.coveredFrom, agent.timezone)}.`
+            : `Ultimos ${CHANNEL_HEALTH_DAYS} dias.`,
+      };
+    });
+  const unhealthyChannels = channelRows.filter((row) => row.belowTarget && row.connectedLabel !== '-');
+  const handoffsWithoutOutcome = scopedLeads.filter((lead) => {
+    if (!lead.handoffRequestedAt || hasOutcome(lead)) return false;
+    const age = now.getTime() - lead.handoffRequestedAt.getTime();
+    return age > handoffOutcomeDueDays * DAY_MS && age < handoffOutcomeMaxDays * DAY_MS;
+  });
   const failedHandoffNotices = jobLogsInPeriod.filter((log) => log.jobName === HANDOFF_NOTICE_JOB && log.status === 'failed');
   const failedNoticeLeads = failedHandoffNotices
     .map((log) => scopedLeads.find((lead) => lead.id === log.leadId)?.companyName)
     .filter((name): name is string => Boolean(name));
   const alerts = [
+    unhealthyChannels.length > 0
+      ? `WhatsApp abaixo da meta de ${CHANNEL_HEALTH_TARGET_PERCENT}% conectado no horario de envio: ${unhealthyChannels.map((row) => `${row.sdrName} (${row.connectedLabel}${row.downNowLabel !== '-' ? `, fora ha ${row.downNowLabel}` : ''})`).join(', ')}. Cada hora fora e abordagem que nao sai.`
+      : null,
     stalledHandoffOffers.length > 0
       ? `${stalledHandoffOffers.length} lead(s) com interesse esperando ha mais de ${stalledHandoffOfferMinutes / 60}h na oferta de handoff: ${namesPreview(stalledHandoffOffers.map((lead) => lead.companyName))}. Chame pelo WhatsApp do SDR.`
+      : null,
+    handoffsWithoutOutcome.length > 0
+      ? `${handoffsWithoutOutcome.length} handoff(s) de mais de ${handoffOutcomeDueDays} dias sem desfecho marcado: ${namesPreview(handoffsWithoutOutcome.map((lead) => lead.companyName))}. Abra o lead e marque reuniao, teste, cliente ou perdido.`
       : null,
     failedHandoffNotices.length > 0
       ? `${failedHandoffNotices.length} aviso(s) de handoff nao chegaram a quem atende${failedNoticeLeads.length > 0 ? ` (${namesPreview(failedNoticeLeads)})` : ''}. O resumo de cada um esta em Job logs.`
@@ -577,11 +686,13 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
 
   return {
     alerts,
+    channelRows,
+    cohortLost: cohortFunnel.lost,
+    cohortRows: cohortFunnel.rows,
     companies: input.companies,
     companyRows,
     dispatchRows,
     filters: input.filters,
-    funnelRows: funnelItems.map((item) => ({ count: funnelValues.get(item.value) ?? 0, label: item.label, percent: Math.round(((funnelValues.get(item.value) ?? 0) / funnelBase) * 100) })),
     metrics: [
       { label: 'Mensagens enviadas', value: String(totalKnownSends), help: 'Abordagens + follow-ups + mensagens outbound registradas.' },
       { label: 'Responderam', value: String(respondedLeadIds.size), help: `Leads com resposta de gente. ${inboundMessages} inbound no periodo, ${autoReplyMessages} automatica(s) da loja fora da conta.` },

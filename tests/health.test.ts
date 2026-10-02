@@ -2792,7 +2792,7 @@ describe('UAZAPI webhook routes', () => {
       'text:5511999999999:Vou chamar uma pessoa do nosso time para continuar por aqui.:instance-token',
     );
     expect(uazapiCalls).toContain(
-      'text:5511988887777:Handoff para Gerente: Restaurante Handoff / 5511999999999 / Lead pediu atendimento humano para negociar valores.:instance-token',
+      `text:5511988887777:Handoff para Gerente: Restaurante Handoff / 5511999999999 / Lead pediu atendimento humano para negociar valores.\n\nDepois, marque o que aconteceu: https://portal.test/leads/${lead.id}:instance-token`,
     );
     expect(updatedLead?.status).toBe('transferred');
     expect(updatedLead?.handoffRequestedAt).toBeInstanceOf(Date);

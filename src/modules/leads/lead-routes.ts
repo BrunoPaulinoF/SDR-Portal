@@ -10,6 +10,7 @@ import type { CompanyRepository } from '../companies/company-repository.js';
 import type { JobLogRepository } from '../jobs/job-log-repository.js';
 import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
 import { importLeadsFromExcel, inspectLeadExcel, leadImportFields, type LeadImportMapping } from './lead-importer.js';
+import { clearMilestone, isLeadMilestone, markMilestone } from './lead-outcome.js';
 import type { LeadInput, LeadRepository } from './lead-repository.js';
 import {
   renderEditLeadPage,
@@ -23,6 +24,11 @@ import {
 } from './lead-pages.js';
 
 const paramsSchema = z.object({ id: z.string().uuid() });
+const outcomeSchema = z.object({
+  marco: z.string().refine(isLeadMilestone),
+  motivo: z.string().trim().max(200).optional().default(''),
+  desfazer: z.string().optional(),
+});
 const IMPORT_DRAFT_TTL_MS = 30 * 60 * 1000;
 
 interface LeadImportDraft {
@@ -243,6 +249,26 @@ export function registerLeadRoutes(
     const company = await companyRepository.findById(lead.companyId);
     const [aiRuns, jobLogs] = await Promise.all([aiRunRepository.findByLeadId(lead.id), jobLogRepository.findByLeadId(lead.id)]);
     return reply.type('text/html').send(renderLeadDetailPage(lead, company, agents, aiRuns, jobLogs));
+  });
+
+  /** Desfecho depois do handoff: reuniao, teste, cliente ou perdido. "desfazer" corrige clique errado. */
+  app.post('/leads/:id/desfecho', async (request, reply) => {
+    const user = await requireUser(request, reply, authRepository);
+    if (!user) return undefined;
+    const params = paramsSchema.safeParse(request.params);
+    const body = outcomeSchema.safeParse(request.body ?? {});
+    if (!params.success) return reply.status(404).type('text/html').send(renderLeadNotFoundPage());
+    if (!body.success) return reply.redirect(`/leads/${params.data.id}`, 302);
+    const lead = await leadRepository.findById(params.data.id);
+    if (!lead) return reply.status(404).type('text/html').send(renderLeadNotFoundPage());
+
+    const marco = body.data.marco;
+    if (!isLeadMilestone(marco)) return reply.redirect(`/leads/${lead.id}`, 302);
+    const now = new Date();
+    const outcome = body.data.desfazer ? clearMilestone(lead, marco) : markMilestone(lead, marco, now, body.data.motivo || null);
+    await leadRepository.setOutcome(lead.id, outcome, now);
+    request.log.info({ leadId: lead.id, marco, desfazer: Boolean(body.data.desfazer), userId: user.id }, 'Lead outcome recorded');
+    return reply.redirect(`/leads/${lead.id}`, 302);
   });
 
   app.post('/leads/:id/delete', async (request, reply) => {

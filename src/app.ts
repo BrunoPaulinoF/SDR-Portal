@@ -517,6 +517,10 @@ function createLazyDbLeadRepository(): LeadRepository {
       const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
       return createDbLeadRepository().setFirstMessageVariant(id, variantId);
     },
+    async setOutcome(id, outcome, updatedAt) {
+      const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
+      return createDbLeadRepository().setOutcome(id, outcome, updatedAt);
+    },
 
     async update(id, input) {
       const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
@@ -575,6 +579,14 @@ function createLazyDbConnectionMonitorRepository(): ConnectionMonitorRepository 
     async saveLeadQueueState(input) {
       const { createDbConnectionMonitorRepository } = await import('./modules/monitoring/db-connection-monitor-repository.js');
       return createDbConnectionMonitorRepository().saveLeadQueueState(input);
+    },
+    async recordConnectionEvent(input) {
+      const { createDbConnectionMonitorRepository } = await import('./modules/monitoring/db-connection-monitor-repository.js');
+      return createDbConnectionMonitorRepository().recordConnectionEvent(input);
+    },
+    async listConnectionEvents(since) {
+      const { createDbConnectionMonitorRepository } = await import('./modules/monitoring/db-connection-monitor-repository.js');
+      return createDbConnectionMonitorRepository().listConnectionEvents(since);
     },
   };
 }
@@ -740,7 +752,7 @@ export function buildApp(options: AppOptions = {}): AppInstance {
 
   registerAssetsRoutes(app);
   registerAuthRoutes(app, repository);
-  registerDashboardRoutes(app, repository, companies, sdrAgents, leads, conversations, aiRuns, jobLogs);
+  registerDashboardRoutes(app, repository, companies, sdrAgents, leads, conversations, aiRuns, jobLogs, connectionMonitors);
   registerCompanyRoutes(app, repository, companies);
   registerSdrAgentRoutes(app, repository, companies, sdrAgents, uazapi);
   registerFirstMessageVariantRoutes(app, repository, sdrAgents, firstMessageVariants);

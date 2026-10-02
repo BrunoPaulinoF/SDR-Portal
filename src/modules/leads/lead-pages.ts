@@ -1,6 +1,8 @@
 import type { AiRun, Company, JobLog, Lead, LeadImport, SdrAgent } from '../../db/schema.js';
+import { formatDateTimeInTimeZone, resolveTimeZone } from '../timezone.js';
 import { escapeHtml, renderLayout } from '../web/html.js';
 import { leadImportFields, type LeadExcelPreview, type LeadImportMapping } from './lead-importer.js';
+import { LEAD_MILESTONES, MILESTONE_LABELS, milestoneDate, type LeadMilestone } from './lead-outcome.js';
 
 interface LeadFormData {
   companyId: string;
@@ -262,6 +264,35 @@ export function renderImportResultPage(leadImport: LeadImport): string {
   });
 }
 
+function renderMilestoneRow(lead: Lead, milestone: LeadMilestone, timeZone: string): string {
+  const at = milestoneDate(lead, milestone);
+  const label = escapeHtml(MILESTONE_LABELS[milestone]);
+  if (at) {
+    const reason = milestone === 'lost' && lead.lostReason ? ` — ${escapeHtml(lead.lostReason)}` : '';
+    return `<tr><th style="text-align:left;width:200px;">${label}</th><td><strong>${escapeHtml(formatDateTimeInTimeZone(at, timeZone))}</strong>${reason}</td>
+      <td><form method="post" action="/leads/${lead.id}/desfecho" data-inline><input type="hidden" name="marco" value="${milestone}"><input type="hidden" name="desfazer" value="1"><button class="link-button" type="submit">Desfazer</button></form></td></tr>`;
+  }
+  const reasonInput =
+    milestone === 'lost' ? '<input type="text" name="motivo" placeholder="Motivo (preco, ja tem sistema, sumiu...)" maxlength="200"> ' : '';
+  return `<tr><th style="text-align:left;width:200px;">${label}</th><td class="muted">—</td>
+    <td><form method="post" action="/leads/${lead.id}/desfecho" data-inline><input type="hidden" name="marco" value="${milestone}">${reasonInput}<button class="button button-secondary" type="submit">Marcar agora</button></form></td></tr>`;
+}
+
+/**
+ * Painel que fecha o funil: quem atendeu o handoff marca o que aconteceu. Aparece em todo lead
+ * (cliente pode fechar sem handoff formal), mas e no lead transferido que ele importa.
+ */
+function renderOutcomePanel(lead: Lead, timeZone: string): string {
+  const intro = lead.handoffRequestedAt
+    ? 'O lead foi passado para o time. Marque aqui o que aconteceu: e isso que diz se o SDR esta trazendo cliente.'
+    : 'Ainda sem handoff. Se o time fechou com este lead por outro caminho, marque aqui do mesmo jeito.';
+  return `<section class="panel">
+    <h2>Depois do handoff</h2>
+    <p class="muted">${intro}</p>
+    <div class="table-wrap"><table>${LEAD_MILESTONES.map((milestone) => renderMilestoneRow(lead, milestone, timeZone)).join('')}</table></div>
+  </section>`;
+}
+
 export function renderLeadDetailPage(
   lead: Lead,
   company: Company | null,
@@ -346,7 +377,9 @@ export function renderLeadDetailPage(
     </div>
   </header>
 
-  <section class="panel">
+  ${renderOutcomePanel(lead, resolveTimeZone(agent?.timezone))}
+
+  <section class="panel spacing-top">
     <h2>Dados do lead</h2>
     <div class="table-wrap"><table>${infoRows}</table></div>
   </section>

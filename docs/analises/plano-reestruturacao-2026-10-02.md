@@ -215,6 +215,15 @@ produção foi escolha de alguém, e a tela agora avisa o que ele custa — troc
 4. **Teste A/B de verdade** — uma mudança por vez, duas variantes rodando juntas, comparação
    pela taxa de **gente** e de **handoff**, e só depois de ~150 envios por variante.
 
+**Andamento (02/10):** os quatro itens estão no código. Desfecho com as colunas
+`meeting_at`, `trial_started_at`, `won_at`, `lost_at` e `lost_reason` (migração 0030), marcado
+na tela do lead pelo link que vai no aviso de handoff. O funil da safra substituiu o "Funil do
+período" no painel, e o relatório diário passou a contar reuniões e clientes. A saúde do
+WhatsApp vem de `sdr_connection_events` (migração 0031), que o monitor começa a gravar no
+primeiro tick depois do deploy — nos primeiros dias a tabela mostra "histórico desde…". O A/B
+mostra resposta de gente e handoff por variante e só declara vencedora com amostra e diferença
+real. "Entregues" ficou de fora do funil: o portal não guarda confirmação de entrega.
+
 ### Fase 3 — 1 a 2 meses: reestruturação
 
 1. **Configuração com uma fonte só.** Os prompts e variantes passam a ser versionados no próprio

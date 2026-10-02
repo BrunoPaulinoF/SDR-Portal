@@ -146,6 +146,8 @@ describe('aviso de handoff', () => {
     expect(s.handoffNotices).toHaveLength(1);
     expect(s.logs).toHaveLength(1);
     expect(s.logs[0]?.status).toBe('completed');
+    // Quem recebe o aviso e quem sabe o que aconteceu depois: o link leva para marcar o desfecho.
+    expect(s.handoffNotices[0]?.text).toContain(`Depois, marque o que aconteceu: https://portal.test/leads/${s.savedLead?.id}`);
   });
 
   it('tenta de novo quando a UAZAPI recusa o aviso', async () => {

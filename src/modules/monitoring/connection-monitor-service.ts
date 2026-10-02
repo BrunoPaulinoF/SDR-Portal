@@ -137,6 +137,19 @@ export function createConnectionMonitorService(deps: ConnectionMonitorDeps) {
       const changed = (previous?.status ?? 'connected') !== status;
       let alerted = false;
 
+      // Historico para a saude do canal no painel: so transicao, e a primeira leitura de cada
+      // SDR como ponto de partida. A fila de leads grava status 'unknown' na mesma linha, por
+      // isso o que nao e conectado nem desconectado conta como "sem leitura anterior".
+      const knownPrevious = previous?.status === 'connected' || previous?.status === 'disconnected' ? previous.status : null;
+      if (knownPrevious !== status) {
+        await connectionMonitorRepository.recordConnectionEvent({
+          sdrAgentId: agent.id,
+          status,
+          reason: status === 'disconnected' ? disconnectReason : null,
+          occurredAt: now,
+        });
+      }
+
       if (status === 'disconnected') {
         const disconnectedAt = wasDown ? (previous?.disconnectedAt ?? now) : now;
         alerted = !wasDown || shouldRepeatAlert(previous, settings.repeatAlertMinutes, now);

@@ -244,7 +244,7 @@ export function renderMonitorPage(data: MonitorPageData): string {
         <textarea id="leadsAlertTemplate" name="leadsAlertTemplate" rows="5" placeholder="${escapeHtml(defaultLeadQueueTemplate(data.portalUrl))}">${escapeHtml(settings?.leadsAlertTemplate ?? '')}</textarea>
         <p class="muted">Marcadores: <code>{sdrs}</code>, <code>{data}</code>, <code>{hora}</code>, <code>{portal}</code>.</p>
       </div>
-      <label class="checkbox-field field-full"><input type="checkbox" name="dailyReportEnabled" ${settings?.dailyReportEnabled ? 'checked' : ''}> Enviar relatorio no fim do dia (SDRs ativos: prospectados, responderam e possiveis clientes)</label>
+      <label class="checkbox-field field-full"><input type="checkbox" name="dailyReportEnabled" ${settings?.dailyReportEnabled ? 'checked' : ''}> Enviar relatorio no fim do dia (SDRs ativos: prospectados, responderam, passados para o time, reunioes e clientes)</label>
       <div class="field">
         <label for="dailyReportTime">Hora do relatorio</label>
         <input id="dailyReportTime" name="dailyReportTime" type="time" value="${escapeHtml(settings?.dailyReportTime ?? DEFAULT_DAILY_REPORT_TIME)}">
