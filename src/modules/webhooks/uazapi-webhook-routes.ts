@@ -15,7 +15,7 @@ import type { createAudioTranscriptionService } from '../audio/audio-transcripti
 import type { ConnectionMonitorService } from '../monitoring/connection-monitor-service.js';
 import { readConnectionEvent } from './connection-event.js';
 import type { ResetConversationService } from './reset-conversation-service.js';
-import { isStoreAutoReply, isStoreImage } from '../conversations/store-auto-reply.js';
+import { isRepeatedBroadcast, isStoreAutoReply, isStoreImage } from '../conversations/store-auto-reply.js';
 import type { UazapiClient } from '../uazapi/uazapi-client.js';
 import { isAudioMessageType, isGroupWebhook, isImageMessageType, normalizeUazapiWebhook } from './uazapi-normalizer.js';
 import type { WebhookEventRepository } from './webhook-event-repository.js';
@@ -242,12 +242,14 @@ export function registerUazapiWebhookRoutes(
       // nao conta como conversa. Quando a pessoa assumir o WhatsApp, a proxima mensagem cai no
       // caminho normal e a IA responde ali — que e o unico momento em que ha alguem lendo.
       const isImage = !normalized.fromMe && isImageMessageType(normalized.messageType);
-      // A foto so e "de gente" se veio com legenda ou se ja houve alguem falando antes dela.
-      const priorMessages = isImage ? await conversationRepository.listMessages(conversation.id) : [];
+      // O historico decide dois casos: a foto so e "de gente" se veio com legenda ou se ja houve
+      // alguem falando antes dela, e o texto repetido em varios dias e transmissao da loja.
+      const priorMessages = normalized.fromMe ? [] : await conversationRepository.listMessages(conversation.id);
       const autoReply =
         !normalized.fromMe &&
         (isStoreAutoReply({ messageType: normalized.messageType, text: normalized.text, transcription }) ||
-          (isImage && isStoreImage({ text: normalized.text, history: priorMessages })));
+          (isImage && isStoreImage({ text: normalized.text, history: priorMessages })) ||
+          (!transcription && isRepeatedBroadcast({ text: normalized.text, now, history: priorMessages })));
 
       await conversationRepository.createMessage({
         conversationId: conversation.id,
