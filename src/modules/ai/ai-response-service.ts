@@ -3,6 +3,7 @@ import { speakableText, voiceConfigOf, wantsAudioReply } from '../audio/audio-re
 import type { TextToSpeechClient } from '../audio/text-to-speech-client.js';
 import { aiHistoryText } from '../conversations/conversation-history.js';
 import type { ConversationRepository } from '../conversations/conversation-repository.js';
+import type { JobLogRepository } from '../jobs/job-log-repository.js';
 import { isAiPaused } from '../leads/ai-pause.js';
 import {
   contactDisplayName,
@@ -32,6 +33,8 @@ interface AiResponseDependencies {
   aiClient: AiClient;
   aiRunRepository: AiRunRepository;
   conversationRepository: ConversationRepository;
+  /** Onde o aviso de handoff deixa rastro (enviado ou nao). Sem ele, a falha so vai para o log do processo. */
+  jobLogRepository?: JobLogRepository;
   leadRepository: LeadRepository;
   textToSpeechClient: TextToSpeechClient;
   uazapiClient: UazapiClient;
@@ -201,6 +204,59 @@ async function notifyHandoff(
     trackId: `handoff-${lead.id}`,
   });
   if (!result.ok) throw new Error(`UAZAPI returned HTTP ${result.status}`);
+}
+
+export const HANDOFF_NOTICE_JOB = 'handoff-notify';
+const HANDOFF_NOTICE_ATTEMPTS = 3;
+const HANDOFF_NOTICE_RETRY_MS = 5000;
+
+/**
+ * Leva o aviso de handoff ate quem vai atender. Quando isto roda o lead ja leu "vou pedir pro X
+ * te chamar", entao o aviso e o unico resultado que o portal registra: tenta de novo antes de
+ * desistir e, ate quando desiste, deixa uma linha no /job-logs com o resumo da conversa.
+ *
+ * Ate 02/10 o aviso saia antes de marcar o lead, e qualquer recusa da UAZAPI estourava ali: o
+ * lead nao virava `transferred`, nada tentava de novo e a falha so aparecia como erro de IA no
+ * /ai-runs. Com o WhatsApp de handoff em branco era pior — nao saia nada e nada dizia isso.
+ */
+async function deliverHandoffNotice(
+  deps: AiResponseDependencies,
+  input: RespondInput,
+  credentials: { baseUrl: string; token: string },
+  summary: string,
+): Promise<void> {
+  const startedAt = new Date();
+  let attempts = 0;
+  let error: string | null = 'SDR sem WhatsApp de handoff cadastrado: o aviso nao tem para quem ir';
+
+  if (input.agent.handoffPhone?.trim()) {
+    error = null;
+    while (attempts < HANDOFF_NOTICE_ATTEMPTS) {
+      attempts += 1;
+      try {
+        await notifyHandoff(deps, input.agent, input.lead, credentials, summary);
+        error = null;
+        break;
+      } catch (cause) {
+        error = cause instanceof Error ? cause.message : 'Erro desconhecido ao avisar o handoff';
+        if (attempts < HANDOFF_NOTICE_ATTEMPTS) await waitBeforeSending(HANDOFF_NOTICE_RETRY_MS);
+      }
+    }
+  }
+
+  await deps.jobLogRepository?.create({
+    jobName: HANDOFF_NOTICE_JOB,
+    jobKey: `handoff-${input.lead.id}`,
+    sdrAgentId: input.agent.id,
+    leadId: input.lead.id,
+    status: error ? 'failed' : 'completed',
+    attempt: Math.max(attempts, 1),
+    payload: JSON.stringify({ leadWhatsapp: input.lead.whatsappNumber, summary }),
+    result: error ? null : JSON.stringify({ notified: input.agent.handoffPhone }),
+    error,
+    startedAt,
+    finishedAt: new Date(),
+  });
 }
 
 /**
@@ -503,8 +559,9 @@ async function applyLeadActions(
 
   if (shouldNotifyHandoff) {
     const summary = handoffSummary(parsed, input.lead, history);
-    await notifyHandoff(deps, input.agent, input.lead, credentials, summary);
+    // Marca primeiro: o lead ja ouviu que alguem vai chamar, e isso nao pode depender do aviso sair.
     await deps.leadRepository.markTransferred(input.lead.id, now, summary);
+    await deliverHandoffNotice(deps, input, credentials, summary);
   }
 
   // Por ultimo: aviso externo que nao pode impedir as marcacoes do lead se a UAZAPI falhar.

@@ -73,6 +73,7 @@ async function start(): Promise<void> {
           aiClient: createHttpAiClient(),
           aiRunRepository: createDbAiRunRepository(),
           conversationRepository: createDbConversationRepository(),
+          jobLogRepository: createDbJobLogRepository(),
           leadRepository: createDbLeadRepository(),
           textToSpeechClient: createElevenLabsTextToSpeechClient(),
           uazapiClient: createHttpUazapiClient(),

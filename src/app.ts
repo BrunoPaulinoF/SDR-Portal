@@ -140,9 +140,9 @@ function createLazyDbConversationRepository(): ConversationRepository {
       const { createDbConversationRepository } = await import('./modules/conversations/db-conversation-repository.js');
       return createDbConversationRepository().listBySdr(sdrAgentId);
     },
-    async listByLastMessageBetween(since, before, limit) {
+    async listAwaitingReply(since, before, limit) {
       const { createDbConversationRepository } = await import('./modules/conversations/db-conversation-repository.js');
-      return createDbConversationRepository().listByLastMessageBetween(since, before, limit);
+      return createDbConversationRepository().listAwaitingReply(since, before, limit);
     },
     async listLastMessages(conversationIds) {
       const { createDbConversationRepository } = await import('./modules/conversations/db-conversation-repository.js');
@@ -680,6 +680,7 @@ export function buildApp(options: AppOptions = {}): AppInstance {
     aiClient: ai,
     aiRunRepository: aiRuns,
     conversationRepository: conversations,
+    jobLogRepository: jobLogs,
     leadRepository: leads,
     textToSpeechClient: textToSpeech,
     uazapiClient: uazapi,

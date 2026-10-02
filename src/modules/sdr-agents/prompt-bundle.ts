@@ -165,7 +165,8 @@ export function planPromptUpdate(input: {
   if (playbook === 'convite' && !agent.handoffName?.trim()) {
     warnings.push('handoffName vazio: no playbook convite a IA precisa do nome da pessoa do time (ela vai falar "alguem do time")');
   }
-  if (playbook === 'convite' && !agent.handoffPhone?.trim()) {
+  // Vale para qualquer playbook: e para esse numero que vai o aviso de "lead pediu para falar".
+  if (!agent.handoffPhone?.trim()) {
     warnings.push('handoffPhone vazio: o aviso de handoff nao chega em ninguem');
   }
 

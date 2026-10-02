@@ -21,6 +21,11 @@ type AiResponseService = ReturnType<typeof createAiResponseService>;
  * Aqui a fonte da verdade e a tabela de mensagens: conversa cuja ULTIMA mensagem e do lead,
  * parada ha mais tempo do que o silencio tolerado, e um lead sem resposta. Se a IA tivesse
  * respondido, a ultima mensagem seria a dela.
+ *
+ * A automatica da loja (`messages.auto_reply`) nao conta como "ultima mensagem": o webhook ja
+ * decidiu nao responder a ela. Ate 02/10 ela contava, e cada cardapio barrado pelo filtro ia
+ * para a IA duas vezes por aqui — 65% das geracoes de resposta da Mariana em setembro foram a
+ * IA lendo automatica para decidir ficar calada (`docs/analises/plano-reestruturacao-2026-10-02.md`).
  */
 export interface PendingReplyResult {
   retried: number;
@@ -97,17 +102,11 @@ export function createPendingReplyService(deps: PendingReplyDependencies) {
       const before = new Date(now.getTime() - afterMs);
       const since = new Date(now.getTime() - windowHours * 60 * 60 * 1000);
 
-      const candidates = await deps.conversationRepository.listByLastMessageBetween(since, before, candidateLimit);
-      if (candidates.length === 0) return result;
+      // So vem conversa cuja ultima fala (fora a automatica da loja) e do lead: a que ja tem
+      // resposta da SDR, ou so cardapio depois dela, nem entra na conta do limite.
+      const candidates = await deps.conversationRepository.listAwaitingReply(since, before, candidateLimit);
 
-      const lastMessages = await deps.conversationRepository.listLastMessages(candidates.map((item) => item.id));
-      const lastByConversation = new Map(lastMessages.map((message) => [message.conversationId, message]));
-
-      for (const conversation of candidates) {
-        const lastMessage = lastByConversation.get(conversation.id);
-        // Ultima mensagem da SDR: a conversa nao esta esperando ninguem.
-        if (!lastMessage || lastMessage.direction !== 'inbound') continue;
-
+      for (const { conversation, message: lastMessage } of candidates) {
         const target = await inspect(conversation, lastMessage, now);
         if ('skip' in target) {
           result.skipped += 1;
