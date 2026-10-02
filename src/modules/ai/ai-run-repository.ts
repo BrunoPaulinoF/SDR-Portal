@@ -21,12 +21,17 @@ export type AiRunInput = Pick<
   | 'latencyMs'
 >;
 
+/** O que o painel le de cada chamada de IA. `inputMessages` (o prompt inteiro) fica de fora. */
+export type AiRunStat = Pick<AiRun, 'createdAt' | 'leadId' | 'sdrAgentId' | 'error' | 'totalTokens'>;
+
 export interface AiRunRepository {
   /** Quantas geracoes de resposta ja rodaram nesta conversa depois de um instante. */
   countRepliesSince(conversationId: string, since: Date): Promise<number>;
   create(input: AiRunInput): Promise<AiRun>;
   findByLeadId(leadId: string): Promise<AiRun[]>;
   list(): Promise<AiRun[]>;
+  /** Chamadas a partir de `since` (todas com `null`), so com as colunas que o painel usa. */
+  listStats(since: Date | null): Promise<AiRunStat[]>;
 }
 
 export function createMemoryAiRunRepository(seedRuns: AiRun[] = []): AiRunRepository {
@@ -73,6 +78,12 @@ export function createMemoryAiRunRepository(seedRuns: AiRun[] = []): AiRunReposi
 
     async list() {
       return [...rows.values()].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    },
+
+    async listStats(since) {
+      return [...rows.values()]
+        .filter((run) => !since || run.createdAt.getTime() >= since.getTime())
+        .map(({ createdAt, leadId, sdrAgentId, error, totalTokens }) => ({ createdAt, leadId, sdrAgentId, error, totalTokens }));
     },
   };
 }

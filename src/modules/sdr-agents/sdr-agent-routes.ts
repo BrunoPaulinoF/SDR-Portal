@@ -268,7 +268,7 @@ export function registerSdrAgentRoutes(
       return reply.redirect(`/sdr-agents/${agent.id}/conectar`);
     }
 
-    return reply.redirect('/sdr-agents');
+    return reply.redirect(`/sdr-agents/${agent.id}/edit?criado=1`);
   });
 
   app.get('/sdr-agents/:id/edit', async (request, reply) => {
@@ -330,7 +330,8 @@ export function registerSdrAgentRoutes(
 
     await configChanges.record(diffAgentConfig(agent, input, `portal:${user.email}`));
     await sdrAgentRepository.update(params.data.id, input);
-    return reply.redirect('/sdr-agents');
+    // Fica na tela do SDR: voltar para a lista obrigava a achar o SDR e abrir de novo a cada ajuste.
+    return reply.redirect(`/sdr-agents/${agent.id}/edit?salvo=1`);
   });
 
   app.post('/sdr-agents/:id/toggle', async (request, reply) => {

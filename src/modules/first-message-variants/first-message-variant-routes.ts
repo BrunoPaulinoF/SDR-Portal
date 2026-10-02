@@ -86,7 +86,7 @@ export function registerFirstMessageVariantRoutes(
       isActive: parsed.data.isActive,
     });
     await recordVariant(params.data.id, parsed.data.label, null, describeVariant(parsed.data), user.email);
-    return reply.redirect(`/sdr-agents/${params.data.id}/first-messages`);
+    return reply.redirect(`/sdr-agents/${params.data.id}/first-messages?salvo=1`);
   });
 
   app.post('/sdr-agents/:id/first-messages/:variantId', async (request, reply) => {
@@ -113,7 +113,7 @@ export function registerFirstMessageVariantRoutes(
     if (current && describeVariant(current) !== describeVariant(parsed.data)) {
       await recordVariant(params.data.id, parsed.data.label, describeVariant(current), describeVariant(parsed.data), user.email);
     }
-    return reply.redirect(`/sdr-agents/${params.data.id}/first-messages`);
+    return reply.redirect(`/sdr-agents/${params.data.id}/first-messages?salvo=1`);
   });
 
   app.post('/sdr-agents/:id/first-messages/:variantId/toggle', async (request, reply) => {
@@ -127,7 +127,7 @@ export function registerFirstMessageVariantRoutes(
         await firstMessageVariantRepository.setActive(variant.id, !variant.isActive);
         await recordVariant(params.data.id, variant.label, describeVariant(variant), describeVariant({ ...variant, isActive: !variant.isActive }), user.email);
       }
-      return reply.redirect(`/sdr-agents/${params.data.id}/first-messages`);
+      return reply.redirect(`/sdr-agents/${params.data.id}/first-messages?salvo=1`);
     }
     return reply.status(404).type('text/html').send(renderSdrAgentNotFoundPage());
   });
@@ -141,7 +141,7 @@ export function registerFirstMessageVariantRoutes(
       const variant = await firstMessageVariantRepository.findById(params.data.variantId);
       await firstMessageVariantRepository.delete(params.data.variantId);
       if (variant) await recordVariant(params.data.id, variant.label, describeVariant(variant), null, user.email);
-      return reply.redirect(`/sdr-agents/${params.data.id}/first-messages`);
+      return reply.redirect(`/sdr-agents/${params.data.id}/first-messages?salvo=1`);
     }
     return reply.status(404).type('text/html').send(renderSdrAgentNotFoundPage());
   });
@@ -157,7 +157,7 @@ export function registerFirstMessageVariantRoutes(
       const agent = await sdrAgentRepository.findById(params.data.id);
       await sdrAgentRepository.setSecondMessage(params.data.id, text.length > 0 ? text : null);
       if (agent) await configChanges.record(diffAgentConfig(agent, { secondMessage: text.length > 0 ? text : null }, `portal:${user.email}`));
-      return reply.redirect(`/sdr-agents/${params.data.id}/first-messages`);
+      return reply.redirect(`/sdr-agents/${params.data.id}/first-messages?salvo=1`);
     }
     return reply.status(404).type('text/html').send(renderSdrAgentNotFoundPage());
   });
@@ -172,7 +172,7 @@ export function registerFirstMessageVariantRoutes(
       const agent = await sdrAgentRepository.findById(params.data.id);
       await sdrAgentRepository.setFirstMessageMode(params.data.id, parsed.data.mode);
       if (agent) await configChanges.record(diffAgentConfig(agent, { firstMessageMode: parsed.data.mode }, `portal:${user.email}`));
-      return reply.redirect(`/sdr-agents/${params.data.id}/first-messages`);
+      return reply.redirect(`/sdr-agents/${params.data.id}/first-messages?salvo=1`);
     }
     return reply.status(404).type('text/html').send(renderSdrAgentNotFoundPage());
   });

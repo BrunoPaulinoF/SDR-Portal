@@ -7,10 +7,15 @@ export type JobLogInput = Pick<
   'jobName' | 'jobKey' | 'sdrAgentId' | 'leadId' | 'status' | 'attempt' | 'payload' | 'result' | 'error' | 'startedAt' | 'finishedAt'
 >;
 
+/** O que o painel le de cada registro de tarefa: sem payload nem resultado. */
+export type JobLogStat = Pick<JobLog, 'createdAt' | 'leadId' | 'sdrAgentId' | 'status' | 'error' | 'jobName'>;
+
 export interface JobLogRepository {
   create(input: JobLogInput): Promise<JobLog>;
   findByLeadId(leadId: string): Promise<JobLog[]>;
   list(): Promise<JobLog[]>;
+  /** Registros a partir de `since` (todos com `null`), so com as colunas que o painel usa. */
+  listStats(since: Date | null): Promise<JobLogStat[]>;
 }
 
 export function createMemoryJobLogRepository(seedLogs: JobLog[] = []): JobLogRepository {
@@ -48,6 +53,12 @@ export function createMemoryJobLogRepository(seedLogs: JobLog[] = []): JobLogRep
 
     async list() {
       return [...rows.values()].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    },
+
+    async listStats(since) {
+      return [...rows.values()]
+        .filter((log) => !since || log.createdAt.getTime() >= since.getTime())
+        .map(({ createdAt, leadId, sdrAgentId, status, error, jobName }) => ({ createdAt, leadId, sdrAgentId, status, error, jobName }));
     },
   };
 }

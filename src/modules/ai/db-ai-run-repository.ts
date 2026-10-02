@@ -33,5 +33,12 @@ export function createDbAiRunRepository(): AiRunRepository {
     async list() {
       return db.select().from(aiRuns).orderBy(desc(aiRuns.createdAt));
     },
+
+    async listStats(since) {
+      return db
+        .select({ createdAt: aiRuns.createdAt, leadId: aiRuns.leadId, sdrAgentId: aiRuns.sdrAgentId, error: aiRuns.error, totalTokens: aiRuns.totalTokens })
+        .from(aiRuns)
+        .where(since ? gte(aiRuns.createdAt, since) : undefined);
+    },
   };
 }

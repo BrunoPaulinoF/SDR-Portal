@@ -779,24 +779,27 @@ export function renderEditSdrAgentPage(
 }
 
 function renderUazapiActions(agent: SdrAgent): string {
+  // `data-inline-result`: o /app.js manda o teste sem sair da pagina e mostra o resultado no
+  // quadro logo abaixo. Sem o script, cada botao cai na pagina de reserva com o mesmo texto.
   return `<section class="panel spacing-top">
-    <h2>Acoes UAZAPI</h2>
-    <p class="muted">Use estas acoes para testar a instancia, configurar webhook e enviar uma mensagem manual de teste.</p>
+    <h2>Testes do WhatsApp</h2>
+    <p class="muted">Confira a conexao deste SDR, os limites que o WhatsApp impoe e mande uma mensagem ou um audio de teste. O resultado aparece aqui mesmo.</p>
     <div class="actions">
       <a class="button" href="/sdr-agents/${agent.id}/conectar">Conectar / ver QR code</a>
-      <form method="post" action="/sdr-agents/${agent.id}/uazapi/status">
+      <form method="post" action="/sdr-agents/${agent.id}/uazapi/status" data-inline-result="resultado-whatsapp">
         <button type="submit">Testar status</button>
       </form>
-      <form method="post" action="/sdr-agents/${agent.id}/uazapi/limites">
+      <form method="post" action="/sdr-agents/${agent.id}/uazapi/limites" data-inline-result="resultado-whatsapp">
         <button type="submit">Limites do WhatsApp</button>
       </form>
-      <form method="post" action="/sdr-agents/${agent.id}/uazapi/configure-webhook">
+      <form method="post" action="/sdr-agents/${agent.id}/uazapi/configure-webhook" data-inline-result="resultado-whatsapp">
         <button type="submit">Configurar webhook</button>
       </form>
     </div>
-    <form method="post" action="/sdr-agents/${agent.id}/uazapi/send-test" class="form-grid spacing-top">
+    <div id="resultado-whatsapp" class="action-result" aria-live="polite"></div>
+    <form method="post" action="/sdr-agents/${agent.id}/uazapi/send-test" class="form-grid spacing-top" data-inline-result="resultado-mensagem">
       <div class="field">
-        <label for="testNumber">Numero para teste</label>
+        <label for="testNumber">Numero que recebe o teste (com DDD)</label>
         <input id="testNumber" name="number" value="${escapeHtml(agent.whatsappNumber ?? '')}" required>
       </div>
       <div class="field field-full">
@@ -804,11 +807,12 @@ function renderUazapiActions(agent: SdrAgent): string {
         <textarea id="testText" name="text" rows="3" required>Mensagem de teste do SDR Portal.</textarea>
       </div>
       <div class="actions field-full"><button type="submit">Enviar mensagem teste</button></div>
+      <div id="resultado-mensagem" class="action-result field-full" aria-live="polite"></div>
     </form>
-    <form method="post" action="/sdr-agents/${agent.id}/uazapi/send-audio-test" class="form-grid spacing-top">
+    <form method="post" action="/sdr-agents/${agent.id}/uazapi/send-audio-test" class="form-grid spacing-top" data-inline-result="resultado-audio">
       <p class="muted field-full">Audio teste: gera a fala com a voz da ElevenLabs configurada acima e envia como audio de WhatsApp. Funciona mesmo com a resposta em audio desligada, para ouvir a voz antes de ligar.</p>
       <div class="field">
-        <label for="testAudioNumber">Numero para teste</label>
+        <label for="testAudioNumber">Numero que recebe o teste (com DDD)</label>
         <input id="testAudioNumber" name="number" value="${escapeHtml(agent.whatsappNumber ?? '')}" required>
       </div>
       <div class="field field-full">
@@ -816,6 +820,7 @@ function renderUazapiActions(agent: SdrAgent): string {
         <textarea id="testAudioText" name="text" rows="3" maxlength="${MAX_AUDIO_REPLY_CHARS}" required>Oi, tudo bem? Aqui e ${escapeHtml(agent.displayName)}. Esse e um audio de teste do SDR Portal.</textarea>
       </div>
       <div class="actions field-full"><button type="submit">Enviar audio teste</button></div>
+      <div id="resultado-audio" class="action-result field-full" aria-live="polite"></div>
     </form>
   </section>`;
 }

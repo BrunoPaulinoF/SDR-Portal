@@ -65,6 +65,7 @@ export function renderLayout({ title, body, hideNavigation = false }: LayoutOpti
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>${pageTitle}</title>
     <link rel="stylesheet" href="/styles.css">
+    <script src="/app.js" defer></script>
   </head>
   <body>${bodyHtml}</body>
 </html>`;

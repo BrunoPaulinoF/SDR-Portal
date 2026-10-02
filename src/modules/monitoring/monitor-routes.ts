@@ -127,7 +127,7 @@ export function registerMonitorRoutes(
       leadsAlertTemplate: emptyToNull(data.leadsAlertTemplate),
     });
 
-    return reply.type('text/html').send(await renderPage({ notice: 'Configuracao do monitor salva.' }));
+    return reply.redirect('/monitoring?salvo=1');
   });
 
   app.post('/monitoring/run', async (request, reply) => {

@@ -447,10 +447,10 @@ describe('company routes', () => {
       },
     });
 
-    expect(createResponse.statusCode).toBe(302);
-    expect(createResponse.headers.location).toBe('/companies');
-
     const [createdCompany] = await companyRepository.list();
+    expect(createResponse.statusCode).toBe(302);
+    // Criar ou salvar fica na tela da empresa, com o aviso, em vez de voltar para a lista.
+    expect(createResponse.headers.location).toBe(`/companies/${createdCompany?.id}/edit?criado=1`);
     expect(createdCompany?.name).toBe('Insumo Smart');
 
     const listResponse = await app.inject({
@@ -478,7 +478,7 @@ describe('company routes', () => {
     });
 
     expect(updateResponse.statusCode).toBe(302);
-    expect(updateResponse.headers.location).toBe('/companies');
+    expect(updateResponse.headers.location).toBe(`/companies/${createdCompany?.id}/edit?salvo=1`);
 
     const updatedCompany = createdCompany ? await companyRepository.findById(createdCompany.id) : null;
     expect(updatedCompany?.name).toBe('Insumo Smart Consultoria');
@@ -580,10 +580,9 @@ describe('SDR agent routes', () => {
       },
     });
 
-    expect(createResponse.statusCode).toBe(302);
-    expect(createResponse.headers.location).toBe('/sdr-agents');
-
     const [createdAgent] = await sdrAgentRepository.list();
+    expect(createResponse.statusCode).toBe(302);
+    expect(createResponse.headers.location).toBe(`/sdr-agents/${createdAgent?.id}/edit?criado=1`);
     expect(createdAgent?.displayName).toBe('Franciely');
     expect(createdAgent?.companyId).toBe(company.id);
     expect(createdAgent?.followupEnabled).toBe(true);
@@ -752,7 +751,9 @@ describe('UAZAPI routes', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.body).toContain('Status UAZAPI');
+    expect(response.body).toContain('Status do WhatsApp');
+    expect(response.body).toContain('WhatsApp conectado');
+    // O JSON da UAZAPI continua na pagina, recolhido em "Detalhes tecnicos".
     expect(response.body).toContain('connected');
     expect(calls).toContain('status:https://api.uazapi.com:instance-token');
   });
@@ -801,7 +802,7 @@ describe('UAZAPI routes', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.body).toContain('Enviar teste UAZAPI');
+    expect(response.body).toContain('Mensagem enviada para 5511999999999');
     expect(calls).toEqual([
       'presence:5511999999999:composing:instance-token',
       'text:5511999999999:Teste do portal:instance-token',

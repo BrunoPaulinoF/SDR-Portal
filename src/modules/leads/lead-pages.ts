@@ -2,6 +2,7 @@ import type { AiRun, Company, ContactBlock, JobLog, Lead, LeadImport, SdrAgent }
 import { formatDateTimeInTimeZone, resolveTimeZone } from '../timezone.js';
 import { escapeHtml, renderLayout } from '../web/html.js';
 import { leadImportFields, type LeadExcelPreview, type LeadImportMapping } from './lead-importer.js';
+import { statusLabel } from '../conversations/conversation-inbox.js';
 import { LEAD_MILESTONES, MILESTONE_LABELS, milestoneDate, type LeadMilestone } from './lead-outcome.js';
 
 interface LeadFormData {
@@ -126,73 +127,134 @@ function renderLeadForm(action: string, companies: Company[], agents: SdrAgent[]
 }
 
 /** Status que valem uma limpeza em massa, com a contagem atual para o usuario decidir. */
-const bulkDeleteStatuses: Array<[string, string]> = [
+/** Status na ordem em que aparecem nos filtros e na tela de limpar leads. */
+export const LEAD_STATUS_OPTIONS: Array<[string, string]> = [
   ['pending', 'Pendente'],
-  ['invalid_phone', 'Telefone inexistente'],
-  ['discarded', 'Descartado'],
-  ['not_interested', 'Sem interesse'],
   ['initial_sent', 'Abordado'],
   ['in_conversation', 'Em conversa'],
   ['followup_sent', 'Follow-up enviado'],
   ['human_paused', 'Pausado por humano'],
   ['transferred', 'Handoff feito'],
+  ['not_interested', 'Sem interesse'],
+  ['discarded', 'Descartado'],
+  ['invalid_phone', 'Telefone inexistente'],
 ];
 
-function renderBulkDeletePanel(leads: Lead[], agents: SdrAgent[]): string {
-  if (agents.length === 0) return '';
+export const LEADS_PAGE_SIZE = 50;
 
-  const agentOptions = agents
-    .map((agent) => `<option value="${escapeHtml(agent.id)}">${escapeHtml(agent.name)}</option>`)
-    .join('');
-
-  const checkboxes = bulkDeleteStatuses
-    .map(([value, label]) => {
-      const total = leads.filter((lead) => lead.status === value).length;
-      return `<label class="check-item">
-        <input type="checkbox" name="statuses" value="${escapeHtml(value)}" />
-        <span>${escapeHtml(label)} <span class="muted">(${total})</span></span>
-      </label>`;
-    })
-    .join('');
-
-  return `<section class="panel">
-    <h2>Limpar leads</h2>
-    <p class="muted">Apaga os leads do SDR escolhido nos status marcados. Conversas e mensagens desses leads vao junto, e nao da para desfazer.</p>
-    <form method="post" action="/leads/limpar" onsubmit="return confirm('Isso apaga os leads selecionados e o historico de conversa deles. Confirmar?')">
-      <div class="field">
-        <label for="bulkSdrAgentId">SDR</label>
-        <select id="bulkSdrAgentId" name="sdrAgentId" required>${agentOptions}</select>
-      </div>
-      <div class="check-grid">${checkboxes}</div>
-      <button class="button button-danger" type="submit">Limpar leads selecionados</button>
-    </form>
-  </section>`;
+export interface LeadListFilters {
+  q: string;
+  sdrAgentId: string;
+  status: string;
 }
 
-export function renderLeadsListPage(leads: Lead[], companies: Company[], agents: SdrAgent[], notice?: string): string {
+export interface LeadsListView {
+  filters: LeadListFilters;
+  leads: Lead[];
+  page: number;
+  total: number;
+}
+
+/** Endereco da lista com os filtros atuais, para a paginacao nao perder a busca. */
+function leadsUrl(filters: LeadListFilters, page: number): string {
+  const params = new URLSearchParams();
+  if (filters.q) params.set('q', filters.q);
+  if (filters.sdrAgentId) params.set('sdr', filters.sdrAgentId);
+  if (filters.status) params.set('status', filters.status);
+  if (page > 1) params.set('pagina', String(page));
+  const query = params.toString();
+  return query ? `/leads?${query}` : '/leads';
+}
+
+function renderLeadFilters(filters: LeadListFilters, agents: SdrAgent[]): string {
+  const agentOptions = agents
+    .map((agent) => `<option value="${escapeHtml(agent.id)}"${agent.id === filters.sdrAgentId ? ' selected' : ''}>${escapeHtml(agent.displayName || agent.name)}</option>`)
+    .join('');
+  const statusOptions = LEAD_STATUS_OPTIONS.map(
+    ([value, label]) => `<option value="${value}"${value === filters.status ? ' selected' : ''}>${escapeHtml(label)}</option>`,
+  ).join('');
+  const active = filters.q || filters.sdrAgentId || filters.status;
+
+  return `<form method="get" action="/leads" class="panel filter-bar">
+    <div class="field"><label for="q">Buscar</label><input id="q" name="q" value="${escapeHtml(filters.q)}" placeholder="Nome da loja, contato ou numero"></div>
+    <div class="field"><label for="sdr">SDR</label><select id="sdr" name="sdr"><option value="">Todos os SDRs</option>${agentOptions}</select></div>
+    <div class="field"><label for="status">Situacao</label><select id="status" name="status"><option value="">Todas</option>${statusOptions}</select></div>
+    <div class="actions"><button type="submit">Filtrar</button>${active ? '<a class="button button-secondary" href="/leads">Limpar filtros</a>' : ''}</div>
+  </form>`;
+}
+
+function renderPagination(view: LeadsListView): string {
+  const pages = Math.max(1, Math.ceil(view.total / LEADS_PAGE_SIZE));
+  if (pages <= 1) return `<p class="muted">${view.total} lead(s).</p>`;
+  const previous = view.page > 1 ? `<a class="button button-secondary" href="${escapeHtml(leadsUrl(view.filters, view.page - 1))}">&lsaquo; Anterior</a>` : '';
+  const next = view.page < pages ? `<a class="button button-secondary" href="${escapeHtml(leadsUrl(view.filters, view.page + 1))}">Proxima &rsaquo;</a>` : '';
+  return `<nav class="pagination" aria-label="Paginas de leads">${previous}<span class="muted">Pagina ${view.page} de ${pages} &middot; ${view.total} lead(s)</span>${next}</nav>`;
+}
+
+export function renderLeadsListPage(view: LeadsListView, companies: Company[], agents: SdrAgent[], notice?: string): string {
   const companiesById = new Map(companies.map((company) => [company.id, company.name]));
-  const agentsById = new Map(agents.map((agent) => [agent.id, agent.name]));
-  const rows = leads
+  const agentsById = new Map(agents.map((agent) => [agent.id, agent.displayName || agent.name]));
+  const rows = view.leads
     .map(
       (lead) => `<tr>
-        <td>${escapeHtml(lead.companyName)}<br><span class="muted">${escapeHtml(lead.whatsappNumber)}</span></td>
+        <td><a href="/leads/${lead.id}">${escapeHtml(lead.companyName)}</a><br><span class="muted">${escapeHtml(lead.whatsappNumber)}</span></td>
         <td>${escapeHtml(companiesById.get(lead.companyId) ?? '-')}</td>
         <td>${escapeHtml(agentsById.get(lead.sdrAgentId) ?? '-')}</td>
         <td>${escapeHtml(lead.segment ?? '-')}</td>
-        <td><span class="status-pill status-off">${escapeHtml(lead.status)}</span></td>
-        <td class="table-actions"><a href="/leads/${lead.id}">Ver</a><a href="/leads/${lead.id}/edit">Editar</a><form method="post" action="/leads/${lead.id}/delete" data-inline onsubmit="return confirm('Tem certeza que deseja excluir este lead?')"><button class="link-button" type="submit">Excluir</button></form></td>
+        <td><span class="status-pill status-off">${escapeHtml(statusLabel(lead.status))}</span></td>
+        <td class="table-actions"><a href="/leads/${lead.id}">Ver</a><a href="/leads/${lead.id}/edit">Editar</a></td>
       </tr>`,
     )
     .join('');
-  const table = leads.length
-    ? `<div class="table-wrap"><table><thead><tr><th>Lead</th><th>Empresa</th><th>SDR</th><th>Segmento</th><th>Status</th><th>Acoes</th></tr></thead><tbody>${rows}</tbody></table></div>`
-    : '<section class="empty-state"><h2>Nenhum lead cadastrado</h2><p class="muted">Importe uma planilha Excel ou crie um lead manualmente para iniciar a operacao.</p><div class="actions"><a class="button button-secondary" href="/leads/import">Importar Excel</a><a class="button" href="/leads/new">Novo lead</a></div></section>';
+  const filtered = Boolean(view.filters.q || view.filters.sdrAgentId || view.filters.status);
+  const table = view.leads.length
+    ? `<div class="table-wrap"><table><thead><tr><th>Lead</th><th>Empresa</th><th>SDR</th><th>Segmento</th><th>Situacao</th><th>Acoes</th></tr></thead><tbody>${rows}</tbody></table></div>${renderPagination(view)}`
+    : filtered
+      ? '<section class="empty-state"><h2>Nenhum lead com esses filtros</h2><p class="muted">Mude a busca ou limpe os filtros.</p><a class="button button-secondary" href="/leads">Limpar filtros</a></section>'
+      : '<section class="empty-state"><h2>Nenhum lead cadastrado</h2><p class="muted">Importe uma planilha Excel ou crie um lead manualmente para iniciar a operacao.</p><div class="actions"><a class="button button-secondary" href="/leads/import">Importar Excel</a><a class="button" href="/leads/new">Novo lead</a></div></section>';
 
   const noticeHtml = notice ? `<p class="form-notice">${escapeHtml(notice)}</p>` : '';
 
   return renderLayout({
     title: 'Leads - SDR Portal',
-    body: `<main class="app-shell"><header class="topbar"><div><h1>Leads</h1><p class="muted">Cadastre, edite e importe contatos para os SDRs.</p></div><div class="actions"><a class="button button-secondary" href="/leads/nao-contatar">Nao contatar</a><a class="button button-secondary" href="/leads/import">Importar Excel</a><a class="button" href="/leads/new">Novo lead</a></div></header>${noticeHtml}${table}${renderBulkDeletePanel(leads, agents)}</main>`,
+    body: `<main class="app-shell"><header class="topbar"><div><h1>Leads</h1><p class="muted">Cadastre, edite e importe contatos para os SDRs.</p></div><div class="actions"><a class="button button-secondary" href="/leads/nao-contatar">Nao contatar</a><a class="button button-secondary" href="/leads/limpar">Limpar leads</a><a class="button button-secondary" href="/leads/import">Importar Excel</a><a class="button" href="/leads/new">Novo lead</a></div></header>${noticeHtml}${renderLeadFilters(view.filters, agents)}${table}</main>`,
+  });
+}
+
+/**
+ * Apagar em massa tem tela propria: no pe da lista ele ficava a um clique de qualquer outra
+ * coisa. Os numeros por status sao do SDR escolhido, para a pessoa ver o que vai sumir.
+ */
+export function renderBulkDeletePage(agents: SdrAgent[], selectedSdrId: string, counts: Record<string, number>, error?: string): string {
+  const errorHtml = error ? `<div class="alert-error">${escapeHtml(error)}</div>` : '';
+  const agentOptions = agents
+    .map((agent) => `<option value="${escapeHtml(agent.id)}"${agent.id === selectedSdrId ? ' selected' : ''}>${escapeHtml(agent.displayName || agent.name)}</option>`)
+    .join('');
+  const checkboxes = LEAD_STATUS_OPTIONS.map(
+    ([value, label]) => `<label class="check-item">
+        <input type="checkbox" name="statuses" value="${escapeHtml(value)}" />
+        <span>${escapeHtml(label)} <span class="muted">(${counts[value] ?? 0})</span></span>
+      </label>`,
+  ).join('');
+  const body = agents.length
+    ? `<section class="panel">
+    ${errorHtml}
+    <form method="get" action="/leads/limpar" class="form-grid">
+      <div class="field"><label for="sdr">SDR</label><select id="sdr" name="sdr" onchange="this.form.submit()">${agentOptions}</select></div>
+      <noscript><div class="actions"><button type="submit">Ver quantidades</button></div></noscript>
+    </form>
+    <form method="post" action="/leads/limpar" class="spacing-top" onsubmit="return confirm('Isso apaga os leads marcados e o historico de conversa deles. Nao da para desfazer. Confirmar?')">
+      <input type="hidden" name="sdrAgentId" value="${escapeHtml(selectedSdrId)}">
+      <p class="muted">Marque as situacoes que vao ser apagadas. Conversas e mensagens desses leads vao junto, e nao da para desfazer.</p>
+      <div class="check-grid">${checkboxes}</div>
+      <button class="button button-danger" type="submit">Apagar leads marcados</button>
+    </form>
+  </section>`
+    : '<section class="empty-state"><h2>Nenhum SDR cadastrado</h2></section>';
+
+  return renderLayout({
+    title: 'Limpar leads - SDR Portal',
+    body: `<main class="app-shell"><header class="topbar"><div><h1>Limpar leads</h1><p class="muted">Apaga de uma vez os leads de um SDR em certas situacoes.</p></div><a class="button button-secondary" href="/leads">Voltar para leads</a></header>${body}</main>`,
   });
 }
 
@@ -352,7 +414,7 @@ export function renderLeadDetailPage(
     ['Segmento', lead.segment],
     ['Cidade/Estado', [lead.city, lead.state].filter(Boolean).join(' / ')],
     ['Contato', lead.contactName],
-    ['Status', lead.status],
+    ['Situacao', statusLabel(lead.status)],
     ['Etapa', lead.conversationStage],
     ['Fonte', lead.source],
     ['Primeira msg', lead.firstMessageSentAt?.toISOString()],
@@ -410,7 +472,7 @@ export function renderLeadDetailPage(
   <header class="topbar">
     <div>
       <h1>${escapeHtml(lead.companyName)}</h1>
-      <p class="muted">${escapeHtml(lead.whatsappNumber)} — ${escapeHtml(lead.status)}</p>
+      <p class="muted">${escapeHtml(lead.whatsappNumber)} — ${escapeHtml(statusLabel(lead.status))}</p>
     </div>
     <div class="actions">
       <a class="button button-secondary" href="/leads">Voltar</a>
@@ -434,6 +496,11 @@ export function renderLeadDetailPage(
   <details class="panel spacing-top">
     <summary><strong>Jobs</strong> <span class="muted">${jobLogs.length} registro(s)</span></summary>
     <div class="table-wrap"><table><thead><tr><th>Data</th><th>Job</th><th>Status</th><th>Tentativa</th><th>Erro</th><th>Payload</th></tr></thead><tbody>${jobRows}</tbody></table></div>
+  </details>
+
+  <details class="panel spacing-top">
+    <summary><strong>Excluir este lead</strong> <span class="muted">Apaga o lead, a conversa e as mensagens. Nao da para desfazer.</span></summary>
+    <form method="post" action="/leads/${lead.id}/delete" class="spacing-top" onsubmit="return confirm('Excluir este lead e todo o historico de conversa dele?')"><button class="button button-danger" type="submit">Excluir lead</button></form>
   </details>
 </main>`,
   });

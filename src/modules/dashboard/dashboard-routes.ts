@@ -11,7 +11,7 @@ import type { ChannelLimitsRepository } from '../monitoring/channel-limits.js';
 import type { ConnectionMonitorRepository } from '../monitoring/connection-monitor-repository.js';
 import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
 import { renderDashboardPage } from './dashboard-pages.js';
-import { buildDashboardViewModel, type DashboardFilters, type DashboardPeriod } from './dashboard-view-model.js';
+import { buildDashboardViewModel, dashboardSince, type DashboardFilters, type DashboardPeriod } from './dashboard-view-model.js';
 
 const periods = new Set<DashboardPeriod>(['today', '7d', '30d', 'all']);
 
@@ -50,14 +50,16 @@ export function registerDashboardRoutes(
     const user = await requireUser(request, reply, authRepository);
     if (!user) return undefined;
 
+    const filters = parseFilters(request.query);
+    const since = dashboardSince(filters.period, new Date());
     const [companies, sdrAgents, leads, conversations, messages, aiRuns, jobLogs] = await Promise.all([
       companyRepository.list(),
       sdrAgentRepository.list(),
       leadRepository.list(),
       conversationRepository.list(),
-      conversationRepository.listAllMessages(),
-      aiRunRepository.list(),
-      jobLogRepository.list(),
+      conversationRepository.listMessageStats(since),
+      aiRunRepository.listStats(since),
+      jobLogRepository.listStats(since),
     ]);
     // Folga de 60 dias: a ultima transicao antes dos 7 dias e o que diz como a semana comecou.
     const connectionEvents = await connectionMonitorRepository.listConnectionEvents(new Date(Date.now() - 60 * 24 * 60 * 60000));
@@ -69,7 +71,7 @@ export function registerDashboardRoutes(
       companies,
       connectionEvents,
       conversations,
-      filters: parseFilters(request.query),
+      filters,
       jobLogs,
       leads,
       messages,

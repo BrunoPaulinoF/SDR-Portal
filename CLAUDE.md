@@ -109,6 +109,11 @@ Note: `db:migrate`, `admin:create` and `sdr:prompts` run **compiled** JS, so `np
 
 **Rendering.** No template engine. `src/modules/web/html.ts` provides `escapeHtml` and the layout/nav shell; `*-pages.ts` files build HTML via template literals. Always `escapeHtml` user-derived values. Static assets served via `web/assets.ts`.
 
+**Telas (plano em `docs/analises/plano-telas-2026-10-02.md`).** Toda pagina carrega `/app.js` (`web/app-script.ts`), que so melhora o que o HTML ja faz:
+- Salvar volta para a **propria tela** com `?salvo=1` (ou `?criado=1`), nunca para a lista: o script mostra o aviso "Alteracoes salvas", tira o parametro da URL e devolve a rolagem e as secoes `<details>` que estavam abertas. Rota nova de salvar segue o mesmo padrao.
+- Formulario com `data-inline-result="<id>"` e enviado por `fetch` com `Accept: application/json` e o resultado aparece no elemento indicado. A rota responde JSON nesse caso e uma pagina de reserva no resto (ver `respond` em `uazapi/uazapi-routes.ts` e os textos em portugues de `uazapi/action-summary.ts`). O script so usa `textContent`.
+- Lista grande pagina no banco: `/leads` usa `LeadRepository.search` (busca por nome ou pedaco do numero, filtros por SDR e situacao, 50 por pagina). O painel le mensagens, chamadas de IA e registros so do periodo escolhido e so as colunas que conta (`listMessageStats`, `listStats` a partir de `dashboardSince`) — `listAllMessages`/`list()` dessas tabelas trazem payload e prompt inteiros e nao servem para tela.
+
 ## Key domain flows
 
 These live under `src/modules/scheduler/`, `webhooks/`, and `ai/`:
