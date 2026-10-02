@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { buildDashboardViewModel } from '../src/modules/dashboard/dashboard-view-model.js';
 import { createMemoryCompanyRepository } from '../src/modules/companies/company-repository.js';
@@ -155,12 +155,25 @@ describe('dashboard stall detection', () => {
 });
 
 describe('dashboard: resposta de gente e capacidade do dia', () => {
+  const now = new Date('2026-09-08T18:00:00.000Z');
+
+  // Os repositorios em memoria carimbam createdAt com o relogio real, e o dashboard ignora o que
+  // vem depois de `now`. Sem congelar o relogio no `now` do cenario, a mensagem do lead nasce "no
+  // futuro" assim que a data real passa dele, e o teste quebra sozinho com o calendario.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(now);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   async function buildScenario(agentOverrides: Record<string, unknown> = {}) {
     const companyRepository = createMemoryCompanyRepository();
     const sdrAgentRepository = createMemorySdrAgentRepository();
     const leadRepository = createMemoryLeadRepository();
     const conversationRepository = createMemoryConversationRepository();
-    const now = new Date('2026-09-08T18:00:00.000Z');
     const company = await companyRepository.create({
       name: 'KyberFood',
       legalName: null,
