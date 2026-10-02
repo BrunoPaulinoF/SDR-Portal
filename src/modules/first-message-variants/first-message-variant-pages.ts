@@ -1,6 +1,7 @@
 import type { SdrAgent } from '../../db/schema.js';
 import { resolveSdrPlaybook } from '../ai/sdr-playbooks.js';
 import { escapeHtml, renderLayout } from '../web/html.js';
+import { abVerdict, AB_MIN_SAMPLE } from './ab-verdict.js';
 import type { FirstMessageVariantMetrics } from './first-message-variant-repository.js';
 
 function replyRate(sent: number, replied: number): string {
@@ -41,8 +42,8 @@ export function repeatsSecondMessage(variantBody: string, secondMessage: string 
   return false;
 }
 
-function renderVariantCard(agentId: string, metrics: FirstMessageVariantMetrics, secondMessage: string | null): string {
-  const { variant, sent, replied } = metrics;
+function renderVariantCard(agentId: string, metrics: FirstMessageVariantMetrics, secondMessage: string | null, verdict: string | null): string {
+  const { variant, sent, replied, handoffs } = metrics;
   const toggleLabel = variant.isActive ? 'Pausar' : 'Ativar';
   const repeatWarning =
     variant.isActive && repeatsSecondMessage(variant.body, secondMessage)
@@ -52,7 +53,8 @@ function renderVariantCard(agentId: string, metrics: FirstMessageVariantMetrics,
     <header class="topbar">
       <div>
         <h2>Variante ${escapeHtml(variant.label)} <span class="status-pill ${variant.isActive ? 'status-on' : 'status-off'}">${variant.isActive ? 'Ativa' : 'Pausada'}</span></h2>
-        <p class="muted">Enviadas: <strong>${sent}</strong> · Respostas: <strong>${replied}</strong> · Taxa: <strong>${replyRate(sent, replied)}</strong></p>
+        <p class="muted">Enviadas: <strong>${sent}</strong> · Gente respondeu: <strong>${replied}</strong> (${replyRate(sent, replied)}) · Passados para o time: <strong>${handoffs}</strong> (${replyRate(sent, handoffs)})</p>
+        ${verdict ? `<p class="muted">${escapeHtml(verdict)}</p>` : ''}
       </div>
       <div class="table-actions">
         <form method="post" action="/sdr-agents/${agentId}/first-messages/${variant.id}/toggle" data-inline><button class="link-button" type="submit">${toggleLabel}</button></form>
@@ -87,6 +89,16 @@ export function renderFirstMessageVariantsPage(
     : '';
   const totalSent = metrics.reduce((sum, m) => sum + m.sent, 0);
   const totalReplied = metrics.reduce((sum, m) => sum + m.replied, 0);
+  // So as ativas disputam: variante pausada guarda historico, mas nao esta no teste.
+  const verdict = abVerdict(
+    metrics
+      .filter((m) => m.variant.isActive)
+      .map((m) => ({ id: m.variant.id, label: m.variant.label, sent: m.sent, replied: m.replied })),
+  );
+  const verdictPanel = abOn
+    ? `<p><strong>Resultado do teste:</strong> ${escapeHtml(verdict.summary)}</p>
+    <p class="muted">Regra do teste: mude uma coisa por vez entre as variantes, espere ${AB_MIN_SAMPLE} envios de cada e compare pela resposta de gente — o robo da loja nao conta.</p>`
+    : '';
 
   const errorHtml = error ? `<p class="alert-error">${escapeHtml(error)}</p>` : '';
 
@@ -107,10 +119,13 @@ export function renderFirstMessageVariantsPage(
     </header>
     ${roteiroWarning}
     <p class="muted">Com duas ou mais variantes ativas, o modo fixo vira teste A/B: o rodizio compara a taxa de resposta de cada texto. Com uma so, todo lead recebe a mesma mensagem.</p>
-    <p class="muted">Resumo geral: <strong>${totalSent}</strong> enviadas · <strong>${totalReplied}</strong> respostas · taxa <strong>${replyRate(totalSent, totalReplied)}</strong>.</p>
+    <p class="muted">Resumo geral: <strong>${totalSent}</strong> enviadas · <strong>${totalReplied}</strong> com resposta de gente · taxa <strong>${replyRate(totalSent, totalReplied)}</strong>.</p>
+    ${verdictPanel}
   </section>`;
 
-  const cards = metrics.map((m) => renderVariantCard(agent.id, m, agent.secondMessage)).join('');
+  const cards = metrics
+    .map((m) => renderVariantCard(agent.id, m, agent.secondMessage, m.variant.isActive && abOn ? (verdict.perVariant.get(m.variant.id) ?? null) : null))
+    .join('');
   const emptyCards = metrics.length
     ? ''
     : '<section class="empty-state"><h2>Nenhuma variante ainda</h2><p class="muted">Crie a mensagem abaixo para o SDR mandar um texto fixo em vez de deixar a IA escrever.</p></section>';

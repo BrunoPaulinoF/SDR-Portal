@@ -112,7 +112,11 @@ export function createDbFirstMessageVariantRepository(): FirstMessageVariantRepo
           .select({ value: count() })
           .from(leads)
           .where(and(eq(leads.firstMessageVariantId, variant.id), isNotNull(leads.lastInboundAt)));
-        metrics.push({ variant, sent, replied });
+        const [{ value: handoffs } = { value: 0 }] = await db
+          .select({ value: count() })
+          .from(leads)
+          .where(and(eq(leads.firstMessageVariantId, variant.id), isNotNull(leads.handoffRequestedAt)));
+        metrics.push({ variant, sent, replied, handoffs });
       }
       return metrics;
     },
