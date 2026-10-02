@@ -83,8 +83,8 @@ export function registerCompanyRoutes(
       return reply.status(400).type('text/html').send(renderNewCompanyPage('Informe pelo menos o nome da empresa.'));
     }
 
-    await companyRepository.create(input);
-    return reply.redirect('/companies');
+    const company = await companyRepository.create(input);
+    return reply.redirect(`/companies/${company.id}/edit?criado=1`);
   });
 
   app.get('/companies/:id/edit', async (request, reply) => {
@@ -133,7 +133,7 @@ export function registerCompanyRoutes(
     }
 
     await companyRepository.update(params.data.id, input);
-    return reply.redirect('/companies');
+    return reply.redirect(`/companies/${params.data.id}/edit?salvo=1`);
   });
 
   app.post('/companies/:id/delete', async (request, reply) => {

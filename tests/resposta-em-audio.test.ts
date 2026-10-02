@@ -338,13 +338,13 @@ describe('tela do SDR', () => {
     expect(agent.audioReplyMode).toBe('off');
 
     const { app, cookie } = await loggedInApp({ sdrAgentRepository, companyRepository });
-    const edit = await app.inject({ method: 'GET', url: `/sdr-agents/${agent.id}/edit`, headers: { cookie } });
+    const edit = await app.inject({ method: 'GET', url: `/sdr-agents/${agent.id}/edit?aba=voz`, headers: { cookie } });
     expect(edit.body).toContain('Resposta em audio (ElevenLabs)');
     expect(edit.body).toContain('send-audio-test');
 
     await app.inject({
       method: 'POST',
-      url: `/sdr-agents/${agent.id}`,
+      url: `/sdr-agents/${agent.id}/aba/voz`,
       headers: { cookie },
       payload: {
         ...formBase,
@@ -362,7 +362,7 @@ describe('tela do SDR', () => {
 
     await app.inject({
       method: 'POST',
-      url: `/sdr-agents/${agent.id}`,
+      url: `/sdr-agents/${agent.id}/aba/voz`,
       headers: { cookie },
       payload: { ...formBase, companyId: company.id, audioReplyMode: 'off', elevenlabsVoiceId: 'voz-mariana', elevenlabsApiKeyEncrypted: '' },
     });

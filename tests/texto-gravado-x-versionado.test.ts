@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import type { SdrAgent } from '../src/db/schema.js';
 import { repeatsSecondMessage } from '../src/modules/first-message-variants/first-message-variant-pages.js';
 import { findPromptDrift } from '../src/modules/sdr-agents/prompt-bundle.js';
-import { renderEditSdrAgentPage } from '../src/modules/sdr-agents/sdr-agent-pages.js';
+import { renderSdrAgentTabPage } from '../src/modules/sdr-agents/sdr-agent-pages.js';
 import { createMemorySdrAgentRepository } from '../src/modules/sdr-agents/sdr-agent-repository.js';
 
 async function mariana(overrides: Partial<SdrAgent> = {}): Promise<SdrAgent> {
@@ -40,7 +40,7 @@ describe('texto gravado x versionado', () => {
 
   it('a tela do SDR mostra o aviso com o comando para gravar', async () => {
     const agent = await mariana();
-    const html = renderEditSdrAgentPage(agent, [], undefined, { dir: 'docs/prompts/mariana', fields: ['prompt', 'secondMessage'] });
+    const html = renderSdrAgentTabPage({ agent, companies: [], tab: 'conversa', drift: { dir: 'docs/prompts/mariana', fields: ['prompt', 'secondMessage'] } });
 
     expect(html).toContain('esta diferente de <code>docs/prompts/mariana</code>');
     expect(html).toContain('<code>prompt.txt</code>, <code>second-message.txt</code>');
@@ -48,7 +48,7 @@ describe('texto gravado x versionado', () => {
   });
 
   it('sem divergencia a tela fica como era', async () => {
-    const html = renderEditSdrAgentPage(await mariana(), [], undefined, { dir: 'docs/prompts/mariana', fields: [] });
+    const html = renderSdrAgentTabPage({ agent: await mariana(), companies: [], tab: 'conversa', drift: { dir: 'docs/prompts/mariana', fields: [] } });
 
     expect(html).not.toContain('esta diferente de');
   });

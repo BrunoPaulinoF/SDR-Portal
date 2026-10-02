@@ -51,6 +51,13 @@ export function createDbConversationRepository(): ConversationRepository {
       return db.select().from(messages).orderBy(desc(messages.createdAt));
     },
 
+    async listMessageStats(since) {
+      return db
+        .select({ leadId: messages.leadId, direction: messages.direction, autoReply: messages.autoReply, createdAt: messages.createdAt })
+        .from(messages)
+        .where(since ? gte(messages.createdAt, since) : undefined);
+    },
+
     async listBySdr(sdrAgentId) {
       // Conversa sem mensagem nenhuma tem last_message_at nulo e no DESC do Postgres viria primeiro.
       return db

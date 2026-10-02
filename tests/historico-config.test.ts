@@ -78,7 +78,7 @@ describe('a tela registra quem mudou o que', () => {
     ]);
     expect(history.every((change) => change.changedBy === 'portal:admin@example.com')).toBe(true);
 
-    const page = await app.inject({ method: 'GET', url: `/sdr-agents/${agent.id}/edit`, headers: { cookie } });
+    const page = await app.inject({ method: 'GET', url: `/sdr-agents/${agent.id}/edit?aba=historico`, headers: { cookie } });
     expect(page.body).toContain('Historico de mudancas');
     expect(page.body).toContain('variante:Nao e pedido');
     await app.close();

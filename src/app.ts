@@ -116,6 +116,10 @@ function createLazyDbAiRunRepository(): AiRunRepository {
       const { createDbAiRunRepository } = await import('./modules/ai/db-ai-run-repository.js');
       return createDbAiRunRepository().list();
     },
+    async listStats(since) {
+      const { createDbAiRunRepository } = await import('./modules/ai/db-ai-run-repository.js');
+      return createDbAiRunRepository().listStats(since);
+    },
   };
 }
 
@@ -148,6 +152,10 @@ function createLazyDbConversationRepository(): ConversationRepository {
     async listAllMessages() {
       const { createDbConversationRepository } = await import('./modules/conversations/db-conversation-repository.js');
       return createDbConversationRepository().listAllMessages();
+    },
+    async listMessageStats(since) {
+      const { createDbConversationRepository } = await import('./modules/conversations/db-conversation-repository.js');
+      return createDbConversationRepository().listMessageStats(since);
     },
     async listBySdr(sdrAgentId) {
       const { createDbConversationRepository } = await import('./modules/conversations/db-conversation-repository.js');
@@ -204,6 +212,10 @@ function createLazyDbJobLogRepository(): JobLogRepository {
     async list() {
       const { createDbJobLogRepository } = await import('./modules/jobs/db-job-log-repository.js');
       return createDbJobLogRepository().list();
+    },
+    async listStats(since) {
+      const { createDbJobLogRepository } = await import('./modules/jobs/db-job-log-repository.js');
+      return createDbJobLogRepository().listStats(since);
     },
   };
 }
@@ -444,6 +456,14 @@ function createLazyDbLeadRepository(): LeadRepository {
     async list() {
       const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
       return createDbLeadRepository().list();
+    },
+    async search(filters, page, pageSize) {
+      const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
+      return createDbLeadRepository().search(filters, page, pageSize);
+    },
+    async countByStatus(sdrAgentId) {
+      const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
+      return createDbLeadRepository().countByStatus(sdrAgentId);
     },
 
     async listByIds(ids) {
@@ -844,7 +864,12 @@ export function buildApp(options: AppOptions = {}): AppInstance {
   registerAuthRoutes(app, repository);
   registerDashboardRoutes(app, repository, companies, sdrAgents, leads, conversations, aiRuns, jobLogs, connectionMonitors, channelLimitsRows);
   registerCompanyRoutes(app, repository, companies);
-  registerSdrAgentRoutes(app, repository, companies, sdrAgents, uazapi, configChanges);
+  registerSdrAgentRoutes(app, repository, companies, sdrAgents, uazapi, configChanges, {
+    leadRepository: leads,
+    connectionMonitorRepository: connectionMonitors,
+    channelLimitsRepository: channelLimitsRows,
+    jobLogRepository: jobLogs,
+  });
   registerFirstMessageVariantRoutes(app, repository, sdrAgents, firstMessageVariants, configChanges);
   registerLeadRoutes(app, repository, companies, sdrAgents, leads, aiRuns, jobLogs, contactBlocks);
   registerUazapiRoutes(app, repository, sdrAgents, uazapi, textToSpeech);

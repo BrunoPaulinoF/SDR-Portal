@@ -1,4 +1,5 @@
 import type { SdrAgent } from '../../db/schema.js';
+import { renderSdrTabs } from '../sdr-agents/sdr-agent-pages.js';
 import { escapeHtml, renderLayout } from '../web/html.js';
 import type { InstanceConnectionState } from './instance-provisioning.js';
 import { shareLinkTtlMinutes } from './instance-share-link-repository.js';
@@ -228,13 +229,8 @@ export function renderSdrConnectPage(
   return renderLayout({
     title: `Conectar ${agent.name} - SDR Portal`,
     body: `<main class="app-shell">
-      <header class="topbar">
-        <div>
-          <h1>Conectar o WhatsApp de ${escapeHtml(agent.name)}</h1>
-          <p class="muted">Instancia ${escapeHtml(agent.uazapiInstanceId ?? 'sem identificador')}.</p>
-        </div>
-        <a class="button button-secondary" href="/sdr-agents">Voltar</a>
-      </header>
+      ${renderSdrTabs(agent, 'whatsapp')}
+      <p class="muted tab-intro">Conectar o WhatsApp · instancia ${escapeHtml(agent.uazapiInstanceId ?? 'sem identificador')}. <a href="/sdr-agents/${agent.id}/edit?aba=whatsapp">Voltar para a aba WhatsApp</a></p>
       <section class="panel qr-panel">
         <div id="qrPanel">${renderQrIdle(state)}</div>
         ${state.connected ? '' : renderInstructions()}

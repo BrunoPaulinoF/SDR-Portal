@@ -1,10 +1,10 @@
-import { and, count, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, notExists, notInArray, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, gte, ilike, inArray, isNotNull, isNull, like, lt, lte, ne, notExists, notInArray, or, sql, type SQL } from 'drizzle-orm';
 import { alias, type PgColumn } from 'drizzle-orm/pg-core';
 
 import { db } from '../../db/client.js';
 import { leadImports, leads } from '../../db/schema.js';
 import { followupDisabledAfterAiResume, statusAfterAiResume } from './ai-pause.js';
-import type { LeadRepository } from './lead-repository.js';
+import { searchDigits, type LeadRepository } from './lead-repository.js';
 
 type LeadActivityColumns = Pick<typeof leads, 'lastInboundAt' | 'lastOutboundAt'>;
 
@@ -215,6 +215,44 @@ export function createDbLeadRepository(): LeadRepository {
 
     async list() {
       return db.select().from(leads).orderBy(desc(leads.createdAt));
+    },
+
+    async search(filters, page, pageSize) {
+      const conditions: SQL[] = [];
+      if (filters.sdrAgentId) conditions.push(eq(leads.sdrAgentId, filters.sdrAgentId));
+      if (filters.status) conditions.push(eq(leads.status, filters.status));
+      const q = filters.q?.trim() ?? '';
+      if (q) {
+        // % e _ do que a pessoa digitou sao texto, nao curinga.
+        const pattern = `%${q.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
+        const digits = searchDigits(q);
+        const byText = or(ilike(leads.companyName, pattern), ilike(leads.tradeName, pattern), ilike(leads.contactName, pattern));
+        const byNumber = digits.length >= 4 ? like(leads.whatsappNumber, `%${digits}%`) : undefined;
+        const match = byNumber ? or(byText, byNumber) : byText;
+        if (match) conditions.push(match);
+      }
+      const where = conditions.length > 0 ? and(...conditions) : undefined;
+      const [rows, [totalRow]] = await Promise.all([
+        db
+          .select()
+          .from(leads)
+          .where(where)
+          // Planilha importada cria tudo no mesmo instante: o nome desempata, senao a ordem sai aleatoria.
+          .orderBy(desc(leads.createdAt), asc(leads.companyName), asc(leads.id))
+          .limit(pageSize)
+          .offset((Math.max(1, page) - 1) * pageSize),
+        db.select({ total: count() }).from(leads).where(where),
+      ]);
+      return { leads: rows, total: Number(totalRow?.total ?? 0) };
+    },
+
+    async countByStatus(sdrAgentId) {
+      const rows = await db
+        .select({ status: leads.status, total: count() })
+        .from(leads)
+        .where(sdrAgentId ? eq(leads.sdrAgentId, sdrAgentId) : undefined)
+        .groupBy(leads.status);
+      return Object.fromEntries(rows.map((row) => [row.status, Number(row.total)]));
     },
 
     async listByIds(ids) {

@@ -1,4 +1,7 @@
-import type { AiRun, Company, Conversation, JobLog, Lead, Message, SdrAgent, SdrChannelLimits, SdrConnectionEvent } from '../../db/schema.js';
+import type { Company, Conversation, Lead, SdrAgent, SdrChannelLimits, SdrConnectionEvent } from '../../db/schema.js';
+import type { AiRunStat } from '../ai/ai-run-repository.js';
+import type { MessageStat } from '../conversations/conversation-repository.js';
+import type { JobLogStat } from '../jobs/job-log-repository.js';
 import { hasOutcome } from '../leads/lead-outcome.js';
 import { CHANNEL_HEALTH_TARGET_PERCENT, computeChannelHealth } from '../monitoring/channel-health.js';
 import { dailyInitialLimit } from '../sdr-agents/warmup.js';
@@ -242,13 +245,19 @@ export function buildCohortFunnel(cohort: Lead[], humanRepliedLeadIds: ReadonlyS
 }
 
 interface BuildDashboardInput {
-  aiRuns: AiRun[];
+  /** So o periodo do filtro basta (`dashboardSince`): o painel nao olha nada antes dele. */
+  aiRuns: AiRunStat[];
   companies: Company[];
   conversations: Conversation[];
   filters: DashboardFilters;
-  jobLogs: JobLog[];
+  jobLogs: JobLogStat[];
   leads: Lead[];
-  messages: Message[];
+  /**
+   * Mensagens a partir de `dashboardSince`. O funil da safra procura resposta de gente dos
+   * abordados no periodo, e essa resposta so pode vir depois da abordagem — que ja esta dentro
+   * do periodo.
+   */
+  messages: MessageStat[];
   now?: Date;
   /** Transicoes de conexao (monitor). Leia com folga antes dos 7 dias: o estado inicial vem delas. */
   connectionEvents?: SdrConnectionEvent[];
@@ -259,6 +268,15 @@ interface BuildDashboardInput {
 }
 
 export const CHANNEL_HEALTH_DAYS = 7;
+
+/**
+ * A partir de quando o painel precisa de mensagens, chamadas de IA e registros. Antes ele lia
+ * as tres tabelas inteiras a cada abertura — inclusive o prompt completo de cada chamada de IA —
+ * e a tela ficava mais lenta a cada dia de operacao.
+ */
+export function dashboardSince(period: DashboardPeriod, now: Date): Date | null {
+  return periodStart(period, now);
+}
 
 function periodStart(period: DashboardPeriod, now: Date): Date | null {
   if (period === 'all') return null;
