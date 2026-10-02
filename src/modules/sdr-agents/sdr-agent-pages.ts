@@ -168,7 +168,7 @@ const fieldHelp: Partial<Record<keyof SdrAgentFormData, string>> = {
   followupEnabled: 'Quando ativo, o sistema tenta enviar um unico follow-up somente para leads que ja responderam.',
   followupPrompt: 'Instrucao usada pela IA para criar o follow-up de quem respondeu e esfriou. O sistema nao envia este texto literalmente.',
   bumpPrompt: 'Instrucao do segundo toque em quem nunca respondeu a abordagem. Deixe vazio para usar o prompt de follow-up tambem nesse caso.',
-  handoffMessageTemplate: 'Mensagem enviada ao responsavel humano quando a IA solicita transferencia.',
+  handoffMessageTemplate: 'Mensagem enviada ao responsavel humano quando a IA solicita transferencia. O link para marcar o desfecho (reuniao, teste, cliente, perdido) vai no fim sozinho; use {{leadUrl}} para escolher onde ele aparece.',
   demoContactName: 'Nome que aparece no cartao de contato que a IA envia para o lead testar (deixe vazio para desativar).',
   demoContactPhone: 'WhatsApp que vai dentro do cartao de contato, com DDI e DDD. Ex.: 5519997353221.',
   audioReplyMode: `Quando a IA responde com audio de voz em vez de texto. Vale so para a resposta a quem escreveu: a primeira mensagem e o follow-up continuam em texto. Resposta com link, telefone, e-mail ou mais de ${MAX_AUDIO_REPLY_CHARS} caracteres vai em texto. Se a ElevenLabs falhar (sem credito, conta bloqueada), a resposta sai em texto e o erro aparece em AI logs.`,

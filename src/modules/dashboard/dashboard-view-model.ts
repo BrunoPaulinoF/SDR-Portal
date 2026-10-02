@@ -1,4 +1,5 @@
 import type { AiRun, Company, Conversation, JobLog, Lead, Message, SdrAgent } from '../../db/schema.js';
+import { hasOutcome } from '../leads/lead-outcome.js';
 import { formatDateTimeInTimeZone, startOfDayInTimeZone } from '../timezone.js';
 
 export type DashboardPeriod = 'today' | '7d' | '30d' | 'all';
@@ -21,6 +22,13 @@ export const stalledDispatchMinutes = 180;
 export const stalledHandoffOfferMinutes = 120;
 /** Depois disso o lead some do alerta: aviso que nunca sai da tela vira paisagem. */
 const stalledHandoffOfferMaxDays = 14;
+
+/**
+ * Handoff sem desfecho marcado depois deste prazo vira cobranca no painel: sem a marcacao o
+ * funil para no handoff de novo. Mais velho que o teto, sai da lista.
+ */
+export const handoffOutcomeDueDays = 3;
+const handoffOutcomeMaxDays = 30;
 
 /** Mesmo nome de job que `ai-response-service` grava no aviso de handoff. */
 const HANDOFF_NOTICE_JOB = 'handoff-notify';
@@ -547,6 +555,12 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
       now.getTime() - lastActivityAt(lead).getTime() > stalledHandoffOfferMinutes * 60000 &&
       now.getTime() - lastActivityAt(lead).getTime() < stalledHandoffOfferMaxDays * 24 * 60 * 60000,
   );
+  const DAY_MS = 24 * 60 * 60000;
+  const handoffsWithoutOutcome = scopedLeads.filter((lead) => {
+    if (!lead.handoffRequestedAt || hasOutcome(lead)) return false;
+    const age = now.getTime() - lead.handoffRequestedAt.getTime();
+    return age > handoffOutcomeDueDays * DAY_MS && age < handoffOutcomeMaxDays * DAY_MS;
+  });
   const failedHandoffNotices = jobLogsInPeriod.filter((log) => log.jobName === HANDOFF_NOTICE_JOB && log.status === 'failed');
   const failedNoticeLeads = failedHandoffNotices
     .map((log) => scopedLeads.find((lead) => lead.id === log.leadId)?.companyName)
@@ -554,6 +568,9 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
   const alerts = [
     stalledHandoffOffers.length > 0
       ? `${stalledHandoffOffers.length} lead(s) com interesse esperando ha mais de ${stalledHandoffOfferMinutes / 60}h na oferta de handoff: ${namesPreview(stalledHandoffOffers.map((lead) => lead.companyName))}. Chame pelo WhatsApp do SDR.`
+      : null,
+    handoffsWithoutOutcome.length > 0
+      ? `${handoffsWithoutOutcome.length} handoff(s) de mais de ${handoffOutcomeDueDays} dias sem desfecho marcado: ${namesPreview(handoffsWithoutOutcome.map((lead) => lead.companyName))}. Abra o lead e marque reuniao, teste, cliente ou perdido.`
       : null,
     failedHandoffNotices.length > 0
       ? `${failedHandoffNotices.length} aviso(s) de handoff nao chegaram a quem atende${failedNoticeLeads.length > 0 ? ` (${namesPreview(failedNoticeLeads)})` : ''}. O resumo de cada um esta em Job logs.`

@@ -401,6 +401,22 @@ export function createDbLeadRepository(): LeadRepository {
       return lead ?? null;
     },
 
+    async setOutcome(id, outcome, updatedAt) {
+      const [lead] = await db
+        .update(leads)
+        .set({
+          meetingAt: outcome.meetingAt,
+          trialStartedAt: outcome.trialStartedAt,
+          wonAt: outcome.wonAt,
+          lostAt: outcome.lostAt,
+          lostReason: outcome.lostReason,
+          updatedAt,
+        })
+        .where(eq(leads.id, id))
+        .returning();
+      return lead ?? null;
+    },
+
     async update(id, input) {
       const [lead] = await db.update(leads).set({ ...input, updatedAt: new Date() }).where(eq(leads.id, id)).returning();
       return lead ?? null;

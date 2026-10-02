@@ -517,6 +517,10 @@ function createLazyDbLeadRepository(): LeadRepository {
       const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
       return createDbLeadRepository().setFirstMessageVariant(id, variantId);
     },
+    async setOutcome(id, outcome, updatedAt) {
+      const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');
+      return createDbLeadRepository().setOutcome(id, outcome, updatedAt);
+    },
 
     async update(id, input) {
       const { createDbLeadRepository } = await import('./modules/leads/db-lead-repository.js');

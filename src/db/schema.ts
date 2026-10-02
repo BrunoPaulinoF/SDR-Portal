@@ -162,6 +162,17 @@ export const leads = pgTable(
     handoffRequestedAt: timestamp('handoff_requested_at', { withTimezone: true }),
     handoffSummary: text('handoff_summary'),
     notInterestedAt: timestamp('not_interested_at', { withTimezone: true }),
+    /*
+     * Desfecho depois do handoff, marcado por quem atende na tela do lead. Ate 02/10 o funil
+     * terminava no handoff e nenhum dos 35 handoffs da historia tinha desfecho: nao dava para
+     * saber se o SDR gerava dinheiro. Cada marco tem a propria data para o painel contar por
+     * periodo; `won_at` e `lost_at` se excluem.
+     */
+    meetingAt: timestamp('meeting_at', { withTimezone: true }),
+    trialStartedAt: timestamp('trial_started_at', { withTimezone: true }),
+    wonAt: timestamp('won_at', { withTimezone: true }),
+    lostAt: timestamp('lost_at', { withTimezone: true }),
+    lostReason: text('lost_reason'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
