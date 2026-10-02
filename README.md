@@ -97,12 +97,12 @@ Rotas de empresas:
 
 Rotas de SDRs:
 
-- `GET /sdr-agents`: lista SDRs.
+- `GET /sdr-agents`: lista SDRs em cartoes (WhatsApp, abordagens do dia, fila).
 - `GET /sdr-agents/new`: formulario de novo SDR.
 - `POST /sdr-agents`: cria SDR.
-- `GET /sdr-agents/:id/edit`: formulario de edicao.
-- `POST /sdr-agents/:id`: atualiza SDR.
-- `POST /sdr-agents/:id/toggle`: ativa ou desativa SDR.
+- `GET /sdr-agents/:id/edit?aba=`: tela do SDR em abas (`resumo` sem `aba`, `conversa`, `envio`, `whatsapp`, `voz`, `avancado`, `historico`; `abordagem` leva para `/first-messages`).
+- `POST /sdr-agents/:id/aba/:aba`: salva so os campos daquela aba (`conversa`, `envio`, `whatsapp`, `voz`, `avancado`) e volta para ela.
+- `POST /sdr-agents/:id/toggle`: ativa ou pausa SDR (`voltar=resumo` volta para o Resumo).
 - `POST /sdr-agents/:id/delete`: exclui SDR.
 
 Rotas da abordagem (tela `Msg inicial`):

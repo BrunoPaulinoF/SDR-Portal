@@ -44,3 +44,8 @@ levaria semanas e arriscaria o que funciona. Cada etapa sai num PR.
 ## Andamento
 
 - **Etapa A (02/10): feita.** Ver "Telas" no `CLAUDE.md`.
+- **Etapa B (02/10): feita.** A tela do SDR virou abas (`?aba=`), cada uma com o proprio
+  formulario (`POST /sdr-agents/:id/aba/:aba`) que so troca os campos dela; Msg inicial e
+  Conectar ganharam as mesmas abas; a lista de SDRs virou cartoes. A rota antiga que salvava
+  o formulario inteiro (`POST /sdr-agents/:id`) saiu: nada mais a usava, e um POST parcial
+  nela apagava o que nao viesse.

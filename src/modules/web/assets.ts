@@ -1316,6 +1316,36 @@ form[data-inline] {
 .check-item { display: flex; gap: 8px; align-items: center; }
 .button-danger, button.button-danger { background: #b42318; border-color: #b42318; color: #fff; }
 .button-danger:hover, button.button-danger:hover { background: #912018; }
+
+.tabs { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--border-strong); margin: 0 0 20px; }
+.tab { flex: none; white-space: nowrap; padding: 10px 16px; border: 1px solid transparent; border-bottom: 0; border-radius: var(--radius-sm) var(--radius-sm) 0 0; color: var(--muted); font-weight: 600; text-decoration: none; margin-bottom: -1px; }
+.tab:hover { color: var(--text); background: var(--surface-muted); }
+.tab-active, .tab-active:hover { color: var(--primary-dark); background: var(--card); border-color: var(--border-strong); border-bottom: 1px solid var(--card); }
+.tab-intro { margin: -8px 0 16px; }
+.tab-section { margin-bottom: 16px; }
+.tab-section > h2 { margin-top: 0; }
+/* Aba longa (Conversa tem o prompt inteiro): o botao de salvar acompanha a rolagem. */
+.tab-save { position: sticky; bottom: 0; z-index: 5; margin: 0; padding: 12px 0; background: linear-gradient(to top, var(--bg) 70%, transparent); }
+.summary-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+.summary-card { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); }
+.summary-card strong { font-size: 1.35rem; }
+.summary-ok { color: #067647; }
+.summary-card.summary-ok { color: inherit; border-color: #abefc6; background: #f6fef9; }
+.summary-card.summary-ok strong { color: #067647; }
+.summary-bad { color: var(--danger-text); }
+.summary-card.summary-bad { color: inherit; border-color: var(--danger-border); background: var(--danger-bg); }
+.summary-card.summary-bad strong { color: var(--danger-text); }
+.sdr-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 16px; }
+.sdr-card { display: flex; flex-direction: column; gap: 12px; margin: 0; }
+.sdr-card-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.sdr-card-head h2 { margin: 0; font-size: 1.15rem; }
+.sdr-card-head h2 a { color: inherit; text-decoration: none; }
+.sdr-card-head p { margin: 2px 0 0; }
+.sdr-card-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0; }
+.sdr-card-stats dt { font-size: 12px; color: var(--muted); }
+.sdr-card-stats dd { margin: 2px 0 0; font-weight: 700; }
+.sdr-card .actions { margin-top: auto; }
+.sdr-card .alert-error { margin: 0; }
 `;
 
 export function registerAssetsRoutes(app: FastifyInstance): void {

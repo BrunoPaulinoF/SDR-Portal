@@ -1,4 +1,4 @@
-import type { Company, SdrAgent, SdrConfigChange } from '../../db/schema.js';
+import type { Company, SdrAgent, SdrChannelLimits, SdrConfigChange } from '../../db/schema.js';
 import { formatDateTimeInTimeZone } from '../timezone.js';
 import { lockedBasePromptPreview } from '../ai/sdr-base-prompt.js';
 import { DEFAULT_SDR_PLAYBOOK, SDR_PLAYBOOK_LABELS, SDR_PLAYBOOKS, resolveSdrPlaybook } from '../ai/sdr-playbooks.js';
@@ -14,8 +14,9 @@ import {
 } from '../audio/audio-reply.js';
 import { escapeHtml, renderLayout } from '../web/html.js';
 import { PROMPT_FILES, type PromptDrift } from './prompt-bundle.js';
+import type { DailyInitialLimit } from './warmup.js';
 
-interface SdrAgentFormData {
+export interface SdrAgentFormData {
   companyId: string;
   name: string;
   displayName: string;
@@ -264,7 +265,7 @@ const defaultForm: SdrAgentFormData = {
   elevenlabsModel: DEFAULT_ELEVENLABS_MODEL,
 };
 
-function agentToForm(agent?: SdrAgent): SdrAgentFormData {
+export function agentToForm(agent?: SdrAgent): SdrAgentFormData {
   if (!agent) {
     return defaultForm;
   }
@@ -656,44 +657,67 @@ function renderSdrAgentForm(action: string, companies: Company[], agent?: SdrAge
     </form>`;
 }
 
+/** Um cartao da lista de SDRs: o que se quer saber antes de abrir o SDR. */
+export interface SdrListCard {
+  agent: SdrAgent;
+  connection: SdrSummary['connection'];
+  /** Ate quando o WhatsApp nao deixa abrir conversa nova; `null` quando esta liberado. */
+  blockedUntil: Date | null;
+  sentToday: number;
+  todayLimit: DailyInitialLimit;
+  pending: number;
+}
+
+function connectionLabel(connection: SdrSummary['connection']): { text: string; tone: 'ok' | 'bad' | 'neutral' } {
+  if (!connection) return { text: 'Sem leitura', tone: 'neutral' };
+  return connection.status === 'connected' ? { text: 'Conectado', tone: 'ok' } : { text: 'Desconectado', tone: 'bad' };
+}
+
+function renderSdrCard(card: SdrListCard, companyName: string, failedDelete: boolean): string {
+  const { agent } = card;
+  const whatsapp = connectionLabel(card.connection);
+  const warmup = card.todayLimit.warmupDay === null ? '' : ` <span class="muted">(aquecimento, dia ${card.todayLimit.warmupDay})</span>`;
+  const blocked = card.blockedUntil
+    ? `<p class="alert-error">WhatsApp nao deixa abrir conversa nova ate ${escapeHtml(formatDateTimeInTimeZone(card.blockedUntil, agent.timezone))}.</p>`
+    : '';
+  const keepInstance = failedDelete
+    ? `<form method="post" action="/sdr-agents/${agent.id}/delete" onsubmit="return confirm('Excluir so do portal? A instancia continua na UAZAPI e precisara ser apagada por la.')"><input type="hidden" name="manterInstancia" value="1"><button class="link-button link-danger" type="submit">Excluir sem apagar a instancia</button></form>`
+    : '';
+  return `<article class="panel sdr-card">
+    <header class="sdr-card-head">
+      <div>
+        <h2><a href="/sdr-agents/${agent.id}/edit">${escapeHtml(agent.displayName || agent.name)}</a></h2>
+        <p class="muted">${escapeHtml(companyName)}${agent.name !== agent.displayName ? ` · ${escapeHtml(agent.name)}` : ''}</p>
+      </div>
+      <span class="status-pill ${agent.isActive ? 'status-on' : 'status-off'}">${agent.isActive ? 'Ativo' : 'Pausado'}</span>
+    </header>
+    <dl class="sdr-card-stats">
+      <div><dt>WhatsApp</dt><dd class="summary-${whatsapp.tone}">${whatsapp.text}</dd></div>
+      <div><dt>Abordagens hoje</dt><dd>${card.sentToday} de ${card.todayLimit.limit}${warmup}</dd></div>
+      <div><dt>Fila</dt><dd class="${card.pending === 0 ? 'summary-bad' : ''}">${card.pending} pendente(s)</dd></div>
+    </dl>
+    ${blocked}
+    <div class="actions">
+      <a class="button" href="/sdr-agents/${agent.id}/edit">Abrir</a>
+      <form method="post" action="/sdr-agents/${agent.id}/toggle"><button class="button-secondary" type="submit">${agent.isActive ? 'Pausar' : 'Ativar'}</button></form>
+      ${keepInstance}
+    </div>
+  </article>`;
+}
+
 export function renderSdrAgentsListPage(
-  agents: SdrAgent[],
+  cards: SdrListCard[],
   companies: Company[],
   error?: string,
   /** SDR cuja exclusao falhou: ganha a opcao de sair do portal sem apagar a instancia. */
   failedDeleteAgentId?: string,
 ): string {
   const companiesById = new Map(companies.map((company) => [company.id, company.name]));
-  const rows = agents
-    .map((agent) => {
-      const toggleLabel = agent.isActive ? 'Desativar' : 'Ativar';
-      return `<tr>
-        <td>${escapeHtml(agent.name)}<br><span class="muted">${escapeHtml(agent.displayName)}</span></td>
-        <td>${escapeHtml(companiesById.get(agent.companyId) ?? '-')}</td>
-        <td>${escapeHtml(agent.aiProvider)}<br><span class="muted">${escapeHtml(agent.aiModel)}</span></td>
-        <td><span class="status-pill ${agent.isActive ? 'status-on' : 'status-off'}">${agent.isActive ? 'Ativo' : 'Inativo'}</span></td>
-        <td class="table-actions">
-          <a href="/sdr-agents/${agent.id}/edit">Editar</a>
-          <a href="/sdr-agents/${agent.id}/first-messages">Msg inicial</a>
-          <a href="/sdr-agents/${agent.id}/conectar">Conectar</a>
-          <form method="post" action="/sdr-agents/${agent.id}/toggle" data-inline><button class="link-button" type="submit">${toggleLabel}</button></form>
-          <form method="post" action="/sdr-agents/${agent.id}/delete" data-inline onsubmit="return confirm('Excluir este SDR? A instancia dele na UAZAPI tambem sera apagada.')"><button class="link-button" type="submit">Excluir</button></form>
-          ${
-            agent.id === failedDeleteAgentId
-              ? `<form method="post" action="/sdr-agents/${agent.id}/delete" data-inline onsubmit="return confirm('Excluir so do portal? A instancia continua na UAZAPI e precisara ser apagada por la.')"><input type="hidden" name="manterInstancia" value="1"><button class="link-button link-danger" type="submit">Excluir sem apagar a instancia</button></form>`
-              : ''
-          }
-        </td>
-      </tr>`;
-    })
-    .join('');
-
   const errorHtml = error ? `<div class="alert-error">${escapeHtml(error)}</div>` : '';
-  const table = agents.length
-    ? `${errorHtml}<div class="table-wrap"><table>
-      <thead><tr><th>SDR</th><th>Empresa</th><th>IA</th><th>Status</th><th>Acoes</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table></div>`
+  const list = cards.length
+    ? `${errorHtml}<section class="sdr-cards">${cards
+        .map((card) => renderSdrCard(card, companiesById.get(card.agent.companyId) ?? '-', card.agent.id === failedDeleteAgentId))
+        .join('')}</section>`
     : '<section class="empty-state"><h2>Nenhum SDR cadastrado</h2><p class="muted">Crie um SDR para conectar WhatsApp, IA e regras de envio.</p><a class="button" href="/sdr-agents/new">Novo SDR</a></section>';
 
   return renderLayout({
@@ -702,13 +726,13 @@ export function renderSdrAgentsListPage(
   <header class="topbar">
     <div>
       <h1>SDRs</h1>
-      <p class="muted">Configure agentes, prompts, modelos, WhatsApp e regras de envio.</p>
+      <p class="muted">Abra um SDR para ver o resumo do dia e mudar prompts, horarios, WhatsApp e voz.</p>
     </div>
     <div class="actions">
       <a class="button" href="/sdr-agents/new">Novo SDR</a>
     </div>
   </header>
-  ${table}
+  ${list}
 </main>`,
   });
 }
@@ -765,25 +789,12 @@ function renderConfigHistory(agent: SdrAgent, history: SdrConfigChange[]): strin
   </section>`;
 }
 
-export function renderEditSdrAgentPage(
-  agent: SdrAgent,
-  companies: Company[],
-  error?: string,
-  drift: PromptDrift | null = null,
-  history: SdrConfigChange[] = [],
-): string {
-  return renderLayout({
-    title: 'Editar SDR - SDR Portal',
-    body: `<main class="app-shell"><header class="topbar"><div><h1>Editar SDR</h1><p class="muted">Atualize as configuracoes do agente.</p></div></header>${renderPromptDrift(agent, drift)}<section class="panel">${renderSdrAgentForm(`/sdr-agents/${agent.id}`, companies, agent, error)}</section>${renderUazapiActions(agent)}${renderConfigHistory(agent, history)}</main>`,
-  });
-}
-
-function renderUazapiActions(agent: SdrAgent): string {
-  // `data-inline-result`: o /app.js manda o teste sem sair da pagina e mostra o resultado no
-  // quadro logo abaixo. Sem o script, cada botao cai na pagina de reserva com o mesmo texto.
+// `data-inline-result`: o /app.js manda o teste sem sair da pagina e mostra o resultado no quadro
+// logo abaixo. Sem o script, cada botao cai na pagina de reserva com o mesmo texto.
+function renderWhatsappTests(agent: SdrAgent): string {
   return `<section class="panel spacing-top">
     <h2>Testes do WhatsApp</h2>
-    <p class="muted">Confira a conexao deste SDR, os limites que o WhatsApp impoe e mande uma mensagem ou um audio de teste. O resultado aparece aqui mesmo.</p>
+    <p class="muted">Confira a conexao deste SDR, os limites que o WhatsApp impoe e mande uma mensagem de teste. O resultado aparece aqui mesmo.</p>
     <div class="actions">
       <a class="button" href="/sdr-agents/${agent.id}/conectar">Conectar / ver QR code</a>
       <form method="post" action="/sdr-agents/${agent.id}/uazapi/status" data-inline-result="resultado-whatsapp">
@@ -809,8 +820,14 @@ function renderUazapiActions(agent: SdrAgent): string {
       <div class="actions field-full"><button type="submit">Enviar mensagem teste</button></div>
       <div id="resultado-mensagem" class="action-result field-full" aria-live="polite"></div>
     </form>
-    <form method="post" action="/sdr-agents/${agent.id}/uazapi/send-audio-test" class="form-grid spacing-top" data-inline-result="resultado-audio">
-      <p class="muted field-full">Audio teste: gera a fala com a voz da ElevenLabs configurada acima e envia como audio de WhatsApp. Funciona mesmo com a resposta em audio desligada, para ouvir a voz antes de ligar.</p>
+  </section>`;
+}
+
+function renderAudioTest(agent: SdrAgent): string {
+  return `<section class="panel spacing-top">
+    <h2>Audio de teste</h2>
+    <p class="muted">Gera a fala com a voz salva acima e envia como audio de WhatsApp. Funciona mesmo com a resposta em audio desligada, para ouvir a voz antes de ligar.</p>
+    <form method="post" action="/sdr-agents/${agent.id}/uazapi/send-audio-test" class="form-grid" data-inline-result="resultado-audio">
       <div class="field">
         <label for="testAudioNumber">Numero que recebe o teste (com DDD)</label>
         <input id="testAudioNumber" name="number" value="${escapeHtml(agent.whatsappNumber ?? '')}" required>
@@ -829,5 +846,465 @@ export function renderSdrAgentNotFoundPage(): string {
   return renderLayout({
     title: 'SDR nao encontrado - SDR Portal',
     body: `<main class="app-shell"><section class="panel"><h1>SDR nao encontrado</h1><p class="muted">O agente solicitado nao existe ou foi excluido.</p><a class="button" href="/sdr-agents">Voltar para SDRs</a></section></main>`,
+  });
+}
+
+
+// ---------------------------------------------------------------------------------------------
+// Tela do SDR em abas (etapa B do plano de telas, docs/analises/plano-telas-2026-10-02.md).
+//
+// A tela antiga era um formulario so com 56 campos: salvar um limite reenviava os prompts, e
+// achar o prompt exigia passar pelas chaves de API. Cada aba agora mostra e salva so o que e
+// dela; os campos das outras abas vao com o valor gravado (`agentToBody`), entao salvar "Envio"
+// nunca mexe em prompt nem em segredo.
+// ---------------------------------------------------------------------------------------------
+
+export const SDR_TABS = ['resumo', 'conversa', 'abordagem', 'envio', 'whatsapp', 'voz', 'avancado', 'historico'] as const;
+export type SdrTab = (typeof SDR_TABS)[number];
+
+const TAB_LABELS: Record<SdrTab, string> = {
+  resumo: 'Resumo',
+  conversa: 'Conversa',
+  abordagem: 'Abordagem',
+  envio: 'Envio',
+  whatsapp: 'WhatsApp',
+  voz: 'Voz',
+  avancado: 'Avancado',
+  historico: 'Historico',
+};
+
+/** Abas com formulario proprio e os campos que cada uma salva. */
+export const TAB_FIELDS = {
+  conversa: [
+    'displayName',
+    'productName',
+    'productDescription',
+    'offerDescription',
+    'playbook',
+    'prompt',
+    'leadQualificationPrompt',
+    'followupPrompt',
+    'bumpPrompt',
+    'handoffName',
+    'handoffPhone',
+    'handoffMessageTemplate',
+    'demoContactName',
+    'demoContactPhone',
+  ],
+  envio: [
+    'timezone',
+    'sendWindowStart',
+    'sendWindowEnd',
+    'sendDaysOfWeek',
+    'initialCooldownMinMinutes',
+    'initialCooldownMaxMinutes',
+    'dailyInitialSendLimit',
+    'warmupActive',
+    'followupEnabled',
+    'followupAfterHours',
+    'followupCooldownMinMinutes',
+    'followupCooldownMaxMinutes',
+    'dailyFollowupSendLimit',
+    'followupMaxTouches',
+  ],
+  whatsapp: ['whatsappNumber', 'uazapiBaseUrl', 'uazapiInstanceId', 'uazapiInstanceTokenEncrypted', 'uazapiAdminTokenEncrypted'],
+  voz: ['audioReplyMode', 'elevenlabsVoiceId', 'elevenlabsModel', 'elevenlabsApiKeyEncrypted'],
+  avancado: [
+    'companyId',
+    'name',
+    'aiProvider',
+    'aiModel',
+    'aiTemperature',
+    'aiMaxOutputTokens',
+    'aiReasoningEffort',
+    'deepseekApiKeyEncrypted',
+    'openaiApiKeyEncrypted',
+    'openrouterApiKeyEncrypted',
+    'responseDelayBaseMs',
+    'responseDelayPerCharMs',
+    'responseDelayMaxMs',
+    'messageSplitMaxChars',
+  ],
+} as const satisfies Record<string, ReadonlyArray<keyof SdrAgentFormData>>;
+
+export type EditableSdrTab = keyof typeof TAB_FIELDS;
+
+export function isEditableSdrTab(value: unknown): value is EditableSdrTab {
+  return typeof value === 'string' && Object.hasOwn(TAB_FIELDS, value);
+}
+
+export function resolveSdrTab(value: unknown): SdrTab {
+  return typeof value === 'string' && (SDR_TABS as readonly string[]).includes(value) ? (value as SdrTab) : 'resumo';
+}
+
+const CHECKBOX_FIELDS = new Set<keyof SdrAgentFormData>(['isActive', 'followupEnabled', 'warmupActive']);
+
+/**
+ * O SDR gravado no formato que o formulario envia: segredo em branco (mantem o salvo), caixa
+ * marcada como "on", e o campo vazio continua vazio — sem o texto-padrao que a tela poe no
+ * lugar, senao salvar uma aba gravaria o prompt de qualificacao padrao num SDR que nao tinha.
+ * `firstMessagePrompt` fica de fora: e editado na aba Abordagem e a rota preserva o gravado.
+ */
+export function agentToBody(agent: SdrAgent): Record<string, string> {
+  const form = agentToForm(agent);
+  const body: Record<string, string> = {};
+  for (const [key, value] of Object.entries(form) as Array<[keyof SdrAgentFormData, string | boolean]>) {
+    if (key === 'firstMessagePrompt') continue;
+    if (typeof value === 'boolean') {
+      if (value) body[key] = 'on';
+    } else {
+      body[key] = value;
+    }
+  }
+  body.leadQualificationPrompt = agent.leadQualificationPrompt ?? '';
+  return body;
+}
+
+/**
+ * Junta o que a aba enviou com o resto do SDR gravado. Caixa desmarcada nao vem no POST: e
+ * "desligado". Campo de texto ausente fica com o gravado — o navegador sempre envia os campos
+ * que estao na tela, entao ausente quer dizer "nao estava nesta aba", nunca "apague".
+ */
+export function mergeTabBody(agent: SdrAgent, tab: EditableSdrTab, submitted: Record<string, unknown>): Record<string, string> {
+  const merged = agentToBody(agent);
+  for (const field of TAB_FIELDS[tab] as ReadonlyArray<keyof SdrAgentFormData>) {
+    const value = submitted[field];
+    if (CHECKBOX_FIELDS.has(field)) {
+      if (value) merged[field] = 'on';
+      else delete merged[field];
+    } else if (typeof value === 'string') {
+      merged[field] = value;
+    }
+  }
+  // A tela mostra o texto-padrao no lugar do prompt de qualificacao vazio. Voltando igual, o SDR
+  // continua sem prompt proprio — senao salvar Conversa gravaria o padrao e criaria uma
+  // "mudanca" no historico sem ninguem ter mexido.
+  if (agent.leadQualificationPrompt === null && merged.leadQualificationPrompt?.trim() === DEFAULT_LEAD_QUALIFICATION_PROMPT.trim()) {
+    merged.leadQualificationPrompt = '';
+  }
+  return merged;
+}
+
+const SECRET_FIELDS = new Set<keyof SdrAgentFormData>([
+  'openaiApiKeyEncrypted',
+  'openrouterApiKeyEncrypted',
+  'deepseekApiKeyEncrypted',
+  'uazapiInstanceTokenEncrypted',
+  'uazapiAdminTokenEncrypted',
+  'elevenlabsApiKeyEncrypted',
+]);
+
+/**
+ * Para mostrar de volta, com erro, o que a pessoa digitou. Chave digitada nao volta para o
+ * HTML: o campo fica em branco, como sempre fica.
+ */
+function bodyToForm(agent: SdrAgent, body: Record<string, string>): SdrAgentFormData {
+  const form = agentToForm(agent);
+  const result = { ...form } as Record<string, string | boolean>;
+  for (const key of Object.keys(form) as Array<keyof SdrAgentFormData>) {
+    if (SECRET_FIELDS.has(key)) continue;
+    if (CHECKBOX_FIELDS.has(key)) result[key] = Boolean(body[key]);
+    else if (typeof body[key] === 'string') result[key] = body[key];
+  }
+  return result as unknown as SdrAgentFormData;
+}
+
+function tabHref(agent: SdrAgent, tab: SdrTab): string {
+  if (tab === 'abordagem') return `/sdr-agents/${agent.id}/first-messages`;
+  if (tab === 'resumo') return `/sdr-agents/${agent.id}/edit`;
+  return `/sdr-agents/${agent.id}/edit?aba=${tab}`;
+}
+
+/** Cabecalho e abas comuns da tela do SDR; tambem usados em Msg inicial e Conectar. */
+export function renderSdrTabs(agent: SdrAgent, active: SdrTab): string {
+  const tabs = SDR_TABS.map(
+    (tab) =>
+      `<a class="tab${tab === active ? ' tab-active' : ''}" href="${tabHref(agent, tab)}"${tab === active ? ' aria-current="page"' : ''}>${TAB_LABELS[tab]}</a>`,
+  ).join('');
+  return `<header class="topbar">
+    <div>
+      <h1>${escapeHtml(agent.displayName || agent.name)} <span class="status-pill ${agent.isActive ? 'status-on' : 'status-off'}">${agent.isActive ? 'Ativo' : 'Pausado'}</span></h1>
+      ${agent.name !== agent.displayName ? `<p class="muted">Nome interno: ${escapeHtml(agent.name)}</p>` : ''}
+    </div>
+    <div class="actions"><a class="button button-secondary" href="/sdr-agents">Todos os SDRs</a></div>
+  </header>
+  <nav class="tabs" aria-label="Partes do SDR">${tabs}</nav>`;
+}
+
+function renderTabForm(agent: SdrAgent, tab: EditableSdrTab, content: string, error?: string): string {
+  const errorHtml = error ? `<div class="alert-error">${escapeHtml(error)}</div>` : '';
+  return `${errorHtml}<form method="post" action="/sdr-agents/${agent.id}/aba/${tab}" class="form-sections">
+    ${content}
+    <div class="actions tab-save"><button type="submit">Salvar ${escapeHtml(TAB_LABELS[tab])}</button></div>
+  </form>`;
+}
+
+function renderSection(title: string, description: string, content: string): string {
+  return `<section class="panel tab-section">
+    <h2>${escapeHtml(title)}</h2>
+    <p class="muted">${escapeHtml(description)}</p>
+    <div class="form-grid">${content}</div>
+  </section>`;
+}
+
+function renderConversaTab(agent: SdrAgent, data: SdrAgentFormData, drift: PromptDrift | null, error?: string): string {
+  return `${renderPromptDrift(agent, drift)}${renderTabForm(
+    agent,
+    'conversa',
+    `
+    ${renderSection(
+      'Quem e e o que oferece',
+      'Como o SDR se apresenta e o que a IA precisa saber do produto.',
+      `
+      ${renderField('displayName', 'Nome usado na conversa', data.displayName, true)}
+      ${renderField('productName', 'Produto ou servico', data.productName)}
+      ${renderTextArea('productDescription', 'Descricao do produto ou servico', data.productDescription)}
+      ${renderTextArea('offerDescription', 'Descricao da oferta', data.offerDescription)}`,
+    )}
+    ${renderSection(
+      'Como conversa',
+      'O prompt que conduz a conversa depois que o lead responde: persona, tom, objecoes e regras comerciais.',
+      `
+      ${renderPlaybookSelect(data.playbook)}
+      ${renderTextArea('prompt', 'Prompt editavel do SDR', data.prompt, 16)}
+      <details class="advanced-block field-full"><summary>Ver as instrucoes fixas que vao junto (nao editaveis)</summary>${renderLockedBasePrompt(data.playbook)}</details>`,
+    )}
+    ${renderSection(
+      'Antes da primeira mensagem',
+      'Decide se o lead deve ser abordado ou descartado. A primeira mensagem em si fica na aba Abordagem.',
+      renderTextArea('leadQualificationPrompt', 'Prompt de qualificacao e descarte do lead', data.leadQualificationPrompt, 8),
+    )}
+    ${renderSection(
+      'Follow-up',
+      'Como a IA escreve a mensagem de volta para quem sumiu. Quando e quantas vezes fica na aba Envio.',
+      `
+      ${renderTextArea('followupPrompt', 'Prompt de follow-up (quem respondeu e esfriou)', data.followupPrompt, 5)}
+      ${renderTextArea('bumpPrompt', 'Prompt do segundo toque (quem nunca respondeu)', data.bumpPrompt, 5)}`,
+    )}
+    ${renderSection(
+      'Passagem para o time',
+      'Quem recebe o lead quando a IA faz o handoff, e o contato de demonstracao.',
+      `
+      ${renderField('handoffName', 'Responsavel humano', data.handoffName)}
+      ${renderField('handoffPhone', 'WhatsApp do responsavel humano', data.handoffPhone)}
+      ${renderTextArea('handoffMessageTemplate', 'Modelo de mensagem para handoff', data.handoffMessageTemplate, 4)}
+      ${renderField('demoContactName', 'Nome do contato de demonstracao', data.demoContactName)}
+      ${renderField('demoContactPhone', 'WhatsApp do contato de demonstracao', data.demoContactPhone)}`,
+    )}`,
+    error,
+  )}`;
+}
+
+function renderEnvioTab(agent: SdrAgent, data: SdrAgentFormData, error?: string): string {
+  return renderTabForm(
+    agent,
+    'envio',
+    `
+    ${renderSection(
+      'Prospeccao',
+      'Quando e quanto este SDR aborda leads novos.',
+      `
+      ${renderField('timezone', 'Fuso horario', data.timezone, true)}
+      ${renderField('sendWindowStart', 'Comeca a enviar as', data.sendWindowStart, true, 'time')}
+      ${renderField('sendWindowEnd', 'Para de enviar as', data.sendWindowEnd, true, 'time')}
+      ${renderField('sendDaysOfWeek', 'Dias da semana', data.sendDaysOfWeek, true)}
+      ${renderField('initialCooldownMinMinutes', 'Intervalo minimo entre abordagens (min)', data.initialCooldownMinMinutes, true, 'number')}
+      ${renderField('initialCooldownMaxMinutes', 'Intervalo maximo entre abordagens (min)', data.initialCooldownMaxMinutes, true, 'number')}
+      ${renderField('dailyInitialSendLimit', 'Limite de abordagens por dia', data.dailyInitialSendLimit, true, 'number')}
+      <div class="field">${renderCheckbox('warmupActive', 'Numero em aquecimento', data.warmupActive)}</div>`,
+    )}
+    ${renderSection(
+      'Follow-up',
+      'Quando e quantas vezes o SDR volta a falar com quem nao respondeu.',
+      `
+      <div class="field">${renderCheckbox('followupEnabled', 'Follow-up ativo', data.followupEnabled)}</div>
+      ${renderField('followupAfterHours', 'Esperar quantas horas de silencio', data.followupAfterHours, true, 'number')}
+      ${renderField('followupMaxTouches', 'Follow-ups por lead (maximo)', data.followupMaxTouches, true, 'number')}
+      ${renderField('dailyFollowupSendLimit', 'Limite de follow-ups por dia', data.dailyFollowupSendLimit, true, 'number')}
+      ${renderField('followupCooldownMinMinutes', 'Intervalo minimo entre follow-ups (min)', data.followupCooldownMinMinutes, true, 'number')}
+      ${renderField('followupCooldownMaxMinutes', 'Intervalo maximo entre follow-ups (min)', data.followupCooldownMaxMinutes, true, 'number')}`,
+    )}`,
+    error,
+  );
+}
+
+function renderWhatsappTab(agent: SdrAgent, data: SdrAgentFormData, error?: string): string {
+  return `${renderTabForm(
+    agent,
+    'whatsapp',
+    renderSection(
+      'Conexao',
+      'O numero e a instancia da UAZAPI usados por este SDR.',
+      `
+      ${renderConnectionSummary(agent)}
+      ${renderField('whatsappNumber', 'Numero WhatsApp', data.whatsappNumber)}
+      <details class="advanced-block field-full">
+        <summary>Configuracao manual da instancia (avancado)</summary>
+        <p class="muted">So use se precisar apontar este SDR para uma instancia que ja existe, ou trocar um token expirado. Ao criar um SDR novo o portal cuida disso sozinho.</p>
+        ${renderField('uazapiBaseUrl', 'URL base UAZAPI', data.uazapiBaseUrl)}
+        ${renderField('uazapiInstanceId', 'ID ou nome da instancia', data.uazapiInstanceId)}
+        ${renderField('uazapiInstanceTokenEncrypted', 'Token da instancia', data.uazapiInstanceTokenEncrypted, false, 'password')}
+        ${renderField('uazapiAdminTokenEncrypted', 'Token admin UAZAPI', data.uazapiAdminTokenEncrypted, false, 'password')}
+        ${renderSecretHint()}
+      </details>`,
+    ),
+    error,
+  )}${renderWhatsappTests(agent)}`;
+}
+
+function renderVozTab(agent: SdrAgent, data: SdrAgentFormData, error?: string): string {
+  return `${renderTabForm(
+    agent,
+    'voz',
+    renderSection(
+      'Resposta em audio (ElevenLabs)',
+      'Liga a voz da IA: a resposta ao lead sai como audio de WhatsApp em vez de texto. A primeira mensagem e o follow-up continuam em texto.',
+      `
+      ${renderAudioReplyModeSelect(data.audioReplyMode)}
+      ${renderField('elevenlabsVoiceId', 'ID da voz', data.elevenlabsVoiceId)}
+      ${renderField('elevenlabsModel', 'Modelo de voz', data.elevenlabsModel)}
+      ${renderField('elevenlabsApiKeyEncrypted', 'Chave ElevenLabs', data.elevenlabsApiKeyEncrypted, false, 'password')}
+      ${renderElevenLabsKeyStatus(agent)}`,
+    ),
+    error,
+  )}${renderAudioTest(agent)}`;
+}
+
+function renderAvancadoTab(agent: SdrAgent, data: SdrAgentFormData, companies: Company[], error?: string): string {
+  return `${renderTabForm(
+    agent,
+    'avancado',
+    `
+    ${renderSection(
+      'Cadastro',
+      'Empresa dona deste SDR e o nome interno usado no portal.',
+      `
+      ${renderCompanySelect(companies, data.companyId)}
+      ${renderField('name', 'Nome interno', data.name, true)}`,
+    )}
+    ${renderSection(
+      'Modelo de IA',
+      'Provedor, modelo e chaves usadas por este SDR. Mudar aqui muda o jeito de responder de todas as conversas.',
+      `
+      ${renderProviderSelect(data.aiProvider)}
+      ${renderField('aiModel', 'Modelo', data.aiModel, true)}
+      ${renderField('aiTemperature', 'Temperatura', data.aiTemperature, true, 'number')}
+      ${renderField('aiMaxOutputTokens', 'Maximo de tokens de saida', data.aiMaxOutputTokens, true, 'number')}
+      ${renderReasoningEffortSelect(data.aiProvider, data.aiReasoningEffort)}
+      ${renderField('deepseekApiKeyEncrypted', 'Chave DeepSeek', data.deepseekApiKeyEncrypted, false, 'password')}
+      ${renderField('openaiApiKeyEncrypted', 'Chave OpenAI', data.openaiApiKeyEncrypted, false, 'password')}
+      ${renderField('openrouterApiKeyEncrypted', 'Chave OpenRouter', data.openrouterApiKeyEncrypted, false, 'password')}
+      ${renderSecretHint()}`,
+    )}
+    ${renderSection(
+      'Ritmo da digitacao',
+      'Quanto a IA espera antes de cada parte da resposta e em quantas partes ela divide uma resposta longa.',
+      `
+      ${renderField('responseDelayBaseMs', 'Delay base da resposta em ms', data.responseDelayBaseMs, true, 'number')}
+      ${renderField('responseDelayPerCharMs', 'Delay por caractere em ms', data.responseDelayPerCharMs, true, 'number')}
+      ${renderField('responseDelayMaxMs', 'Delay maximo por parte em ms', data.responseDelayMaxMs, true, 'number')}
+      ${renderField('messageSplitMaxChars', 'Maximo de caracteres por parte', data.messageSplitMaxChars, true, 'number')}`,
+    )}`,
+    error,
+  )}
+  <details class="panel spacing-top">
+    <summary><strong>Excluir este SDR</strong> <span class="muted">Apaga o SDR e a instancia dele na UAZAPI. Nao da para desfazer.</span></summary>
+    <form method="post" action="/sdr-agents/${agent.id}/delete" class="spacing-top" onsubmit="return confirm('Excluir este SDR? A instancia dele na UAZAPI tambem sera apagada.')"><button class="button button-danger" type="submit">Excluir SDR</button></form>
+  </details>`;
+}
+
+/** O que a aba Resumo mostra. Tudo opcional: sem monitor ligado, nao ha estado guardado. */
+export interface SdrSummary {
+  connection: { status: string; since: Date | null; reason: string | null } | null;
+  limits: SdrChannelLimits | null;
+  sentToday: number;
+  todayLimit: DailyInitialLimit;
+  followupsToday: number;
+  pending: number;
+  lastError: { at: Date; message: string } | null;
+}
+
+function summaryCard(label: string, value: string, detail: string, tone: 'ok' | 'bad' | 'neutral' = 'neutral'): string {
+  return `<div class="summary-card summary-${tone}"><span class="muted">${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><span class="muted">${escapeHtml(detail)}</span></div>`;
+}
+
+function renderResumoTab(agent: SdrAgent, summary: SdrSummary, drift: PromptDrift | null): string {
+  const tz = agent.timezone;
+  const connection = summary.connection;
+  const whatsapp =
+    connection === null
+      ? summaryCard('WhatsApp', 'Sem leitura', 'Ligue o Monitor ou use "Testar status" abaixo.')
+      : connection.status === 'connected'
+        ? summaryCard('WhatsApp', 'Conectado', connection.since ? `desde ${formatDateTimeInTimeZone(connection.since, tz)}` : '', 'ok')
+        : summaryCard('WhatsApp', 'Desconectado', connection.since ? `desde ${formatDateTimeInTimeZone(connection.since, tz)}` : 'leia o QR code na aba WhatsApp', 'bad');
+  const blocked = summary.limits?.blockedUntil && summary.limits.blockedUntil.getTime() > Date.now();
+  const newChats = !summary.limits
+    ? summaryCard('Conversas novas', '-', 'Ainda sem consulta aos limites do WhatsApp.')
+    : blocked
+      ? summaryCard('Conversas novas', 'Bloqueado', `ate ${formatDateTimeInTimeZone(summary.limits.blockedUntil, tz)}`, 'bad')
+      : summaryCard(
+          'Conversas novas',
+          'Liberado',
+          summary.limits.quotaUsed !== null && summary.limits.quotaTotal !== null ? `${summary.limits.quotaUsed} de ${summary.limits.quotaTotal} na cota` : '',
+          'ok',
+        );
+  const today = summaryCard(
+    'Abordagens hoje',
+    `${summary.sentToday} de ${summary.todayLimit.limit}`,
+    summary.todayLimit.warmupDay === null ? 'limite do dia' : `aquecimento, dia ${summary.todayLimit.warmupDay}`,
+  );
+  const queue = summaryCard('Fila', `${summary.pending} pendente(s)`, summary.pending < 100 ? 'importe mais leads para nao parar' : 'leads esperando a primeira mensagem', summary.pending === 0 ? 'bad' : 'neutral');
+  const followups = summaryCard('Follow-ups hoje', String(summary.followupsToday), agent.followupEnabled ? 'follow-up ligado' : 'follow-up desligado');
+  const lastError = summary.lastError
+    ? `<section class="panel spacing-top"><h2>Ultimo erro (24h)</h2><p class="alert-error">${escapeHtml(summary.lastError.message)}</p><p class="muted">${escapeHtml(formatDateTimeInTimeZone(summary.lastError.at, tz))} · todos em <a href="/job-logs">Job logs</a></p></section>`
+    : '';
+  const driftNotice =
+    drift && drift.fields.length > 0
+      ? `<section class="panel spacing-top"><p class="alert-error">O texto gravado neste SDR esta diferente dos arquivos do repositorio.</p><p class="muted">Detalhes na aba <a href="${tabHref(agent, 'conversa')}">Conversa</a>.</p></section>`
+      : '';
+
+  return `<section class="summary-grid">${whatsapp}${newChats}${today}${followups}${queue}</section>
+  <section class="panel spacing-top">
+    <h2>Acoes rapidas</h2>
+    <div class="actions">
+      <form method="post" action="/sdr-agents/${agent.id}/toggle"><input type="hidden" name="voltar" value="resumo"><button type="submit"${agent.isActive ? ' class="button-secondary"' : ''}>${agent.isActive ? 'Pausar SDR' : 'Ativar SDR'}</button></form>
+      <form method="post" action="/sdr-agents/${agent.id}/uazapi/status" data-inline-result="resultado-resumo"><button class="button-secondary" type="submit">Testar status do WhatsApp</button></form>
+      <a class="button button-secondary" href="/conversations?sdr=${agent.id}">Ver conversas</a>
+      <a class="button button-secondary" href="/leads?sdr=${agent.id}">Ver leads</a>
+    </div>
+    <div id="resultado-resumo" class="action-result" aria-live="polite"></div>
+  </section>
+  ${driftNotice}
+  ${lastError}`;
+}
+
+export interface SdrTabPageView {
+  agent: SdrAgent;
+  companies: Company[];
+  tab: SdrTab;
+  drift?: PromptDrift | null;
+  history?: SdrConfigChange[];
+  summary?: SdrSummary;
+  error?: string;
+  /** O que a pessoa enviou, quando a aba volta com erro. */
+  submitted?: Record<string, string>;
+}
+
+export function renderSdrAgentTabPage(view: SdrTabPageView): string {
+  const { agent, tab } = view;
+  const data = view.submitted ? bodyToForm(agent, view.submitted) : agentToForm(agent);
+  const drift = view.drift ?? null;
+  let content = '';
+  if (tab === 'conversa') content = renderConversaTab(agent, data, drift, view.error);
+  else if (tab === 'envio') content = renderEnvioTab(agent, data, view.error);
+  else if (tab === 'whatsapp') content = renderWhatsappTab(agent, data, view.error);
+  else if (tab === 'voz') content = renderVozTab(agent, data, view.error);
+  else if (tab === 'avancado') content = renderAvancadoTab(agent, data, view.companies, view.error);
+  else if (tab === 'historico') content = renderConfigHistory(agent, view.history ?? []);
+  else if (view.summary) content = renderResumoTab(agent, view.summary, drift);
+
+  return renderLayout({
+    title: `${agent.displayName || agent.name} - SDRs - SDR Portal`,
+    body: `<main class="app-shell">${renderSdrTabs(agent, tab)}${content}</main>`,
   });
 }

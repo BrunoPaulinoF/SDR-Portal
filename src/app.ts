@@ -864,7 +864,12 @@ export function buildApp(options: AppOptions = {}): AppInstance {
   registerAuthRoutes(app, repository);
   registerDashboardRoutes(app, repository, companies, sdrAgents, leads, conversations, aiRuns, jobLogs, connectionMonitors, channelLimitsRows);
   registerCompanyRoutes(app, repository, companies);
-  registerSdrAgentRoutes(app, repository, companies, sdrAgents, uazapi, configChanges);
+  registerSdrAgentRoutes(app, repository, companies, sdrAgents, uazapi, configChanges, {
+    leadRepository: leads,
+    connectionMonitorRepository: connectionMonitors,
+    channelLimitsRepository: channelLimitsRows,
+    jobLogRepository: jobLogs,
+  });
   registerFirstMessageVariantRoutes(app, repository, sdrAgents, firstMessageVariants, configChanges);
   registerLeadRoutes(app, repository, companies, sdrAgents, leads, aiRuns, jobLogs, contactBlocks);
   registerUazapiRoutes(app, repository, sdrAgents, uazapi, textToSpeech);

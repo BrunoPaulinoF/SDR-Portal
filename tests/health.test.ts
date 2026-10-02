@@ -600,90 +600,72 @@ describe('SDR agent routes', () => {
     expect(listResponse.body).toContain('Franciely');
     expect(listResponse.body).toContain('Insumo Smart');
 
-    const updateResponse = await app.inject({
-      method: 'POST',
-      url: `/sdr-agents/${createdAgent?.id}`,
-      payload: formPayload({
-        companyId: company.id,
-        name: 'sdr-insumo-smart-v2',
-        displayName: 'Fran',
-        leadQualificationPrompt: 'Aceitar domesticas neste SDR.',
-        aiProvider: 'openrouter',
-        aiModel: 'openai/gpt-4o-mini',
-        aiTemperature: '0.5',
-        aiMaxOutputTokens: '900',
-        timezone: 'America/Sao_Paulo',
-        sendWindowStart: '09:00',
-        sendWindowEnd: '17:00',
-        sendDaysOfWeek: '1,2,3,4,5',
-        initialCooldownMinMinutes: '6',
-        initialCooldownMaxMinutes: '16',
-        followupAfterHours: '36',
-        followupCooldownMinMinutes: '11',
-        followupCooldownMaxMinutes: '31',
-        dailyInitialSendLimit: '40',
-        dailyFollowupSendLimit: '20',
-        responseDelayBaseMs: '1300',
-        responseDelayPerCharMs: '40',
-        responseDelayMaxMs: '13000',
-        messageSplitMaxChars: '400',
-        humanPauseHours: '24',
-      }),
-      headers: {
-        'content-type': 'application/x-www-form-urlencoded',
-      },
-      cookies: {
-        sdr_portal_session: sessionCookie,
-      },
-    });
+    // Cada aba salva so os campos dela.
+    const saveTab = (tab: string, fields: Record<string, string>) =>
+      app.inject({
+        method: 'POST',
+        url: `/sdr-agents/${createdAgent?.id}/aba/${tab}`,
+        payload: formPayload(fields),
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        cookies: { sdr_portal_session: sessionCookie },
+      });
 
-    expect(updateResponse.statusCode).toBe(302);
+    const conversaResponse = await saveTab('conversa', {
+      displayName: 'Fran',
+      productName: 'Consultoria CMV',
+      leadQualificationPrompt: 'Aceitar domesticas neste SDR.',
+      handoffName: 'Fernando',
+      handoffPhone: '5511999999999',
+    });
+    expect(conversaResponse.statusCode).toBe(302);
+    expect(conversaResponse.headers.location).toBe(`/sdr-agents/${createdAgent?.id}/edit?aba=conversa&salvo=1`);
+
+    const avancadoFields = {
+      companyId: company.id,
+      name: 'sdr-insumo-smart-v2',
+      aiProvider: 'openrouter',
+      aiModel: 'openai/gpt-4o-mini',
+      aiTemperature: '0.5',
+      aiMaxOutputTokens: '900',
+      responseDelayBaseMs: '1300',
+      responseDelayPerCharMs: '40',
+      responseDelayMaxMs: '13000',
+      messageSplitMaxChars: '400',
+    };
+    expect((await saveTab('avancado', avancadoFields)).statusCode).toBe(302);
+
+    const envioResponse = await saveTab('envio', {
+      timezone: 'America/Sao_Paulo',
+      sendWindowStart: '09:00',
+      sendWindowEnd: '17:00',
+      sendDaysOfWeek: '1,2,3,4,5',
+      initialCooldownMinMinutes: '6',
+      initialCooldownMaxMinutes: '16',
+      followupAfterHours: '36',
+      followupCooldownMinMinutes: '11',
+      followupCooldownMaxMinutes: '31',
+      dailyInitialSendLimit: '40',
+      dailyFollowupSendLimit: '20',
+      followupMaxTouches: '1',
+    });
+    expect(envioResponse.statusCode).toBe(302);
+
     const updatedAgent = createdAgent ? await sdrAgentRepository.findById(createdAgent.id) : null;
     expect(updatedAgent?.displayName).toBe('Fran');
+    expect(updatedAgent?.name).toBe('sdr-insumo-smart-v2');
     expect(updatedAgent?.aiProvider).toBe('openrouter');
     expect(updatedAgent?.followupEnabled).toBe(false);
+    expect(updatedAgent?.sendWindowStart).toBe('09:00');
     expect(updatedAgent?.leadQualificationPrompt).toBe('Aceitar domesticas neste SDR.');
 
     // Teto de delay abaixo do piso anula os campos base e por caractere sem avisar ninguem:
     // a Francielly rodou semanas com 15000/12000 e delay fixo de 12s em toda parte da resposta.
-    const delayInvertidoResponse = await app.inject({
-      method: 'POST',
-      url: `/sdr-agents/${createdAgent?.id}`,
-      payload: formPayload({
-        companyId: company.id,
-        name: 'sdr-insumo-smart-v2',
-        displayName: 'Fran',
-        aiProvider: 'openrouter',
-        aiModel: 'openai/gpt-4o-mini',
-        aiTemperature: '0.5',
-        aiMaxOutputTokens: '900',
-        timezone: 'America/Sao_Paulo',
-        sendWindowStart: '09:00',
-        sendWindowEnd: '17:00',
-        sendDaysOfWeek: '1,2,3,4,5',
-        initialCooldownMinMinutes: '6',
-        initialCooldownMaxMinutes: '16',
-        followupAfterHours: '36',
-        followupCooldownMinMinutes: '11',
-        followupCooldownMaxMinutes: '31',
-        dailyInitialSendLimit: '40',
-        dailyFollowupSendLimit: '20',
-        responseDelayBaseMs: '15000',
-        responseDelayPerCharMs: '40',
-        responseDelayMaxMs: '12000',
-        messageSplitMaxChars: '400',
-        humanPauseHours: '24',
-      }),
-      headers: {
-        'content-type': 'application/x-www-form-urlencoded',
-      },
-      cookies: {
-        sdr_portal_session: sessionCookie,
-      },
-    });
+    const delayInvertidoResponse = await saveTab('avancado', { ...avancadoFields, responseDelayBaseMs: '15000', responseDelayMaxMs: '12000' });
 
     expect(delayInvertidoResponse.statusCode).toBe(400);
     expect(delayInvertidoResponse.body).toContain('delay maximo por parte precisa ser maior ou igual ao delay base');
+    // A aba volta com o que foi digitado, para corrigir sem redigitar.
+    expect(delayInvertidoResponse.body).toContain('value="15000"');
     expect((createdAgent ? await sdrAgentRepository.findById(createdAgent.id) : null)?.responseDelayBaseMs).toBe(1300);
 
     const toggleResponse = await app.inject({
@@ -695,6 +677,7 @@ describe('SDR agent routes', () => {
     });
 
     expect(toggleResponse.statusCode).toBe(302);
+    expect(toggleResponse.headers.location).toBe('/sdr-agents?salvo=1');
     expect((await sdrAgentRepository.findById(createdAgent?.id ?? ''))?.isActive).toBe(true);
 
     const deleteResponse = await app.inject({

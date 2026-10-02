@@ -437,7 +437,7 @@ describe('aquecimento no formulario do SDR', () => {
     const save = (extra: Record<string, string>) =>
       app.inject({
         method: 'POST',
-        url: `/sdr-agents/${agent.id}`,
+        url: `/sdr-agents/${agent.id}/aba/envio`,
         payload: form(extra),
         headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
       });

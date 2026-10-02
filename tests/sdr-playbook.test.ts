@@ -352,7 +352,7 @@ describe('playbook no formulario do SDR', () => {
 
     const editResponse = await app.inject({
       method: 'GET',
-      url: `/sdr-agents/${created?.id}/edit`,
+      url: `/sdr-agents/${created?.id}/edit?aba=conversa`,
       headers: { cookie: `sdr_portal_session=${sessionCookie}` },
     });
 

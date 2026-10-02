@@ -108,13 +108,13 @@ describe('salvar fica na mesma tela', () => {
 
     const response = await app.inject({
       method: 'POST',
-      url: `/sdr-agents/${mariana.id}`,
+      url: `/sdr-agents/${mariana.id}/aba/envio`,
       payload: form,
       headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
     });
 
     expect(response.statusCode).toBe(302);
-    expect(response.headers.location).toBe(`/sdr-agents/${mariana.id}/edit?salvo=1`);
+    expect(response.headers.location).toBe(`/sdr-agents/${mariana.id}/edit?aba=envio&salvo=1`);
   });
 
   it('toda tela carrega o script que mostra o aviso e devolve ao mesmo ponto', async () => {
@@ -136,11 +136,12 @@ describe('testes do WhatsApp na propria tela', () => {
   it('a tela do SDR manda os testes para o quadro de resultado', async () => {
     const { app, cookie, mariana } = await scenario();
 
-    const page = await app.inject({ method: 'GET', url: `/sdr-agents/${mariana.id}/edit`, headers: { cookie } });
+    const whatsapp = await app.inject({ method: 'GET', url: `/sdr-agents/${mariana.id}/edit?aba=whatsapp`, headers: { cookie } });
+    const voz = await app.inject({ method: 'GET', url: `/sdr-agents/${mariana.id}/edit?aba=voz`, headers: { cookie } });
 
-    expect(page.body).toContain('data-inline-result="resultado-whatsapp"');
-    expect(page.body).toContain('id="resultado-whatsapp"');
-    expect(page.body).toContain('data-inline-result="resultado-audio"');
+    expect(whatsapp.body).toContain('data-inline-result="resultado-whatsapp"');
+    expect(whatsapp.body).toContain('id="resultado-whatsapp"');
+    expect(voz.body).toContain('data-inline-result="resultado-audio"');
   });
 
   it('status responde em portugues, em JSON para o script', async () => {

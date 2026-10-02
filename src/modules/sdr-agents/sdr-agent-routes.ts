@@ -1,28 +1,47 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
+import type { SdrAgent } from '../../db/schema.js';
 import { allReasoningEffortValues, providerDefaultEffort } from '../ai/reasoning-effort.js';
 import { DEFAULT_SDR_PLAYBOOK, SDR_PLAYBOOKS } from '../ai/sdr-playbooks.js';
 import { AUDIO_REPLY_MODES, DEFAULT_AUDIO_REPLY_MODE, DEFAULT_ELEVENLABS_MODEL } from '../audio/audio-reply.js';
 import type { AuthRepository } from '../auth/auth-repository.js';
 import { requireUser } from '../auth/access.js';
 import type { CompanyRepository } from '../companies/company-repository.js';
+import type { JobLogRepository } from '../jobs/job-log-repository.js';
+import type { LeadRepository } from '../leads/lead-repository.js';
+import type { ChannelLimitsRepository } from '../monitoring/channel-limits.js';
+import type { ConnectionMonitorRepository } from '../monitoring/connection-monitor-repository.js';
 import { decryptSecret, encryptSecret } from '../security/secrets.js';
+import { startOfDayInTimeZone } from '../timezone.js';
 import { configureInstanceWebhook, deleteInstance, isInstanceProvisioningEnabled, provisionInstance } from '../uazapi/instance-provisioning.js';
 import type { UazapiClient } from '../uazapi/uazapi-client.js';
 import { diffAgentConfig, type SdrConfigChangeRepository } from './config-history.js';
 import { findPromptDrift, type PromptDrift } from './prompt-bundle.js';
 import type { SdrAgentInput, SdrAgentRepository } from './sdr-agent-repository.js';
 import {
-  renderEditSdrAgentPage,
+  isEditableSdrTab,
+  mergeTabBody,
   renderNewSdrAgentPage,
   renderSdrAgentNotFoundPage,
   renderSdrAgentsListPage,
+  renderSdrAgentTabPage,
+  resolveSdrTab,
+  type SdrListCard,
+  type SdrSummary,
 } from './sdr-agent-pages.js';
+import { dailyInitialLimit } from './warmup.js';
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
 });
+
+const tabParamsSchema = z.object({
+  id: z.string().uuid(),
+  aba: z.string().refine(isEditableSdrTab),
+});
+
+const editQuerySchema = z.object({ aba: z.string().optional() });
 
 const checkbox = z.preprocess((value) => value === 'on' || value === 'true', z.boolean());
 
@@ -181,6 +200,72 @@ function parseSdrAgentInput(body: unknown, current?: SdrAgentInput): { input: Sd
   };
 }
 
+/** De onde vem o que a lista de SDRs e a aba Resumo mostram. */
+export interface SdrScreenSources {
+  leadRepository: LeadRepository;
+  connectionMonitorRepository: ConnectionMonitorRepository;
+  channelLimitsRepository: ChannelLimitsRepository;
+  jobLogRepository: JobLogRepository;
+}
+
+const LAST_ERROR_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+function connectionOf(state: { status: string; lastConnectedAt: Date | null; disconnectedAt: Date | null; disconnectReason: string | null } | null): SdrSummary['connection'] {
+  if (!state) return null;
+  const connected = state.status === 'connected';
+  return { status: state.status, since: connected ? state.lastConnectedAt : state.disconnectedAt, reason: connected ? null : state.disconnectReason };
+}
+
+function activeBlock(limits: { blockedUntil: Date | null } | null, now: Date): Date | null {
+  return limits?.blockedUntil && limits.blockedUntil.getTime() > now.getTime() ? limits.blockedUntil : null;
+}
+
+async function buildListCards(agents: SdrAgent[], sources: SdrScreenSources, now: Date): Promise<SdrListCard[]> {
+  const [states, limits] = await Promise.all([sources.connectionMonitorRepository.listStates(), sources.channelLimitsRepository.list()]);
+  const stateByAgent = new Map(states.map((state) => [state.sdrAgentId, state]));
+  const limitsByAgent = new Map(limits.map((row) => [row.sdrAgentId, row]));
+  return Promise.all(
+    agents.map(async (agent) => {
+      const [sentToday, pending] = await Promise.all([
+        sources.leadRepository.countInitialSentForSdrSince(agent.id, startOfDayInTimeZone(now, agent.timezone)),
+        sources.leadRepository.countPendingForSdr(agent.id),
+      ]);
+      return {
+        agent,
+        connection: connectionOf(stateByAgent.get(agent.id) ?? null),
+        blockedUntil: activeBlock(limitsByAgent.get(agent.id) ?? null, now),
+        sentToday,
+        todayLimit: dailyInitialLimit(agent, now),
+        pending,
+      };
+    }),
+  );
+}
+
+async function buildSummary(agent: SdrAgent, sources: SdrScreenSources, now: Date): Promise<SdrSummary> {
+  const today = startOfDayInTimeZone(now, agent.timezone);
+  const [state, limits, sentToday, followupsToday, pending, logs] = await Promise.all([
+    sources.connectionMonitorRepository.findState(agent.id),
+    sources.channelLimitsRepository.find(agent.id),
+    sources.leadRepository.countInitialSentForSdrSince(agent.id, today),
+    sources.leadRepository.countFollowupSentForSdrSince(agent.id, today),
+    sources.leadRepository.countPendingForSdr(agent.id),
+    sources.jobLogRepository.listStats(new Date(now.getTime() - LAST_ERROR_WINDOW_MS)),
+  ]);
+  const lastFailed = logs
+    .filter((log) => log.sdrAgentId === agent.id && log.status === 'failed')
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+  return {
+    connection: connectionOf(state),
+    limits,
+    sentToday,
+    todayLimit: dailyInitialLimit(agent, now),
+    followupsToday,
+    pending,
+    lastError: lastFailed ? { at: lastFailed.createdAt, message: lastFailed.error ?? `${lastFailed.jobName} falhou` } : null,
+  };
+}
+
 export function registerSdrAgentRoutes(
   app: FastifyInstance,
   authRepository: AuthRepository,
@@ -188,6 +273,7 @@ export function registerSdrAgentRoutes(
   sdrAgentRepository: SdrAgentRepository,
   uazapiClient: UazapiClient,
   configChanges: SdrConfigChangeRepository,
+  sources: SdrScreenSources,
 ): void {
   app.get('/sdr-agents', async (request, reply) => {
     const user = await requireUser(request, reply, authRepository);
@@ -197,7 +283,8 @@ export function registerSdrAgentRoutes(
     }
 
     const [agents, companies] = await Promise.all([sdrAgentRepository.list(), companyRepository.list()]);
-    return reply.type('text/html').send(renderSdrAgentsListPage(agents, companies));
+    const cards = await buildListCards(agents, sources, new Date());
+    return reply.type('text/html').send(renderSdrAgentsListPage(cards, companies));
   });
 
   app.get('/sdr-agents/new', async (request, reply) => {
@@ -289,25 +376,34 @@ export function registerSdrAgentRoutes(
       return reply.status(404).type('text/html').send(renderSdrAgentNotFoundPage());
     }
 
+    const query = editQuerySchema.safeParse(request.query);
+    const tab = resolveSdrTab(query.success ? query.data.aba : undefined);
+    // A aba Abordagem e a tela da Msg inicial, que tem rotas proprias.
+    if (tab === 'abordagem') return reply.redirect(`/sdr-agents/${agent.id}/first-messages`);
+
     // Comparar com os arquivos nao pode derrubar a tela: sem diretorio ou sem permissao, segue sem aviso.
     let drift: PromptDrift | null = null;
-    try {
-      drift = await findPromptDrift(agent);
-    } catch (error) {
-      request.log.warn({ sdrAgentId: agent.id, error }, 'Prompt drift check failed');
+    if (tab === 'resumo' || tab === 'conversa') {
+      try {
+        drift = await findPromptDrift(agent);
+      } catch (error) {
+        request.log.warn({ sdrAgentId: agent.id, error }, 'Prompt drift check failed');
+      }
     }
 
-    const history = await configChanges.listForAgent(agent.id, 40);
-    return reply.type('text/html').send(renderEditSdrAgentPage(agent, companies, undefined, drift, history));
+    const history = tab === 'historico' ? await configChanges.listForAgent(agent.id, 40) : [];
+    const summary = tab === 'resumo' ? await buildSummary(agent, sources, new Date()) : undefined;
+    return reply.type('text/html').send(renderSdrAgentTabPage({ agent, companies, tab, drift, history, summary }));
   });
 
-  app.post('/sdr-agents/:id', async (request, reply) => {
+  // Cada aba salva so os campos dela; o resto vai com o valor gravado (`mergeTabBody`).
+  app.post('/sdr-agents/:id/aba/:aba', async (request, reply) => {
     const user = await requireUser(request, reply, authRepository);
 
     if (!user) {
       return undefined;
     }
-    const params = paramsSchema.safeParse(request.params);
+    const params = tabParamsSchema.safeParse(request.params);
 
     if (!params.success) {
       return reply.status(404).type('text/html').send(renderSdrAgentNotFoundPage());
@@ -315,23 +411,26 @@ export function registerSdrAgentRoutes(
 
     const [agent, companies] = await Promise.all([sdrAgentRepository.findById(params.data.id), companyRepository.list()]);
 
-    if (!agent) {
+    if (!agent || !isEditableSdrTab(params.data.aba)) {
       return reply.status(404).type('text/html').send(renderSdrAgentNotFoundPage());
     }
 
-    const parsed = parseSdrAgentInput(request.body, agent);
+    const tab = params.data.aba;
+    const submitted = (request.body && typeof request.body === 'object' ? request.body : {}) as Record<string, unknown>;
+    const merged = mergeTabBody(agent, tab, submitted);
+    const parsed = parseSdrAgentInput(merged, agent);
     const input = 'input' in parsed ? parsed.input : null;
     const companyExists = input ? await companyRepository.findById(input.companyId) : null;
 
     if (!input || !companyExists) {
       const message = 'message' in parsed ? parsed.message : GENERIC_FORM_ERROR;
-      return reply.status(400).type('text/html').send(renderEditSdrAgentPage(agent, companies, message));
+      return reply.status(400).type('text/html').send(renderSdrAgentTabPage({ agent, companies, tab, error: message, submitted: merged }));
     }
 
     await configChanges.record(diffAgentConfig(agent, input, `portal:${user.email}`));
-    await sdrAgentRepository.update(params.data.id, input);
-    // Fica na tela do SDR: voltar para a lista obrigava a achar o SDR e abrir de novo a cada ajuste.
-    return reply.redirect(`/sdr-agents/${agent.id}/edit?salvo=1`);
+    await sdrAgentRepository.update(agent.id, input);
+    // Fica na mesma aba: voltar para a lista obrigava a achar o SDR e abrir de novo a cada ajuste.
+    return reply.redirect(`/sdr-agents/${agent.id}/edit?aba=${tab}&salvo=1`);
   });
 
   app.post('/sdr-agents/:id/toggle', async (request, reply) => {
@@ -348,6 +447,11 @@ export function registerSdrAgentRoutes(
       if (agent) {
         await sdrAgentRepository.setActive(agent.id, !agent.isActive);
         await configChanges.record(diffAgentConfig(agent, { isActive: !agent.isActive }, `portal:${user.email}`));
+        // O botao da aba Resumo volta para ela; o da lista, para a lista.
+        if ((request.body as { voltar?: string } | undefined)?.voltar === 'resumo') {
+          return reply.redirect(`/sdr-agents/${agent.id}/edit?salvo=1`);
+        }
+        return reply.redirect('/sdr-agents?salvo=1');
       }
     }
 
@@ -381,13 +485,14 @@ export function registerSdrAgentRoutes(
       if (!result.removed) {
         const agents = await sdrAgentRepository.list();
         const companies = await companyRepository.list();
+        const cards = await buildListCards(agents, sources, new Date());
         const detail = result.status ? `HTTP ${result.status}` : 'sem resposta';
         return reply
           .status(502)
           .type('text/html')
           .send(
             renderSdrAgentsListPage(
-              agents,
+              cards,
               companies,
               `Nao foi possivel apagar a instancia de ${agent?.name ?? 'este SDR'} na UAZAPI (${detail}). O SDR foi mantido para o token nao ser perdido. Tente de novo, ou use "Excluir sem apagar a instancia" se preferir remove-la depois no painel da UAZAPI.`,
               params.data.id,
