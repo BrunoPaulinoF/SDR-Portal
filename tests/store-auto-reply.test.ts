@@ -5,7 +5,7 @@ import type { AiClient, AiGenerateResult } from '../src/modules/ai/ai-client.js'
 import { createMemoryAiRunRepository } from '../src/modules/ai/ai-run-repository.js';
 import { createMemoryCompanyRepository } from '../src/modules/companies/company-repository.js';
 import { createMemoryConversationRepository } from '../src/modules/conversations/conversation-repository.js';
-import { isStoreAutoReply } from '../src/modules/conversations/store-auto-reply.js';
+import { isRepeatedBroadcast, isStoreAutoReply, isStoreImage } from '../src/modules/conversations/store-auto-reply.js';
 import { createMemoryLeadRepository } from '../src/modules/leads/lead-repository.js';
 import { createMemorySdrAgentRepository } from '../src/modules/sdr-agents/sdr-agent-repository.js';
 import { encryptSecret } from '../src/modules/security/secrets.js';
@@ -144,6 +144,10 @@ describe('resposta automatica da loja', () => {
       'Olá, Mariana! Tudo bem? 😊 Sou a atendente virtual do Kammy Sushi.',
       'Opção inválida. Digite um número do menu.',
       'Vou transferir você para o nosso atendente! Só um momentinho 😊',
+      // atendente de IA da propria loja (Pastel do Tuiuiu e La Kasa, 24/09)
+      'Desculpe, *não consegui te entender.*',
+      'Desculpe, eu não sou capaz de compreender frases muito longas. Você poderia tentar me explicar de forma mais concisa?',
+      'Vamos encaminhar sua mensagem ao setor responsável.',
       'Horário de funcionamento: Sexta-feira: das 18h30 às 23h',
       // menu numerado continua robo mesmo terminando em pergunta sobre o nome
       'Seja bem-vindo! Digite 1 para pedidos ou 2 para falar com atendente. Qual o seu nome?',
@@ -165,6 +169,13 @@ describe('resposta automatica da loja', () => {
       // saudacao que termina perguntando quem fala: pode ser robo, mas quem espera pode ser gente
       'Olá, ótima tarde! Seja bem-vindo(a) ao Retrô House🧡 Tudo bem? Com quem falo?',
       'Oi, bom dia! Qual o seu nome?',
+      // frases de gente que pareciam de robo ate 02/10
+      'Obrigado pelo contato, mas não temos interesse',
+      'Agradeço o contato, mas não precisamos no momento',
+      'vou encaminhar pro meu sócio',
+      'Só um momento, estou atendendo',
+      'Um momento que vou chamar o dono',
+      'Hoje estamos fechados, amanhã pode chamar o responsável',
     ];
     for (const text of gente) {
       expect(isStoreAutoReply({ messageType: 'conversation', text, transcription: null }), text).toBe(false);
@@ -221,5 +232,76 @@ describe('resposta automatica da loja', () => {
     // a IA ve as automaticas no historico, mas etiquetadas como cenario e nao como fala do lead
     expect(scenario.aiCalls[0]).toContain('[resposta automatica da loja, nao e a pessoa]');
     expect(scenario.aiCalls[0]).toContain('oi, boa noite, sobre o que seria?');
+  });
+});
+
+describe('foto da loja', () => {
+  const createdAt = new Date('2026-09-24T12:00:00.000Z');
+  const pessoa = { autoReply: false, createdAt, direction: 'inbound', text: 'oi, quem fala?', transcription: null };
+  const robo = { autoReply: true, createdAt, direction: 'inbound', text: 'Seja bem-vindo! Faca seu pedido', transcription: null };
+  const nossa = { autoReply: false, createdAt, direction: 'outbound', text: 'oi, aqui e a Mariana', transcription: null };
+
+  it('foto sem legenda antes de alguem falar e conteudo da loja', () => {
+    expect(isStoreImage({ text: null, history: [] })).toBe(true);
+    expect(isStoreImage({ text: '', history: [nossa, robo] })).toBe(true);
+  });
+
+  it('foto com legenda digitada e de gente', () => {
+    expect(isStoreImage({ text: 'olha o meu cardapio', history: [nossa] })).toBe(false);
+  });
+
+  it('foto depois de uma pessoa ter falado e de gente', () => {
+    expect(isStoreImage({ text: null, history: [nossa, robo, pessoa] })).toBe(false);
+  });
+
+  it('audio da pessoa tambem conta como alguem falando', () => {
+    expect(isStoreImage({ text: null, history: [{ ...pessoa, text: null, transcription: 'oi tudo bem' }] })).toBe(false);
+  });
+});
+
+describe('transmissao diaria da loja', () => {
+  const now = new Date('2026-09-24T12:44:00.000Z');
+  const bomDia = (iso: string) => ({ autoReply: false, createdAt: new Date(iso), direction: 'inbound', text: 'Bom dia', transcription: null });
+
+  it('o mesmo texto em dois outros dias e transmissao', () => {
+    const history = [bomDia('2026-09-22T12:48:00.000Z'), bomDia('2026-09-23T12:50:00.000Z')];
+
+    expect(isRepeatedBroadcast({ text: 'Bom dia!! ☀️', now, history })).toBe(true);
+  });
+
+  it('no segundo dia ainda e gente', () => {
+    expect(isRepeatedBroadcast({ text: 'Bom dia', now, history: [bomDia('2026-09-23T12:50:00.000Z')] })).toBe(false);
+  });
+
+  it('repetir no mesmo dia nao conta como dia a mais', () => {
+    const history = [bomDia('2026-09-24T12:40:00.000Z'), bomDia('2026-09-23T12:50:00.000Z')];
+
+    expect(isRepeatedBroadcast({ text: 'Bom dia', now, history })).toBe(false);
+  });
+
+  it('resposta curta repetida nao vira transmissao', () => {
+    const sim = (iso: string) => ({ ...bomDia(iso), text: 'sim' });
+    const history = [sim('2026-09-20T12:00:00.000Z'), sim('2026-09-22T12:00:00.000Z')];
+
+    expect(isRepeatedBroadcast({ text: 'sim', now, history })).toBe(false);
+  });
+
+  it('o webhook guarda o terceiro bom-dia como automatica, sem IA', async () => {
+    const scenario = await buildScenario();
+    await scenario.receive('BOM-DIA-1', 'Bom dia');
+    await scenario.receive('BOM-DIA-2', 'Bom dia');
+    const conversation = (await scenario.conversationRepository.list())[0];
+    // Os dois primeiros chegaram em dias anteriores.
+    const stored = conversation ? await scenario.conversationRepository.listMessages(conversation.id) : [];
+    const inbound = stored.filter((message) => message.direction === 'inbound');
+    if (inbound[0]) inbound[0].createdAt = new Date(Date.now() - 2 * 24 * 60 * 60000);
+    if (inbound[1]) inbound[1].createdAt = new Date(Date.now() - 24 * 60 * 60000);
+    const callsBefore = scenario.aiCalls.length;
+
+    await scenario.receive('BOM-DIA-3', 'Bom dia');
+
+    const last = (await scenario.messages()).filter((message) => message.direction === 'inbound').at(-1);
+    expect(last?.autoReply).toBe(true);
+    expect(scenario.aiCalls.length).toBe(callsBefore);
   });
 });

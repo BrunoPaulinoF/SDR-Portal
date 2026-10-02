@@ -1,8 +1,9 @@
-import type { Conversation, Lead, SdrAgent } from '../../db/schema.js';
+import type { Conversation, Lead, Message, SdrAgent } from '../../db/schema.js';
 import { speakableText, voiceConfigOf, wantsAudioReply } from '../audio/audio-reply.js';
 import type { TextToSpeechClient } from '../audio/text-to-speech-client.js';
 import { aiHistoryText } from '../conversations/conversation-history.js';
 import type { ConversationRepository } from '../conversations/conversation-repository.js';
+import type { JobLogRepository } from '../jobs/job-log-repository.js';
 import { isAiPaused } from '../leads/ai-pause.js';
 import {
   contactDisplayName,
@@ -11,6 +12,7 @@ import {
   tradeBusinessName,
 } from '../leads/lead-display-name.js';
 import type { LeadRepository } from '../leads/lead-repository.js';
+import { whatsappDestination } from '../phone/whatsapp-number.js';
 import { decryptSecret } from '../security/secrets.js';
 import { describeNowInTimeZone } from '../timezone.js';
 import type { UazapiClient } from '../uazapi/uazapi-client.js';
@@ -32,6 +34,8 @@ interface AiResponseDependencies {
   aiClient: AiClient;
   aiRunRepository: AiRunRepository;
   conversationRepository: ConversationRepository;
+  /** Onde o aviso de handoff deixa rastro (enviado ou nao). Sem ele, a falha so vai para o log do processo. */
+  jobLogRepository?: JobLogRepository;
   leadRepository: LeadRepository;
   textToSpeechClient: TextToSpeechClient;
   uazapiClient: UazapiClient;
@@ -78,11 +82,6 @@ function actionString(action: AiAction, key: string): string | null {
   if (typeof action === 'string') return null;
   const value = action[key];
   return typeof value === 'string' && value.trim() ? value.trim() : null;
-}
-
-function normalizePhone(value: string): string {
-  const digits = value.replace(/\D/g, '');
-  return digits.length === 10 || digits.length === 11 ? `55${digits}` : digits;
 }
 
 function hasNotifyHandoff(parsed: ParsedAiResponse): boolean {
@@ -146,7 +145,7 @@ async function notifyReferral(
 
   const result = await deps.uazapiClient.sendText({
     ...credentials,
-    number: normalizePhone(agent.handoffPhone),
+    number: whatsappDestination(agent.handoffPhone),
     text,
     readchat: true,
     trackSource: 'sdr-portal-referral',
@@ -194,13 +193,66 @@ async function notifyHandoff(
 
   const result = await deps.uazapiClient.sendText({
     ...credentials,
-    number: normalizePhone(agent.handoffPhone),
+    number: whatsappDestination(agent.handoffPhone),
     text,
     readchat: true,
     trackSource: 'sdr-portal-handoff',
     trackId: `handoff-${lead.id}`,
   });
   if (!result.ok) throw new Error(`UAZAPI returned HTTP ${result.status}`);
+}
+
+export const HANDOFF_NOTICE_JOB = 'handoff-notify';
+const HANDOFF_NOTICE_ATTEMPTS = 3;
+const HANDOFF_NOTICE_RETRY_MS = 5000;
+
+/**
+ * Leva o aviso de handoff ate quem vai atender. Quando isto roda o lead ja leu "vou pedir pro X
+ * te chamar", entao o aviso e o unico resultado que o portal registra: tenta de novo antes de
+ * desistir e, ate quando desiste, deixa uma linha no /job-logs com o resumo da conversa.
+ *
+ * Ate 02/10 o aviso saia antes de marcar o lead, e qualquer recusa da UAZAPI estourava ali: o
+ * lead nao virava `transferred`, nada tentava de novo e a falha so aparecia como erro de IA no
+ * /ai-runs. Com o WhatsApp de handoff em branco era pior — nao saia nada e nada dizia isso.
+ */
+async function deliverHandoffNotice(
+  deps: AiResponseDependencies,
+  input: RespondInput,
+  credentials: { baseUrl: string; token: string },
+  summary: string,
+): Promise<void> {
+  const startedAt = new Date();
+  let attempts = 0;
+  let error: string | null = 'SDR sem WhatsApp de handoff cadastrado: o aviso nao tem para quem ir';
+
+  if (input.agent.handoffPhone?.trim()) {
+    error = null;
+    while (attempts < HANDOFF_NOTICE_ATTEMPTS) {
+      attempts += 1;
+      try {
+        await notifyHandoff(deps, input.agent, input.lead, credentials, summary);
+        error = null;
+        break;
+      } catch (cause) {
+        error = cause instanceof Error ? cause.message : 'Erro desconhecido ao avisar o handoff';
+        if (attempts < HANDOFF_NOTICE_ATTEMPTS) await waitBeforeSending(HANDOFF_NOTICE_RETRY_MS);
+      }
+    }
+  }
+
+  await deps.jobLogRepository?.create({
+    jobName: HANDOFF_NOTICE_JOB,
+    jobKey: `handoff-${input.lead.id}`,
+    sdrAgentId: input.agent.id,
+    leadId: input.lead.id,
+    status: error ? 'failed' : 'completed',
+    attempt: Math.max(attempts, 1),
+    payload: JSON.stringify({ leadWhatsapp: input.lead.whatsappNumber, summary }),
+    result: error ? null : JSON.stringify({ notified: input.agent.handoffPhone }),
+    error,
+    startedAt,
+    finishedAt: new Date(),
+  });
 }
 
 /**
@@ -215,7 +267,7 @@ async function sendDemoContact(
 ): Promise<void> {
   const { agent, conversation, lead } = input;
   const fullName = agent.demoContactName?.trim();
-  const phone = agent.demoContactPhone ? normalizePhone(agent.demoContactPhone) : '';
+  const phone = agent.demoContactPhone ? whatsappDestination(agent.demoContactPhone) : '';
   if (!fullName || !phone) return;
 
   const alreadySent = (await deps.conversationRepository.listMessages(conversation.id)).some(
@@ -425,6 +477,32 @@ async function sendAudioReply(
 
 const MAX_GENERATE_ATTEMPTS = 3;
 
+/** Texto gravado no /ai-runs quando a resposta pronta e jogada fora por ter ficado velha. */
+export const SUPERSEDED_REPLY_ERROR = 'Descartada: o lead mandou mensagem nova enquanto a IA gerava. A proxima resposta cobre as duas.';
+
+/**
+ * O lead escreveu de novo (gente, nao automatica) depois do historico que a IA leu? Entao a
+ * resposta pronta ja nasceu velha.
+ *
+ * Mensagem que chega durante a geracao (modelo com raciocinio leva 10-30s) abria uma segunda
+ * geracao em paralelo, e o lead recebia duas respostas para a mesma conversa, um minuto uma da
+ * outra — "No pico de sexta, quem fica no zap?" seguido de "Nesses dias, quem fica atendendo?"
+ * (Serginho Lanches, `docs/analises/mariana-2026-08-28.md`). Descartando a velha, sai so a que
+ * leu tudo.
+ */
+function hasNewerLeadMessage(seen: Message[], latest: Message[]): boolean {
+  const seenIds = new Set(seen.map((message) => message.id));
+  // So conta mensagem que vai chamar outra geracao: figurinha ou midia sem texto nao chamam, e
+  // descartar por causa delas deixaria o lead sem resposta nenhuma.
+  return latest.some(
+    (message) =>
+      !seenIds.has(message.id) &&
+      message.direction === 'inbound' &&
+      !message.autoReply &&
+      Boolean(message.text?.trim() || message.transcription?.trim()),
+  );
+}
+
 /**
  * Resposta sem texto, sem acao e sem "nao_responder" nao e uma decisao de ficar quieto: e
  * geracao perdida. Ate esta checagem existir, ela passava como resposta valida e o lead
@@ -503,8 +581,9 @@ async function applyLeadActions(
 
   if (shouldNotifyHandoff) {
     const summary = handoffSummary(parsed, input.lead, history);
-    await notifyHandoff(deps, input.agent, input.lead, credentials, summary);
+    // Marca primeiro: o lead ja ouviu que alguem vai chamar, e isso nao pode depender do aviso sair.
     await deps.leadRepository.markTransferred(input.lead.id, now, summary);
+    await deliverHandoffNotice(deps, input, credentials, summary);
   }
 
   // Por ultimo: aviso externo que nao pode impedir as marcacoes do lead se a UAZAPI falhar.
@@ -546,6 +625,7 @@ export function createAiResponseService(deps: AiResponseDependencies) {
           reasoningEffort: reasoningEffortOf(input.agent),
           temperature: input.agent.aiTemperature,
         });
+        const superseded = hasNewerLeadMessage(history, await deps.conversationRepository.listMessages(input.conversation.id));
         await deps.aiRunRepository.create({
           sdrAgentId: input.agent.id,
           leadId: input.lead.id,
@@ -556,13 +636,16 @@ export function createAiResponseService(deps: AiResponseDependencies) {
           inputMessages: JSON.stringify(messages),
           outputText: aiResult.outputText,
           parsedJson: JSON.stringify(parsed),
-          error: null,
+          error: superseded ? SUPERSEDED_REPLY_ERROR : null,
           promptTokens: aiResult.promptTokens,
           completionTokens: aiResult.completionTokens,
           totalTokens: aiResult.totalTokens,
           promptCacheHitTokens: aiResult.promptCacheHitTokens,
           latencyMs: Date.now() - startedAt,
         });
+        // Nada desta geracao vale: nem a mensagem, nem as acoes. A mensagem nova do lead ja
+        // chamou outra geracao (webhook -> buffer), e e ela que decide com o historico inteiro.
+        if (superseded) return;
 
         if (parsed.nao_responder || !parsed.mensagem_usuario.trim()) {
           await applyLeadActions(deps, parsed, input, credentials, messages);

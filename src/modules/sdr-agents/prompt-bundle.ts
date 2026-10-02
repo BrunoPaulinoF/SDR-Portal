@@ -165,11 +165,37 @@ export function planPromptUpdate(input: {
   if (playbook === 'convite' && !agent.handoffName?.trim()) {
     warnings.push('handoffName vazio: no playbook convite a IA precisa do nome da pessoa do time (ela vai falar "alguem do time")');
   }
-  if (playbook === 'convite' && !agent.handoffPhone?.trim()) {
+  // Vale para qualquer playbook: e para esse numero que vai o aviso de "lead pediu para falar".
+  if (!agent.handoffPhone?.trim()) {
     warnings.push('handoffPhone vazio: o aviso de handoff nao chega em ninguem');
   }
 
   return { changes, unchanged, firstMessage: firstMessageChanged ? bundle.firstMessage : null, warnings };
+}
+
+/** Raiz dos prompts versionados. No container ela vem do Dockerfile, junto com `dist/`. */
+export const PROMPTS_ROOT = 'docs/prompts';
+
+export interface PromptDrift {
+  dir: string;
+  /** Campos cujo texto no banco nao bate com o arquivo do diretorio. */
+  fields: PromptField[];
+}
+
+/**
+ * Compara o que esta gravado no SDR com docs/prompts/<sdr>/. `null` quando o SDR nao tem
+ * diretorio versionado: nao ha o que comparar.
+ *
+ * Existe porque o banco e o repositorio divergiam em silencio: a documentacao da Mariana dizia
+ * desde 22/09 que a abordagem tinha mudado, e o que saia para os leads era o texto antigo.
+ */
+export async function findPromptDrift(agent: SdrAgent, root: string = PROMPTS_ROOT): Promise<PromptDrift | null> {
+  const dir = path.join(root, promptDirNameFor(agent.name));
+  const bundle = await readPromptBundle(dir);
+  const fields = (Object.keys(bundle.fields) as PromptField[]).filter((field) => bundle.fields[field] !== undefined);
+  if (fields.length === 0) return null;
+
+  return { dir, fields: fields.filter((field) => (currentValue(agent, field) ?? '').trim() !== bundle.fields[field]) };
 }
 
 /**

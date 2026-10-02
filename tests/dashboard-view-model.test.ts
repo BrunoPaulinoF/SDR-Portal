@@ -299,3 +299,83 @@ describe('dashboard: resposta de gente e capacidade do dia', () => {
     expect(alerts.some((alert) => alert.includes('Limite diario acima do que a janela permite'))).toBe(false);
   });
 });
+
+describe('alertas de lead com interesse', () => {
+  async function buildModel(options: { minutesSinceActivity: number; failedNotice?: boolean }) {
+    const { HANDOFF_NOTICE_JOB } = await import('../src/modules/ai/ai-response-service.js');
+    const companyRepository = createMemoryCompanyRepository();
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const now = new Date('2026-09-29T22:00:00.000Z');
+    const company = await companyRepository.create({
+      name: 'Kybernan',
+      legalName: null,
+      cnpj: null,
+      segment: null,
+      description: null,
+      websiteUrl: null,
+      defaultHandoffName: null,
+      defaultHandoffPhone: null,
+    });
+    const agent = await sdrAgentRepository.create({ companyId: company.id, name: 'Mariana', displayName: 'Mariana', isActive: true });
+    const lead = await leadRepository.create({ ...leadInput(company.id, agent.id, 'Fit013 Marmitas', '5513999990000'), status: 'in_conversation' });
+    const activityAt = new Date(now.getTime() - options.minutesSinceActivity * 60000);
+    await leadRepository.markInboundReceived(lead.id, activityAt);
+    await leadRepository.updateStage(lead.id, 'handoff_offer', activityAt);
+
+    return buildDashboardViewModel({
+      aiRuns: [],
+      companies: await companyRepository.list(),
+      conversations: [],
+      filters: { activeOnly: true, companyId: '', period: '7d', sdrAgentId: '', stage: '', status: '' },
+      jobLogs: options.failedNotice
+        ? [
+            {
+              id: 'log-1',
+              jobName: HANDOFF_NOTICE_JOB,
+              jobKey: `handoff-${lead.id}`,
+              sdrAgentId: agent.id,
+              leadId: lead.id,
+              status: 'failed',
+              attempt: 3,
+              payload: null,
+              result: null,
+              error: 'UAZAPI returned HTTP 503',
+              startedAt: now,
+              finishedAt: now,
+              createdAt: new Date(now.getTime() - 60000),
+            },
+          ]
+        : [],
+      leads: await leadRepository.list(),
+      messages: [],
+      now,
+      sdrAgents: await sdrAgentRepository.list(),
+      userLabel: 'Admin',
+    });
+  }
+
+  it('avisa do lead parado na oferta de handoff ha mais de duas horas', async () => {
+    const model = await buildModel({ minutesSinceActivity: 6 * 60 });
+
+    expect(model.alerts.join(' ')).toContain('esperando ha mais de 2h na oferta de handoff: Fit013 Marmitas');
+  });
+
+  it('esquece a oferta velha: alerta que nunca sai da tela vira paisagem', async () => {
+    const model = await buildModel({ minutesSinceActivity: 20 * 24 * 60 });
+
+    expect(model.alerts.join(' ')).not.toContain('oferta de handoff');
+  });
+
+  it('nao avisa enquanto a oferta ainda e recente', async () => {
+    const model = await buildModel({ minutesSinceActivity: 30 });
+
+    expect(model.alerts.join(' ')).not.toContain('oferta de handoff');
+  });
+
+  it('avisa quando o aviso de handoff nao chegou a ninguem', async () => {
+    const model = await buildModel({ minutesSinceActivity: 30, failedNotice: true });
+
+    expect(model.alerts.join(' ')).toContain('1 aviso(s) de handoff nao chegaram a quem atende (Fit013 Marmitas)');
+  });
+});

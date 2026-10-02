@@ -8,9 +8,46 @@ function replyRate(sent: number, replied: number): string {
   return `${Math.round((replied / sent) * 100)}%`;
 }
 
-function renderVariantCard(agentId: string, metrics: FirstMessageVariantMetrics): string {
+function wordShingles(text: string, size: number): Set<string> {
+  const words = text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter(Boolean);
+  const shingles = new Set<string>();
+  for (let index = 0; index + size <= words.length; index += 1) shingles.add(words.slice(index, index + size).join(' '));
+  return shingles;
+}
+
+/**
+ * A variante repete a explicacao da segunda mensagem? As duas saem coladas, no mesmo disparo:
+ * repetir faz o dono ler a mesma propaganda duas vezes de um numero que ele nao conhece.
+ *
+ * Foi o que ficou no ar de 17/09 a 29/09 na Mariana: a variante B ainda trazia "a gente tem
+ * uma IA que atende o WhatsApp do delivery, responde na hora..." e logo depois vinha a segunda
+ * mensagem dizendo o mesmo. A documentacao dizia que o texto ja tinha mudado.
+ */
+export function repeatsSecondMessage(variantBody: string, secondMessage: string | null | undefined): boolean {
+  if (!secondMessage?.trim()) return false;
+  const second = wordShingles(secondMessage, 4);
+  let shared = 0;
+  for (const shingle of wordShingles(variantBody, 4)) {
+    if (second.has(shingle)) shared += 1;
+    if (shared >= 3) return true;
+  }
+  return false;
+}
+
+function renderVariantCard(agentId: string, metrics: FirstMessageVariantMetrics, secondMessage: string | null): string {
   const { variant, sent, replied } = metrics;
   const toggleLabel = variant.isActive ? 'Pausar' : 'Ativar';
+  const repeatWarning =
+    variant.isActive && repeatsSecondMessage(variant.body, secondMessage)
+      ? '<p class="alert-error">Esta variante repete a explicacao da segunda mensagem. As duas saem coladas: o lead le a mesma coisa duas vezes seguidas, de um numero que nao conhece. Deixe aqui so a apresentacao.</p>'
+      : '';
   return `<section class="panel">
     <header class="topbar">
       <div>
@@ -22,6 +59,7 @@ function renderVariantCard(agentId: string, metrics: FirstMessageVariantMetrics)
         <form method="post" action="/sdr-agents/${agentId}/first-messages/${variant.id}/delete" data-inline onsubmit="return confirm('Excluir esta variante? As metricas dela serao perdidas.')"><button class="link-button" type="submit">Excluir</button></form>
       </div>
     </header>
+    ${repeatWarning}
     <form method="post" action="/sdr-agents/${agentId}/first-messages/${variant.id}" class="form-grid">
       <div class="field field-full"><label>Rotulo</label>
         <input type="text" name="label" value="${escapeHtml(variant.label)}" required>
@@ -72,7 +110,7 @@ export function renderFirstMessageVariantsPage(
     <p class="muted">Resumo geral: <strong>${totalSent}</strong> enviadas · <strong>${totalReplied}</strong> respostas · taxa <strong>${replyRate(totalSent, totalReplied)}</strong>.</p>
   </section>`;
 
-  const cards = metrics.map((m) => renderVariantCard(agent.id, m)).join('');
+  const cards = metrics.map((m) => renderVariantCard(agent.id, m, agent.secondMessage)).join('');
   const emptyCards = metrics.length
     ? ''
     : '<section class="empty-state"><h2>Nenhuma variante ainda</h2><p class="muted">Crie a mensagem abaixo para o SDR mandar um texto fixo em vez de deixar a IA escrever.</p></section>';

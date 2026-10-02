@@ -2,6 +2,12 @@ export function digitsOnly(value: string | null | undefined): string {
   return String(value ?? '').replace(/\D/g, '');
 }
 
+/** Numero digitado na tela ("19 98888-7777") pronto para envio: DDD sem DDI ganha o 55. */
+export function whatsappDestination(value: string): string {
+  const digits = digitsOnly(value);
+  return digits.length === 10 || digits.length === 11 ? `55${digits}` : digits;
+}
+
 export function whatsappNumberVariants(value: string): string[] {
   const digits = digitsOnly(value);
   const variants = new Set<string>();

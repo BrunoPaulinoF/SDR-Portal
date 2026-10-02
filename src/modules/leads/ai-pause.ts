@@ -46,3 +46,15 @@ export function statusAfterAiResume(lead: Lead): string {
   if (lead.firstMessageSentAt || lead.lastOutboundAt) return 'initial_sent';
   return 'pending';
 }
+
+/**
+ * O que fica em `followupDisabledAt` quando a IA e liberada. `pauseAi` desliga o follow-up
+ * gravando a propria hora da pausa; liberar a IA tem de religar exatamente esse, e so ele. Ate
+ * 02/10 a liberacao deixava o campo como estava, e o lead liberado nunca mais recebia
+ * follow-up. Desligamento que veio de outro lugar (recusa, handoff, follow-up ja enviado)
+ * tem hora diferente e continua valendo.
+ */
+export function followupDisabledAfterAiResume(lead: Pick<Lead, 'aiPausedAt' | 'followupDisabledAt'>): Date | null {
+  if (!lead.followupDisabledAt || !lead.aiPausedAt) return lead.followupDisabledAt;
+  return lead.followupDisabledAt.getTime() === lead.aiPausedAt.getTime() ? null : lead.followupDisabledAt;
+}

@@ -60,13 +60,45 @@ export function createDbConversationRepository(): ConversationRepository {
         .orderBy(sql`${conversations.lastMessageAt} desc nulls last`, desc(conversations.createdAt));
     },
 
-    async listByLastMessageBetween(since, before, limit) {
-      return db
+    async listAwaitingReply(since, before, limit) {
+      // Ultima mensagem de cada conversa sem contar a automatica da loja. O corte em `since` vale
+      // para o DISTINCT ON tambem: se a ultima mensagem e mais nova que a janela, ela entra nele.
+      const latest = db
+        .selectDistinctOn([messages.conversationId], {
+          id: messages.id,
+          conversationId: messages.conversationId,
+          direction: messages.direction,
+          createdAt: messages.createdAt,
+        })
+        .from(messages)
+        .where(and(eq(messages.autoReply, false), gte(messages.createdAt, since)))
+        .orderBy(messages.conversationId, desc(messages.createdAt))
+        .as('latest');
+
+      const waiting = await db
+        .select({ messageId: latest.id })
+        .from(latest)
+        .where(and(eq(latest.direction, 'inbound'), lte(latest.createdAt, before)))
+        .orderBy(desc(latest.createdAt))
+        .limit(limit);
+      if (waiting.length === 0) return [];
+
+      const found = await db
+        .select()
+        .from(messages)
+        .where(inArray(messages.id, waiting.map((row) => row.messageId)));
+      const owners = await db
         .select()
         .from(conversations)
-        .where(and(gte(conversations.lastMessageAt, since), lte(conversations.lastMessageAt, before)))
-        .orderBy(desc(conversations.lastMessageAt))
-        .limit(limit);
+        .where(inArray(conversations.id, found.map((message) => message.conversationId)));
+      const byId = new Map(owners.map((conversation) => [conversation.id, conversation]));
+
+      return found
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+        .flatMap((message) => {
+          const conversation = byId.get(message.conversationId);
+          return conversation ? [{ conversation, message }] : [];
+        });
     },
 
     async listLastMessages(conversationIds) {

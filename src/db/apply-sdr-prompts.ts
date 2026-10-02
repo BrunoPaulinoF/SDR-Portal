@@ -9,6 +9,7 @@ import {
   FIRST_MESSAGE_FILE,
   FIRST_MESSAGE_LABEL,
   PROMPT_FILES,
+  PROMPTS_ROOT,
   planPromptUpdate,
   readPromptBundle,
   type PromptUpdatePlan,
@@ -38,7 +39,6 @@ import {
  * da KyberFood. O diretorio agora sai do nome do proprio SDR, e `--dir` so entra quando alguem
  * escreve explicitamente qual bundle quer.
  */
-const PROMPTS_ROOT = 'docs/prompts';
 
 
 function out(line: string): void {

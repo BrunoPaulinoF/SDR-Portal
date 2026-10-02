@@ -3484,6 +3484,147 @@ describe('UAZAPI webhook routes', () => {
     expect(updatedLead?.humanPausedUntil).toBeNull();
   });
 
+  it('treats an uncaptioned photo before anyone talked as store content: no pause, no AI', async () => {
+    const aiCalls: string[] = [];
+    const uazapiCalls: string[] = [];
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const conversationRepository = createMemoryConversationRepository();
+    const agent = await sdrAgentRepository.create({
+      companyId: 'company-1',
+      name: 'Mariana',
+      displayName: 'Mariana',
+      isActive: true,
+      aiProvider: 'openai',
+      openaiApiKeyEncrypted: encryptSecret('openai-key'),
+      uazapiBaseUrl: 'https://api.uazapi.com',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+      handoffPhone: '19988887777',
+    });
+    const lead = await leadRepository.create({
+      companyId: 'company-1',
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511444444445',
+      companyName: 'Ceciliana Marmitaria',
+      status: 'initial_sent',
+      source: 'manual',
+    });
+
+    app = buildApp({
+      aiClient: createMockAiClient(aiCalls, JSON.stringify({ mensagem_usuario: 'Nao deveria responder.', nao_responder: false, actions: [] })),
+      conversationRepository,
+      leadRepository,
+      sdrAgentRepository,
+      uazapiClient: createMockUazapiClient(uazapiCalls),
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/webhooks/uazapi/${agent.id}`,
+      payload: {
+        event: 'messages',
+        data: {
+          id: 'IMAGE-STORE-1',
+          chatid: '5511444444445@s.whatsapp.net',
+          content: { URL: 'https://meta.example/cardapio-do-dia.jpg', mimetype: 'image/jpeg' },
+          fromMe: false,
+          messageType: 'ImageMessage',
+          sender_pn: '5511444444445@s.whatsapp.net',
+          type: 'media',
+        },
+      },
+    });
+
+    const conversations = await conversationRepository.list();
+    const messages = conversations[0] ? await conversationRepository.listMessages(conversations[0].id) : [];
+    const updatedLead = await leadRepository.findById(lead.id);
+
+    expect(response.statusCode).toBe(200);
+    expect(messages[0]?.autoReply).toBe(true);
+    expect(aiCalls).toHaveLength(0);
+    expect(uazapiCalls).toHaveLength(0);
+    // Nem pausa, nem "Em conversa": o cardapio do dia nao e o lead respondendo.
+    expect(updatedLead?.status).toBe('initial_sent');
+    expect(updatedLead?.aiPausedAt).toBeNull();
+    expect(updatedLead?.lastInboundAt).toBeNull();
+  });
+
+  it('pauses on a photo in a real conversation and tells the handoff number', async () => {
+    const aiCalls: string[] = [];
+    const uazapiCalls: string[] = [];
+    const sdrAgentRepository = createMemorySdrAgentRepository();
+    const leadRepository = createMemoryLeadRepository();
+    const conversationRepository = createMemoryConversationRepository();
+    const agent = await sdrAgentRepository.create({
+      companyId: 'company-1',
+      name: 'Mariana',
+      displayName: 'Mariana',
+      isActive: true,
+      aiProvider: 'openai',
+      openaiApiKeyEncrypted: encryptSecret('openai-key'),
+      uazapiBaseUrl: 'https://api.uazapi.com',
+      uazapiInstanceTokenEncrypted: encryptSecret('instance-token'),
+      handoffPhone: '19988887777',
+    });
+    const lead = await leadRepository.create({
+      companyId: 'company-1',
+      sdrAgentId: agent.id,
+      whatsappNumber: '5511444444446',
+      companyName: 'Fit013 Marmitas',
+      status: 'in_conversation',
+      source: 'manual',
+    });
+    const conversation = await conversationRepository.create({
+      companyId: 'company-1',
+      sdrAgentId: agent.id,
+      leadId: lead.id,
+      whatsappNumber: lead.whatsappNumber,
+      status: 'open',
+      lastMessageAt: new Date(),
+    });
+    await conversationRepository.createMessage({
+      conversationId: conversation.id,
+      leadId: lead.id,
+      sdrAgentId: agent.id,
+      direction: 'inbound',
+      senderType: 'lead',
+      messageType: 'conversation',
+      text: 'Tenho interesse, vou te mandar o cardapio',
+    });
+
+    app = buildApp({
+      aiClient: createMockAiClient(aiCalls, JSON.stringify({ mensagem_usuario: 'Nao deveria responder.', nao_responder: false, actions: [] })),
+      conversationRepository,
+      leadRepository,
+      sdrAgentRepository,
+      uazapiClient: createMockUazapiClient(uazapiCalls),
+    });
+
+    await app.inject({
+      method: 'POST',
+      url: `/webhooks/uazapi/${agent.id}`,
+      payload: {
+        event: 'messages',
+        data: {
+          id: 'IMAGE-PERSON-1',
+          chatid: '5511444444446@s.whatsapp.net',
+          content: { URL: 'https://meta.example/foto.jpg', mimetype: 'image/jpeg' },
+          fromMe: false,
+          messageType: 'ImageMessage',
+          sender_pn: '5511444444446@s.whatsapp.net',
+          type: 'media',
+        },
+      },
+    });
+
+    const updatedLead = await leadRepository.findById(lead.id);
+    expect(aiCalls).toHaveLength(0);
+    expect(updatedLead?.aiPauseReason).toBe('lead_image_message');
+    const notice = uazapiCalls.find((call) => call.startsWith('text:5519988887777:'));
+    expect(notice).toContain('A IA da Mariana parou na conversa com Fit013 Marmitas');
+    expect(notice).toContain(`chat=${conversation.id}`);
+  });
+
   it('keeps answering when the lead sends a sticker: sticker is not an image to look at', async () => {
     const aiCalls: string[] = [];
     const uazapiCalls: string[] = [];

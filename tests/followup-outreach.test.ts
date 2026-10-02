@@ -728,9 +728,9 @@ describe('envio recusado nao vira ciclo caro por minuto', () => {
     } as UazapiClient & { sent: SendTextInput[]; connects: number };
   }
 
-  async function harnessRecusando() {
+  async function harnessRecusando(seedLeads: Lead[] = [makeLead()]) {
     const agent = await makeAgent({ id: 'sdr-1' });
-    const leads = createMemoryLeadRepository([makeLead()]);
+    const leads = createMemoryLeadRepository(seedLeads);
     const jobLogs = createMemoryJobLogRepository();
     const ai = fakeAiClient(aiReply('Oi, posso retomar?'));
     const service = createFollowupOutreachService({
@@ -742,7 +742,7 @@ describe('envio recusado nao vira ciclo caro por minuto', () => {
       sdrAgentRepository: createMemorySdrAgentRepository([agent]),
       uazapiClient: rejeitandoEnvio(),
     });
-    return { ai, jobLogs, service };
+    return { ai, jobLogs, leads, service };
   }
 
   it('recua o SDR em vez de gerar a mensagem outra vez no minuto seguinte', async () => {
@@ -758,13 +758,36 @@ describe('envio recusado nao vira ciclo caro por minuto', () => {
     expect(ai.calls).toHaveLength(1);
   });
 
-  it('volta a tentar depois do recuo', async () => {
-    const { ai, service } = await harnessRecusando();
+  it('volta a tentar depois do recuo, com o proximo lead da fila', async () => {
+    const outro = makeLead({ id: 'lead-2', whatsappNumber: '5519999990002', whatsappJid: null, companyName: 'Outra Casa' });
+    const { ai, service } = await harnessRecusando([makeLead(), outro]);
 
     await service.runOnce(NOW);
     await service.runOnce(new Date(NOW.getTime() + 6 * 60 * 1000));
 
     expect(ai.calls).toHaveLength(2);
+  });
+
+  // Antes o lead recusado continuava o primeiro vencido: cada tick depois do recuo gerava o
+  // mesmo texto e nenhum outro lead do SDR recebia follow-up.
+  it('tira o lead recusado da frente da fila por uma hora e conta a tentativa', async () => {
+    const { leads, service } = await harnessRecusando();
+
+    await service.runOnce(NOW);
+
+    const lead = await leads.findById('lead-1');
+    expect(lead?.followupAttempts).toBe(1);
+    expect(lead?.followupDueAt?.getTime()).toBe(NOW.getTime() + HOUR);
+    expect(lead?.followupDisabledAt).toBeNull();
+  });
+
+  it('encerra o follow-up do lead depois de tres envios recusados', async () => {
+    const { leads, service } = await harnessRecusando([makeLead({ followupAttempts: 2 })]);
+
+    await service.runOnce(NOW);
+
+    const lead = await leads.findById('lead-1');
+    expect(lead?.followupDisabledAt).toEqual(NOW);
   });
 
   // `UAZAPI returned HTTP 500` sozinho nao diz nada a quem for depurar depois.

@@ -210,6 +210,106 @@ describe('resposta pendente: lead que respondeu e ficou sem resposta', () => {
     expect(result.details.join(' ')).toContain('midia sem texto');
   });
 
+  it('nao manda para a IA a automatica da loja que o webhook ja barrou', async () => {
+    const s = await buildScenario({
+      lastMessage: { text: 'Seja bem-vindo a Pazzi! Faca seu pedido pelo link', autoReply: true },
+    });
+
+    const result = await s.service.runOnce();
+
+    expect(result.retried).toBe(0);
+    expect(s.answered).toHaveLength(0);
+  });
+
+  it('a automatica que chega depois nao esconde o lead que ficou sem resposta', async () => {
+    const s = await buildScenario({ minutesAgo: 8 });
+    const conversationRepository = createMemoryConversationRepository(
+      [s.conversation],
+      [
+        s.lastMessage,
+        {
+          ...s.lastMessage,
+          id: 'message-2',
+          whatsappMessageId: 'wamid-2',
+          text: 'Seja bem-vindo! Nosso horario de atendimento e das 18h as 23h',
+          autoReply: true,
+          createdAt: new Date(Date.now() - 7 * MINUTE),
+        },
+      ],
+    );
+    const answered: string[] = [];
+    const service = createPendingReplyService({
+      aiResponseService: {
+        async respondToInbound(input) {
+          answered.push(input.conversation.id);
+        },
+      },
+      aiRunRepository: s.aiRunRepository,
+      conversationRepository,
+      jobLogRepository: createMemoryJobLogRepository(),
+      leadRepository: s.leadRepository,
+      sdrAgentRepository: {
+        ...createMemorySdrAgentRepository(),
+        async findById() {
+          return s.agent;
+        },
+      },
+    });
+
+    const result = await service.runOnce();
+
+    expect(result.retried).toBe(1);
+    expect(answered).toEqual([s.conversation.id]);
+  });
+
+  it('conversa ja respondida nao ocupa a vaga de quem esta esperando', async () => {
+    const s = await buildScenario({ minutesAgo: 120 });
+    const answeredConversations: Conversation[] = [];
+    const answeredMessages: Message[] = [];
+    // 60 conversas mais recentes em que a SDR falou por ultimo: antes elas enchiam as 50 vagas
+    // da rodada e o lead de duas horas atras nunca era visto.
+    for (let index = 0; index < 60; index += 1) {
+      const at = new Date(Date.now() - (10 + index) * MINUTE);
+      answeredConversations.push({ ...s.conversation, id: `answered-${index}`, lastMessageAt: at, updatedAt: at });
+      answeredMessages.push({
+        ...s.lastMessage,
+        id: `answered-message-${index}`,
+        conversationId: `answered-${index}`,
+        whatsappMessageId: null,
+        direction: 'outbound',
+        senderType: 'ai',
+        fromMe: true,
+        createdAt: at,
+      });
+    }
+    const answered: string[] = [];
+    const service = createPendingReplyService({
+      aiResponseService: {
+        async respondToInbound(input) {
+          answered.push(input.conversation.id);
+        },
+      },
+      aiRunRepository: s.aiRunRepository,
+      conversationRepository: createMemoryConversationRepository(
+        [...answeredConversations, s.conversation],
+        [...answeredMessages, s.lastMessage],
+      ),
+      jobLogRepository: createMemoryJobLogRepository(),
+      leadRepository: s.leadRepository,
+      sdrAgentRepository: {
+        ...createMemorySdrAgentRepository(),
+        async findById() {
+          return s.agent;
+        },
+      },
+    });
+
+    const result = await service.runOnce();
+
+    expect(result.retried).toBe(1);
+    expect(answered).toEqual([s.conversation.id]);
+  });
+
   it('conta erro quando a nova tentativa tambem falha', async () => {
     const s = await buildScenario();
     const service = createPendingReplyService({

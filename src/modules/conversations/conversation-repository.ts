@@ -31,8 +31,12 @@ export interface ConversationRepository {
   listAllMessages(): Promise<Message[]>;
   /** Conversas de um SDR, da mais recente para a mais antiga: e a lista de chats da caixa de conversas. */
   listBySdr(sdrAgentId: string): Promise<Conversation[]>;
-  /** Conversas cuja ultima mensagem caiu numa janela de tempo, da mais recente para a mais antiga. */
-  listByLastMessageBetween(since: Date, before: Date, limit: number): Promise<Conversation[]>;
+  /**
+   * Conversas esperando a SDR: a ultima mensagem que NAO e automatica da loja e do lead e caiu na
+   * janela. A automatica fica de fora da conta porque o webhook ja decidiu nao responder a ela —
+   * contar com ela trazia de volta para a IA o cardapio que o filtro acabou de barrar.
+   */
+  listAwaitingReply(since: Date, before: Date, limit: number): Promise<Array<{ conversation: Conversation; message: Message }>>;
   /** Ultima mensagem de cada conversa pedida, para a previa da lista de chats sem um SELECT por conversa. */
   listLastMessages(conversationIds: string[]): Promise<Message[]>;
   listMessages(conversationId: string): Promise<Message[]>;
@@ -119,14 +123,29 @@ export function createMemoryConversationRepository(seedConversations: Conversati
         .sort((a, b) => (b.lastMessageAt?.getTime() ?? b.createdAt.getTime()) - (a.lastMessageAt?.getTime() ?? a.createdAt.getTime()));
     },
 
-    async listByLastMessageBetween(since, before, limit) {
-      return [...conversations.values()]
-        .filter((conversation) => {
-          const at = conversation.lastMessageAt?.getTime();
-          return at !== undefined && at >= since.getTime() && at <= before.getTime();
-        })
-        .sort((a, b) => (b.lastMessageAt?.getTime() ?? 0) - (a.lastMessageAt?.getTime() ?? 0))
-        .slice(0, limit);
+    async listAwaitingReply(since, before, limit) {
+      const latest = new Map<string, Message>();
+      for (const message of messages.values()) {
+        if (message.autoReply) continue;
+        const current = latest.get(message.conversationId);
+        if (!current || message.createdAt.getTime() >= current.createdAt.getTime()) {
+          latest.set(message.conversationId, message);
+        }
+      }
+
+      return [...latest.values()]
+        .filter(
+          (message) =>
+            message.direction === 'inbound' &&
+            message.createdAt.getTime() >= since.getTime() &&
+            message.createdAt.getTime() <= before.getTime(),
+        )
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+        .slice(0, limit)
+        .flatMap((message) => {
+          const conversation = conversations.get(message.conversationId);
+          return conversation ? [{ conversation, message }] : [];
+        });
     },
 
     async listLastMessages(conversationIds) {

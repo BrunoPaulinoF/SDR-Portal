@@ -492,6 +492,11 @@ export function createFollowupOutreachService(deps: FollowupOutreachDependencies
       return 'skipped';
     }
 
+    // Marca o momento em que o lead da vez foi de fato para a UAZAPI: so falha dai em diante e
+    // dele. Config ou canal quebrado antes disso e problema do SDR.
+    let sendAttempted = false;
+    let delivered = false;
+
     try {
       const credentials = getCredentials(agent);
       if (!credentials) throw new Error('SDR sem URL/token UAZAPI configurado.');
@@ -554,6 +559,7 @@ export function createFollowupOutreachService(deps: FollowupOutreachDependencies
 
       const text = draft.text;
 
+      sendAttempted = true;
       await deps.uazapiClient.sendPresence({ ...credentials, number: lead.whatsappNumber, presence: 'composing', delay: 1000 });
       const result = await deps.uazapiClient.sendText({
         ...credentials,
@@ -565,6 +571,7 @@ export function createFollowupOutreachService(deps: FollowupOutreachDependencies
       });
 
       if (!result.ok) throw new UazapiSendError(result.status, result.body);
+      delivered = true;
 
       await recordFollowupMessage(agent, lead, conversation, text, result.body, now);
       await deps.leadRepository.markFollowupSent(lead.id, now);
@@ -586,23 +593,47 @@ export function createFollowupOutreachService(deps: FollowupOutreachDependencies
       return 'sent';
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro desconhecido.';
+      const timelock = error instanceof UazapiSendError ? reachoutTimelockFrom(error.body) : null;
       if (error instanceof UazapiSendError) {
-        sendBackoff.recordFailure(agent.id, now, reachoutTimelockFrom(error.body)?.until ?? null);
+        sendBackoff.recordFailure(agent.id, now, timelock?.until ?? null);
       }
+
+      // Envio recusado para este lead: ele sai da frente da fila por uma hora e gasta uma
+      // tentativa, igual a falha de geracao. Antes ele continuava o primeiro vencido, e cada
+      // tick depois do recuo gerava o mesmo texto de novo sem nunca enviar — e nenhum outro
+      // lead do SDR recebia follow-up. Bloqueio da conta (timelock) nao e culpa do lead.
+      let leadOutcome: string | null = null;
+      if (sendAttempted && !delivered && !timelock) {
+        const attempts = lead.followupAttempts + 1;
+        if (attempts >= MAX_FOLLOWUP_ATTEMPTS) {
+          await deps.leadRepository.disableFollowup(lead.id, now);
+          leadOutcome = `follow-up encerrado depois de ${attempts} envios recusados`;
+        } else {
+          await deps.leadRepository.rescheduleFollowup(lead.id, new Date(now.getTime() + FOLLOWUP_RETRY_DELAY_MINUTES * 60 * 1000), now);
+          leadOutcome = `nova tentativa em ${FOLLOWUP_RETRY_DELAY_MINUTES}min`;
+        }
+      }
+
       await deps.jobLogRepository.create({
         jobName: 'followup-outreach',
         jobKey: `agent-${agent.id}`,
         sdrAgentId: agent.id,
         leadId: lead.id,
         status: 'failed',
-        attempt: 1,
+        attempt: sendAttempted ? lead.followupAttempts + 1 : 1,
         payload: JSON.stringify({ agentId: agent.id, leadId: lead.id }),
-        result: error instanceof UazapiSendError ? JSON.stringify({ uazapiStatus: error.status, uazapi: error.body }) : null,
+        result:
+          error instanceof UazapiSendError || leadOutcome
+            ? JSON.stringify({
+                ...(error instanceof UazapiSendError ? { uazapiStatus: error.status, uazapi: error.body } : {}),
+                lead: leadOutcome,
+              })
+            : null,
         error: message,
         startedAt,
         finishedAt: new Date(),
       });
-      details.push(`${agent.name}: erro ${message}`);
+      details.push(`${agent.name}: erro ${message}${leadOutcome ? ` — ${lead.companyName}: ${leadOutcome}` : ''}`);
       return 'error';
     }
   }
