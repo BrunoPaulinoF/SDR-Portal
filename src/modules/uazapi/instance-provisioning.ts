@@ -28,13 +28,13 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 /** A UAZAPI ora responde `{instance:{...}}`, ora o objeto direto: procura nos dois. */
-function instanceRecord(body: unknown): Record<string, unknown> {
+export function instanceRecord(body: unknown): Record<string, unknown> {
   const root = asRecord(body);
   const nested = asRecord(root.instance ?? root.data);
   return Object.keys(nested).length > 0 ? nested : root;
 }
 
-function readString(record: Record<string, unknown>, ...keys: string[]): string | null {
+export function readString(record: Record<string, unknown>, ...keys: string[]): string | null {
   for (const key of keys) {
     const value = record[key];
     if (typeof value === 'string' && value.trim()) return value.trim();

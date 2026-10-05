@@ -31,6 +31,23 @@ export type LeadImportInput = Pick<
  * follow-up quando o proprio lead — ou qualquer outro lead do mesmo numero/JID — teve
  * mensagem depois dela, e quando existe um lead mais novo para o mesmo chat (ex.: `/reset`).
  */
+export interface LeadSearchFilters {
+  /** Nome da loja, nome fantasia, contato ou pedaco do numero. */
+  q?: string;
+  sdrAgentId?: string;
+  status?: string;
+}
+
+export interface LeadSearchPage {
+  leads: Lead[];
+  total: number;
+}
+
+/** Digitos do texto buscado, para achar o lead pelo numero como quer que ele tenha sido digitado. */
+export function searchDigits(q: string): string {
+  return q.replace(/\D/g, '');
+}
+
 export interface FollowupDueOptions {
   quietSince?: Date | null;
   /** Teto de follow-ups por lead (`sdr_agents.followup_max_touches`). Padrao 1: um so. */
@@ -79,6 +96,13 @@ export interface LeadRepository {
   /** Leads de qualquer SDR com um destes numeros exatos (passe as variantes do telefone). */
   findByWhatsappNumbers(whatsappNumbers: string[]): Promise<Lead[]>;
   list(): Promise<Lead[]>;
+  /**
+   * Uma pagina da lista de leads, do mais novo para o mais antigo, com o total para a paginacao.
+   * A tela de leads lia a base inteira a cada abertura; com milhares de leads isso pesava.
+   */
+  search(filters: LeadSearchFilters, page: number, pageSize: number): Promise<LeadSearchPage>;
+  /** Quantos leads em cada status (de um SDR, ou de todos com `null`): a tela de limpar leads. */
+  countByStatus(sdrAgentId: string | null): Promise<Record<string, number>>;
   /** Leads de um conjunto conhecido de ids (ex.: os donos das conversas de um SDR). */
   listByIds(ids: string[]): Promise<Lead[]>;
   listImports(): Promise<LeadImport[]>;
@@ -322,6 +346,31 @@ export function createMemoryLeadRepository(seedLeads: Lead[] = []): LeadReposito
 
     async list() {
       return [...rows.values()].sort((a, b) => a.companyName.localeCompare(b.companyName));
+    },
+
+    async search(filters, page, pageSize) {
+      const q = filters.q?.trim().toLowerCase() ?? '';
+      const digits = searchDigits(q);
+      const matches = [...rows.values()]
+        .filter((lead) => !filters.sdrAgentId || lead.sdrAgentId === filters.sdrAgentId)
+        .filter((lead) => !filters.status || lead.status === filters.status)
+        .filter((lead) => {
+          if (!q) return true;
+          const names = [lead.companyName, lead.tradeName, lead.contactName].filter(Boolean).join(' ').toLowerCase();
+          return names.includes(q) || (digits.length >= 4 && lead.whatsappNumber.includes(digits));
+        })
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || a.companyName.localeCompare(b.companyName) || a.id.localeCompare(b.id));
+      const start = (Math.max(1, page) - 1) * pageSize;
+      return { leads: matches.slice(start, start + pageSize), total: matches.length };
+    },
+
+    async countByStatus(sdrAgentId) {
+      const counts: Record<string, number> = {};
+      for (const lead of rows.values()) {
+        if (sdrAgentId && lead.sdrAgentId !== sdrAgentId) continue;
+        counts[lead.status] = (counts[lead.status] ?? 0) + 1;
+      }
+      return counts;
     },
 
     async listByIds(ids) {

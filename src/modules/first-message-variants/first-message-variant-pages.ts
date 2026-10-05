@@ -1,5 +1,6 @@
 import type { SdrAgent } from '../../db/schema.js';
 import { resolveSdrPlaybook } from '../ai/sdr-playbooks.js';
+import { renderSdrTabs } from '../sdr-agents/sdr-agent-pages.js';
 import { escapeHtml, renderLayout } from '../web/html.js';
 import { abVerdict, AB_MIN_SAMPLE } from './ab-verdict.js';
 import type { FirstMessageVariantMetrics } from './first-message-variant-repository.js';
@@ -162,15 +163,8 @@ export function renderFirstMessageVariantsPage(
   return renderLayout({
     title: `Mensagem inicial - ${agent.displayName} - SDR Portal`,
     body: `<main class="app-shell">
-  <header class="topbar">
-    <div>
-      <h1>Mensagem inicial · ${escapeHtml(agent.displayName)}</h1>
-      <p class="muted">A abordagem sai em duas mensagens: a apresentacao curta (fixa ou gerada por IA, com a taxa de resposta de cada texto) e, logo depois, a segunda mensagem que explica o sistema.</p>
-    </div>
-    <div class="actions">
-      <a class="button button-secondary" href="/sdr-agents">Voltar para SDRs</a>
-    </div>
-  </header>
+  ${renderSdrTabs(agent, 'abordagem')}
+  <p class="muted tab-intro">A abordagem sai em duas mensagens: a apresentacao curta (fixa ou gerada por IA, com a taxa de resposta de cada texto) e, logo depois, a segunda mensagem que explica o sistema.</p>
   ${errorHtml}
   ${modePanel}
   ${emptyCards}

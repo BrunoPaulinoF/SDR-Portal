@@ -21,6 +21,9 @@ export type MessageInput = Pick<
   | 'autoReply'
 >;
 
+/** So o que o painel conta de cada mensagem: sem texto nem payload cru, que sao o grosso da tabela. */
+export type MessageStat = Pick<Message, 'leadId' | 'direction' | 'autoReply' | 'createdAt'>;
+
 export interface ConversationRepository {
   create(input: ConversationInput): Promise<Conversation>;
   createMessage(input: MessageInput): Promise<Message>;
@@ -29,6 +32,8 @@ export interface ConversationRepository {
   findBySdrAndWhatsapp(sdrAgentId: string, whatsappNumber: string): Promise<Conversation | null>;
   list(): Promise<Conversation[]>;
   listAllMessages(): Promise<Message[]>;
+  /** Mensagens a partir de `since` (todas com `null`), so com as colunas que o painel conta. */
+  listMessageStats(since: Date | null): Promise<MessageStat[]>;
   /** Conversas de um SDR, da mais recente para a mais antiga: e a lista de chats da caixa de conversas. */
   listBySdr(sdrAgentId: string): Promise<Conversation[]>;
   /**
@@ -115,6 +120,12 @@ export function createMemoryConversationRepository(seedConversations: Conversati
 
     async listAllMessages() {
       return [...messages.values()].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    },
+
+    async listMessageStats(since) {
+      return [...messages.values()]
+        .filter((message) => !since || message.createdAt.getTime() >= since.getTime())
+        .map(({ leadId, direction, autoReply, createdAt }) => ({ leadId, direction, autoReply, createdAt }));
     },
 
     async listBySdr(sdrAgentId) {

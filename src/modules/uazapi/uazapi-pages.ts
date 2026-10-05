@@ -1,32 +1,35 @@
 import type { SdrAgent } from '../../db/schema.js';
 import { escapeHtml, renderLayout } from '../web/html.js';
-import type { UazapiResult } from './uazapi-client.js';
+import type { UazapiActionOutcome } from './action-summary.js';
 
-export function renderUazapiResultPage(agent: SdrAgent, title: string, result: UazapiResult | null, error?: string): string {
-  const errorHtml = error ? `<div class="alert-error">${escapeHtml(error)}</div>` : '';
-  const resultHtml = result
-    ? `<section class="panel">
-      <h2>Resposta</h2>
-      <p>Status HTTP: ${result.status} - ${result.ok ? 'OK' : 'Erro'}</p>
-      <pre>${escapeHtml(JSON.stringify(result.body, null, 2))}</pre>
-    </section>`
+/**
+ * Pagina de reserva dos botoes de teste do SDR, para quando o navegador nao roda o
+ * `/app.js` (que mostra o resultado na propria tela). Mesmo texto em portugues; o JSON da
+ * UAZAPI fica recolhido.
+ */
+export function renderUazapiResultPage(agent: SdrAgent, outcome: UazapiActionOutcome): string {
+  const raw = outcome.raw
+    ? `<details class="spacing-top"><summary>Detalhes tecnicos</summary><pre>${escapeHtml(outcome.raw)}</pre></details>`
     : '';
+  const hint = outcome.hint ? `<p class="muted">${escapeHtml(outcome.hint)}</p>` : '';
 
   return renderLayout({
-    title: `${title} - SDR Portal`,
+    title: `${outcome.title} - SDR Portal`,
     body: `<main class="app-shell">
   <header class="topbar">
     <div>
-      <h1>${escapeHtml(title)}</h1>
-      <p class="muted">SDR: ${escapeHtml(agent.name)}</p>
+      <h1>${escapeHtml(outcome.title)}</h1>
+      <p class="muted">SDR: ${escapeHtml(agent.displayName || agent.name)}</p>
     </div>
     <div class="actions">
-      <a class="button button-secondary" href="/sdr-agents/${agent.id}/edit">Voltar ao SDR</a>
-      <a class="button button-secondary" href="/sdr-agents">Lista de SDRs</a>
+      <a class="button" href="/sdr-agents/${agent.id}/edit">Voltar ao SDR</a>
     </div>
   </header>
-  ${errorHtml}
-  ${resultHtml}
+  <section class="panel action-result ${outcome.ok ? 'action-result-ok' : 'action-result-error'}">
+    <strong>${outcome.ok ? '&#10003;' : '&#10007;'} ${escapeHtml(outcome.summary)}</strong>
+    ${hint}
+    ${raw}
+  </section>
 </main>`,
   });
 }

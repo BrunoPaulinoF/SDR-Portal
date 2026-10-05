@@ -34,6 +34,8 @@ async function loadRepos() {
     blocks: (await import('../src/modules/leads/db-contact-block-repository.js')).createDbContactBlockRepository(),
     history: (await import('../src/modules/sdr-agents/db-config-history.js')).createDbSdrConfigChangeRepository(),
     channelLimits: (await import('../src/modules/monitoring/db-channel-limits-repository.js')).createDbChannelLimitsRepository(),
+    aiRuns: (await import('../src/modules/ai/db-ai-run-repository.js')).createDbAiRunRepository(),
+    jobLogs: (await import('../src/modules/jobs/db-job-log-repository.js')).createDbJobLogRepository(),
   };
 }
 
@@ -243,6 +245,92 @@ dbDescribe('repositorios no Postgres', () => {
 
     await repos.agents.update(agent.id, { companyId: agent.companyId, name: agent.name, displayName: agent.displayName, warmupStartedAt: null });
     expect((await repos.agents.findById(agent.id))?.warmupStartedAt).toBeNull();
+  });
+
+  it('lista de leads: busca, filtros, pagina e contagem por situacao', async () => {
+    const { agent, lead } = await agentAndLead({ whatsappNumber: '5519988887777' });
+    for (let index = 0; index < 4; index += 1) {
+      await repos.leads.create({
+        companyId: agent.companyId,
+        sdrAgentId: agent.id,
+        whatsappNumber: `551997770000${index}`,
+        companyName: index === 3 ? 'Cantina 100%_real' : `Pizzaria ${index}`,
+        status: index % 2 === 0 ? 'pending' : 'initial_sent',
+        source: 'import',
+      });
+    }
+
+    const firstPage = await repos.leads.search({}, 1, 2);
+    const byNumber = await repos.leads.search({ q: '(19) 98888-7777' }, 1, 50);
+    const byStatus = await repos.leads.search({ sdrAgentId: agent.id, status: 'initial_sent' }, 1, 50);
+    // % e _ digitados sao texto: "100%_" so acha a Cantina, nao tudo.
+    const literal = await repos.leads.search({ q: '100%_' }, 1, 50);
+    const counts = await repos.leads.countByStatus(agent.id);
+
+    expect(firstPage.total).toBe(5);
+    expect(firstPage.leads).toHaveLength(2);
+    expect(byNumber.leads.map((item) => item.id)).toEqual([lead.id]);
+    expect(byStatus.total).toBe(2);
+    expect(literal.leads.map((item) => item.companyName)).toEqual(['Cantina 100%_real']);
+    expect(counts).toEqual({ in_conversation: 1, pending: 2, initial_sent: 2 });
+  });
+
+  it('painel: consultas leves so do periodo, sem texto nem prompt', async () => {
+    const { agent, lead } = await agentAndLead();
+    const conversation = await repos.conversations.create({
+      companyId: agent.companyId,
+      sdrAgentId: agent.id,
+      leadId: lead.id,
+      whatsappNumber: lead.whatsappNumber,
+      status: 'open',
+      lastMessageAt: new Date(),
+    });
+    const old = new Date('2026-09-01T12:00:00.000Z');
+    const recent = new Date('2026-10-01T12:00:00.000Z');
+    for (const createdAt of [old, recent]) await message(conversation.id, lead.id, agent.id, 'inbound', createdAt);
+    await repos.aiRuns.create({
+      sdrAgentId: agent.id,
+      leadId: lead.id,
+      conversationId: conversation.id,
+      provider: 'deepseek',
+      model: 'deepseek-v4-flash',
+      purpose: 'reply_generation',
+      inputMessages: 'prompt enorme',
+      outputText: null,
+      parsedJson: null,
+      error: null,
+      promptTokens: 1,
+      completionTokens: 1,
+      totalTokens: 2,
+      promptCacheHitTokens: null,
+      latencyMs: 10,
+    });
+    await repos.jobLogs.create({
+      jobName: 'initial-outreach',
+      jobKey: 'k',
+      sdrAgentId: agent.id,
+      leadId: lead.id,
+      status: 'failed',
+      attempt: 1,
+      payload: 'grande',
+      result: null,
+      error: 'x',
+      startedAt: recent,
+      finishedAt: recent,
+    });
+
+    const since = new Date('2026-09-15T00:00:00.000Z');
+    const messageStats = await repos.conversations.listMessageStats(since);
+    const runStats = await repos.aiRuns.listStats(null);
+    const logStats = await repos.jobLogs.listStats(null);
+
+    expect(messageStats).toHaveLength(1);
+    expect(Object.keys(messageStats[0] ?? {}).sort()).toEqual(['autoReply', 'createdAt', 'direction', 'leadId']);
+    expect(await repos.conversations.listMessageStats(null)).toHaveLength(2);
+    expect(runStats[0]).toMatchObject({ totalTokens: 2, error: null });
+    expect(runStats[0]).not.toHaveProperty('inputMessages');
+    expect(logStats[0]).toMatchObject({ status: 'failed', jobName: 'initial-outreach' });
+    expect(logStats[0]).not.toHaveProperty('payload');
   });
 
   it('as migracoes estao todas no journal', () => {

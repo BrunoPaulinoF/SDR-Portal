@@ -632,33 +632,9 @@ describe('prompt da primeira mensagem fora do formulario', () => {
     const { app, cookie } = await loggedInApp({ sdrAgentRepository, companyRepository });
     const response = await app.inject({
       method: 'POST',
-      url: `/sdr-agents/${agent.id}`,
+      url: `/sdr-agents/${agent.id}/aba/conversa`,
       headers: { cookie },
-      payload: {
-        companyId: company.id,
-        name: 'Mariana',
-        displayName: 'Mariana',
-        aiModel: 'deepseek-v4-pro',
-        aiTemperature: '0.4',
-        aiMaxOutputTokens: '1500',
-        aiReasoningEffort: 'low',
-        timezone: 'America/Sao_Paulo',
-        sendWindowStart: '08:00',
-        sendWindowEnd: '18:00',
-        sendDaysOfWeek: '1,2,3,4,5',
-        initialCooldownMinMinutes: '10',
-        initialCooldownMaxMinutes: '30',
-        followupAfterHours: '24',
-        followupCooldownMinMinutes: '10',
-        followupCooldownMaxMinutes: '30',
-        dailyInitialSendLimit: '45',
-        dailyFollowupSendLimit: '50',
-        responseDelayBaseMs: '1200',
-        responseDelayPerCharMs: '35',
-        responseDelayMaxMs: '12000',
-        messageSplitMaxChars: '450',
-        humanPauseHours: '24',
-      },
+      payload: { displayName: 'Mariana', prompt: 'Prompt novo da conversa' },
     });
 
     expect(response.statusCode).toBe(302);
@@ -674,7 +650,7 @@ describe('prompt da primeira mensagem fora do formulario', () => {
     const agent = await sdrAgentRepository.create({ companyId: company.id, name: 'Mariana', displayName: 'Mariana' });
 
     const { app, cookie } = await loggedInApp({ sdrAgentRepository, companyRepository });
-    const response = await app.inject({ method: 'GET', url: `/sdr-agents/${agent.id}/edit`, headers: { cookie } });
+    const response = await app.inject({ method: 'GET', url: `/sdr-agents/${agent.id}/edit?aba=conversa`, headers: { cookie } });
 
     expect(response.statusCode).toBe(200);
     expect(response.body).not.toContain('name="firstMessagePrompt"');
@@ -698,7 +674,7 @@ describe('acesso a tela de conexao', () => {
     });
 
     const { app, cookie } = await loggedInApp({ sdrAgentRepository, companyRepository });
-    const response = await app.inject({ method: 'GET', url: `/sdr-agents/${agent.id}/edit`, headers: { cookie } });
+    const response = await app.inject({ method: 'GET', url: `/sdr-agents/${agent.id}/edit?aba=whatsapp`, headers: { cookie } });
 
     expect(response.statusCode).toBe(200);
     expect(response.body).toContain(`/sdr-agents/${agent.id}/conectar`);
@@ -722,42 +698,25 @@ describe('acesso a tela de conexao', () => {
     });
 
     const { app, cookie } = await loggedInApp({ sdrAgentRepository, companyRepository });
-    await app.inject({
+    // Os campos de token vem em branco do navegador: em branco quer dizer "manter o salvo".
+    const response = await app.inject({
       method: 'POST',
-      url: `/sdr-agents/${agent.id}`,
+      url: `/sdr-agents/${agent.id}/aba/whatsapp`,
       headers: { cookie },
       payload: {
-        companyId: company.id,
-        name: 'Mariana',
-        displayName: 'Mariana',
+        whatsappNumber: '5511988887777',
         uazapiBaseUrl: 'https://uazapi.test',
         uazapiInstanceId: 'SDR-Teste',
-        aiModel: 'deepseek-v4-pro',
-        aiTemperature: '0.4',
-        aiMaxOutputTokens: '1500',
-        aiReasoningEffort: 'low',
-        timezone: 'America/Sao_Paulo',
-        sendWindowStart: '08:00',
-        sendWindowEnd: '18:00',
-        sendDaysOfWeek: '1,2,3,4,5',
-        initialCooldownMinMinutes: '10',
-        initialCooldownMaxMinutes: '30',
-        followupAfterHours: '24',
-        followupCooldownMinMinutes: '10',
-        followupCooldownMaxMinutes: '30',
-        dailyInitialSendLimit: '45',
-        dailyFollowupSendLimit: '50',
-        responseDelayBaseMs: '1200',
-        responseDelayPerCharMs: '35',
-        responseDelayMaxMs: '12000',
-        messageSplitMaxChars: '450',
-        humanPauseHours: '24',
+        uazapiInstanceTokenEncrypted: '',
+        uazapiAdminTokenEncrypted: '',
       },
     });
 
+    expect(response.statusCode).toBe(302);
     const saved = await sdrAgentRepository.findById(agent.id);
     expect(saved?.uazapiInstanceTokenEncrypted).toBe(agent.uazapiInstanceTokenEncrypted);
     expect(saved?.uazapiBaseUrl).toBe('https://uazapi.test');
+    expect(saved?.whatsappNumber).toBe('5511988887777');
     await app.close();
   });
 });
@@ -795,7 +754,7 @@ describe('escala de esforco por provider', () => {
     });
 
     const { app, cookie } = await loggedInApp({ sdrAgentRepository, companyRepository });
-    const response = await app.inject({ method: 'GET', url: `/sdr-agents/${agent.id}/edit`, headers: { cookie } });
+    const response = await app.inject({ method: 'GET', url: `/sdr-agents/${agent.id}/edit?aba=avancado`, headers: { cookie } });
     const select = /name="aiReasoningEffort"[^>]*>([\s\S]*?)<\/select>/.exec(response.body)?.[1] ?? '';
 
     expect(select).toContain('value="max"');

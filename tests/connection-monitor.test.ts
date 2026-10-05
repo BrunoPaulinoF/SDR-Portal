@@ -364,7 +364,9 @@ describe('tela do monitor', () => {
       },
     });
 
-    expect(salvo.statusCode).toBe(200);
+    // Salvar volta para a propria tela com o aviso (e recarregar nao reenvia o formulario).
+    expect(salvo.statusCode).toBe(302);
+    expect(salvo.headers.location).toBe('/monitoring?salvo=1');
     const settings = await monitors.getSettings();
     expect(settings?.isEnabled).toBe(true);
     expect(settings?.repeatAlertMinutes).toBe(30);

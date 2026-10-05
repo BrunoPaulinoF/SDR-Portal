@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
 import { env } from '../../config/env.js';
@@ -10,6 +10,13 @@ import type { AuthRepository } from '../auth/auth-repository.js';
 import { decryptSecret } from '../security/secrets.js';
 import type { SdrAgentRepository } from '../sdr-agents/sdr-agent-repository.js';
 import type { UazapiClient, UazapiCredentials, UazapiResult } from './uazapi-client.js';
+import {
+  erroredAction,
+  failedAction,
+  summarizeUazapiAction,
+  type UazapiActionKind,
+  type UazapiActionOutcome,
+} from './action-summary.js';
 import { renderUazapiResultPage } from './uazapi-pages.js';
 
 const paramsSchema = z.object({
@@ -64,27 +71,31 @@ async function findAgentOrReply(
   return sdrAgentRepository.findById(params.data.id);
 }
 
-function renderMissingConfig(agent: SdrAgent, title: string): string {
-  return renderUazapiResultPage(agent, title, null, 'Configure URL base da UAZAPI e token da instancia antes de usar esta acao.');
+function wantsJson(request: FastifyRequest): boolean {
+  return (request.headers.accept ?? '').includes('application/json');
+}
+
+/** O mesmo resultado vai em JSON para o `/app.js` (fica na tela do SDR) ou como pagina de reserva. */
+function respond(request: FastifyRequest, reply: FastifyReply, agent: SdrAgent, outcome: UazapiActionOutcome) {
+  if (wantsJson(request)) return reply.type('application/json').send(outcome);
+  return reply.type('text/html').send(renderUazapiResultPage(agent, outcome));
 }
 
 async function runUazapiAction(
   agent: SdrAgent,
-  title: string,
+  kind: UazapiActionKind,
   action: (credentials: UazapiCredentials) => Promise<UazapiResult>,
-): Promise<string> {
+  number?: string,
+): Promise<UazapiActionOutcome> {
+  const credentials = getCredentials(agent);
+  if (!credentials) {
+    return failedAction(kind, 'Este SDR ainda nao tem a URL da UAZAPI e o token da instancia.', 'Preencha a secao WhatsApp e salve antes de testar.');
+  }
+
   try {
-    const credentials = getCredentials(agent);
-
-    if (!credentials) {
-      return renderMissingConfig(agent, title);
-    }
-
-    const result = await action(credentials);
-    return renderUazapiResultPage(agent, title, result, result.ok ? undefined : 'A UAZAPI retornou erro. Veja o payload abaixo.');
+    return summarizeUazapiAction(kind, await action(credentials), { agent, number });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Erro desconhecido ao chamar UAZAPI.';
-    return renderUazapiResultPage(agent, title, null, message);
+    return erroredAction(kind, error);
   }
 }
 
@@ -108,7 +119,7 @@ export function registerUazapiRoutes(
       return reply.status(404).send('SDR nao encontrado');
     }
 
-    return reply.type('text/html').send(await runUazapiAction(agent, 'Status UAZAPI', (credentials) => uazapiClient.getInstanceStatus(credentials)));
+    return respond(request, reply, agent, await runUazapiAction(agent, 'status', (credentials) => uazapiClient.getInstanceStatus(credentials)));
   });
 
   // O que o WhatsApp diz sobre a conta iniciar conversas novas: bloqueio temporario e cota.
@@ -125,9 +136,7 @@ export function registerUazapiRoutes(
       return reply.status(404).send('SDR nao encontrado');
     }
 
-    return reply
-      .type('text/html')
-      .send(await runUazapiAction(agent, 'Limites do WhatsApp', (credentials) => uazapiClient.getMessageLimits(credentials)));
+    return respond(request, reply, agent, await runUazapiAction(agent, 'limites', (credentials) => uazapiClient.getMessageLimits(credentials)));
   });
 
   app.post('/sdr-agents/:id/uazapi/configure-webhook', async (request, reply) => {
@@ -146,13 +155,19 @@ export function registerUazapiRoutes(
     const webhookUrl = getWebhookUrl(agent.id);
 
     if (!webhookUrl) {
-      return reply
-        .type('text/html')
-        .send(renderUazapiResultPage(agent, 'Configurar webhook', null, 'Configure APP_URL no ambiente para gerar a URL publica do webhook.'));
+      return respond(
+        request,
+        reply,
+        agent,
+        failedAction('webhook', 'O portal nao sabe o proprio endereco publico (APP_URL vazio no ambiente).', 'Preencha APP_URL nas variaveis do servico no EasyPanel e faca um Deploy.'),
+      );
     }
 
-    return reply.type('text/html').send(
-      await runUazapiAction(agent, 'Configurar webhook', (credentials) =>
+    return respond(
+      request,
+      reply,
+      agent,
+      await runUazapiAction(agent, 'webhook', (credentials) =>
         uazapiClient.configureWebhook({
           ...credentials,
           url: webhookUrl,
@@ -177,11 +192,17 @@ export function registerUazapiRoutes(
 
     const body = sendTestSchema.safeParse(request.body);
     if (!body.success) {
-      return reply.type('text/html').send(renderUazapiResultPage(agent, 'Enviar teste UAZAPI', null, 'Informe numero e texto para envio.'));
+      return respond(request, reply, agent, failedAction('mensagem', 'Informe o numero (com DDD) e o texto da mensagem.'));
     }
 
-    return reply.type('text/html').send(
-      await runUazapiAction(agent, 'Enviar teste UAZAPI', async (credentials) => {
+    return respond(
+      request,
+      reply,
+      agent,
+      await runUazapiAction(
+        agent,
+        'mensagem',
+        async (credentials) => {
         await uazapiClient.sendPresence({ ...credentials, number: body.data.number, presence: 'composing', delay: 1000 });
         return uazapiClient.sendText({
           ...credentials,
@@ -191,7 +212,9 @@ export function registerUazapiRoutes(
           trackSource: 'sdr-portal-test',
           trackId: `test-${agent.id}`,
         });
-      }),
+        },
+        body.data.number,
+      ),
     );
   });
 
@@ -207,24 +230,30 @@ export function registerUazapiRoutes(
       return reply.status(404).send('SDR nao encontrado');
     }
 
-    const title = 'Enviar audio teste';
     const body = sendAudioTestSchema.safeParse(request.body);
     if (!body.success) {
-      return reply
-        .type('text/html')
-        .send(renderUazapiResultPage(agent, title, null, `Informe numero e um texto de ate ${MAX_AUDIO_REPLY_CHARS} caracteres.`));
+      return respond(request, reply, agent, failedAction('audio', `Informe o numero (com DDD) e um texto de ate ${MAX_AUDIO_REPLY_CHARS} caracteres.`));
     }
 
     const voice = voiceConfigOf(agent);
     if (!voice) {
-      return reply
-        .type('text/html')
-        .send(renderUazapiResultPage(agent, title, null, 'Salve o ID da voz e a chave da ElevenLabs no SDR antes de testar o audio.'));
+      return respond(
+        request,
+        reply,
+        agent,
+        failedAction('audio', 'Falta a voz: salve o ID da voz e a chave da ElevenLabs na secao "Resposta em audio" antes de testar.'),
+      );
     }
 
     // O teste nao cai para texto como a resposta da IA: aqui o objetivo e justamente ver o erro.
-    return reply.type('text/html').send(
-      await runUazapiAction(agent, title, async (credentials) => {
+    return respond(
+      request,
+      reply,
+      agent,
+      await runUazapiAction(
+        agent,
+        'audio',
+        async (credentials) => {
         const speech = await textToSpeechClient.synthesize({ ...voice, text: body.data.text });
         await uazapiClient.sendPresence({ ...credentials, number: body.data.number, presence: 'recording', delay: 1000 });
         return uazapiClient.sendMedia({
@@ -237,7 +266,9 @@ export function registerUazapiRoutes(
           trackSource: 'sdr-portal-test',
           trackId: `test-audio-${agent.id}`,
         });
-      }),
+        },
+        body.data.number,
+      ),
     );
   });
 }

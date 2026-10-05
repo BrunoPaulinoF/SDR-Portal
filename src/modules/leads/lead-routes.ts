@@ -14,6 +14,9 @@ import type { ContactBlockRepository } from './contact-block-repository.js';
 import { clearMilestone, isLeadMilestone, markMilestone } from './lead-outcome.js';
 import type { LeadInput, LeadRepository } from './lead-repository.js';
 import {
+  LEAD_STATUS_OPTIONS,
+  LEADS_PAGE_SIZE,
+  renderBulkDeletePage,
   renderContactBlocksPage,
   renderEditLeadPage,
   renderImportLeadsPage,
@@ -26,6 +29,21 @@ import {
 } from './lead-pages.js';
 
 const paramsSchema = z.object({ id: z.string().uuid() });
+const LEAD_STATUSES = LEAD_STATUS_OPTIONS.map(([value]) => value);
+/** Filtro invalido na URL (SDR apagado, status que nao existe) vira "todos", nao erro. */
+const leadListQuerySchema = z.object({
+  q: z.string().trim().max(100).optional().default(''),
+  sdr: z
+    .string()
+    .optional()
+    .transform((value) => (value && z.string().uuid().safeParse(value).success ? value : '')),
+  status: z
+    .string()
+    .optional()
+    .transform((value) => (value && LEAD_STATUSES.includes(value) ? value : '')),
+  pagina: z.coerce.number().int().min(1).max(10000).catch(1).default(1),
+  removidos: z.coerce.number().int().min(0).optional().catch(undefined),
+});
 const outcomeSchema = z.object({
   marco: z.string().refine(isLeadMilestone),
   motivo: z.string().trim().max(200).optional().default(''),
@@ -192,17 +210,38 @@ export function registerLeadRoutes(
     });
     await leadRepository.markNotInterested(lead.id, now);
     request.log.info({ leadId: lead.id, userId: user.id }, 'Contact blocked');
-    return reply.redirect(`/leads/${lead.id}`, 302);
+    return reply.redirect(`/leads/${lead.id}?salvo=1`, 302);
   });
 
   app.get('/leads', async (request, reply) => {
     const user = await requireUser(request, reply, authRepository);
     if (!user) return undefined;
-    const [leads, companies, agents] = await Promise.all([leadRepository.list(), companyRepository.list(), sdrAgentRepository.list()]);
-    const notice = typeof (request.query as { removidos?: string } | undefined)?.removidos === 'string'
-      ? `${(request.query as { removidos: string }).removidos} lead(s) removido(s).`
-      : undefined;
-    return reply.type('text/html').send(renderLeadsListPage(leads, companies, agents, notice));
+    const query = leadListQuerySchema.safeParse(request.query ?? {});
+    const filters = query.success ? query.data : { q: '', sdr: '', status: '', pagina: 1, removidos: undefined };
+    const listFilters = { q: filters.q, sdrAgentId: filters.sdr, status: filters.status };
+    const [result, companies, agents] = await Promise.all([
+      leadRepository.search(
+        { q: listFilters.q || undefined, sdrAgentId: listFilters.sdrAgentId || undefined, status: listFilters.status || undefined },
+        filters.pagina,
+        LEADS_PAGE_SIZE,
+      ),
+      companyRepository.list(),
+      sdrAgentRepository.list(),
+    ]);
+    const notice = filters.removidos !== undefined ? `${filters.removidos} lead(s) removido(s).` : undefined;
+    return reply
+      .type('text/html')
+      .send(renderLeadsListPage({ filters: listFilters, leads: result.leads, page: filters.pagina, total: result.total }, companies, agents, notice));
+  });
+
+  app.get('/leads/limpar', async (request, reply) => {
+    const user = await requireUser(request, reply, authRepository);
+    if (!user) return undefined;
+    const agents = await sdrAgentRepository.list();
+    const asked = (request.query as { sdr?: unknown } | undefined)?.sdr;
+    const selected = agents.find((agent) => agent.id === asked) ?? agents[0];
+    const counts = selected ? await leadRepository.countByStatus(selected.id) : {};
+    return reply.type('text/html').send(renderBulkDeletePage(agents, selected?.id ?? '', counts));
   });
 
   app.post('/leads/limpar', async (request, reply) => {
@@ -211,15 +250,14 @@ export function registerLeadRoutes(
 
     const parsed = bulkDeleteSchema.safeParse(request.body);
     if (!parsed.success) {
-      const [leads, companies, agents] = await Promise.all([
-        leadRepository.list(),
-        companyRepository.list(),
-        sdrAgentRepository.list(),
-      ]);
+      const agents = await sdrAgentRepository.list();
+      const asked = (request.body as { sdrAgentId?: unknown } | undefined)?.sdrAgentId;
+      const selected = agents.find((agent) => agent.id === asked) ?? agents[0];
+      const counts = selected ? await leadRepository.countByStatus(selected.id) : {};
       return reply
         .status(400)
         .type('text/html')
-        .send(renderLeadsListPage(leads, companies, agents, 'Escolha um SDR e ao menos um status para limpar.'));
+        .send(renderBulkDeletePage(agents, selected?.id ?? '', counts, 'Marque ao menos uma situacao para apagar.'));
     }
 
     const removed = await leadRepository.deleteBySdrAndStatuses(parsed.data.sdrAgentId, parsed.data.statuses);
@@ -249,8 +287,8 @@ export function registerLeadRoutes(
       return reply.status(409).type('text/html').send(renderNewLeadPage(companies, agents, 'Este WhatsApp ja esta cadastrado para o SDR selecionado.'));
     }
 
-    await leadRepository.create(input);
-    return reply.redirect('/leads');
+    const lead = await leadRepository.create(input);
+    return reply.redirect(`/leads/${lead.id}?criado=1`);
   });
 
   app.get('/leads/:id/edit', async (request, reply) => {
@@ -275,7 +313,7 @@ export function registerLeadRoutes(
       return reply.status(400).type('text/html').send(renderEditLeadPage(lead, companies, agents, 'Confira os campos obrigatorios e o vinculo empresa/SDR.'));
     }
     await leadRepository.update(params.data.id, input);
-    return reply.redirect('/leads');
+    return reply.redirect(`/leads/${params.data.id}?salvo=1`);
   });
 
   app.get('/leads/:id', async (request, reply) => {
@@ -311,7 +349,7 @@ export function registerLeadRoutes(
     const outcome = body.data.desfazer ? clearMilestone(lead, marco) : markMilestone(lead, marco, now, body.data.motivo || null);
     await leadRepository.setOutcome(lead.id, outcome, now);
     request.log.info({ leadId: lead.id, marco, desfazer: Boolean(body.data.desfazer), userId: user.id }, 'Lead outcome recorded');
-    return reply.redirect(`/leads/${lead.id}`, 302);
+    return reply.redirect(`/leads/${lead.id}?salvo=1`, 302);
   });
 
   app.post('/leads/:id/delete', async (request, reply) => {
