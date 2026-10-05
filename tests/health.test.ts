@@ -2136,7 +2136,7 @@ describe('UAZAPI webhook routes', () => {
 
     const sessionCookie = await login();
     const conversationsPage = await app.inject({ method: 'GET', url: '/conversations', cookies: { sdr_portal_session: sessionCookie } });
-    const webhookLogsPage = await app.inject({ method: 'GET', url: '/webhook-events', cookies: { sdr_portal_session: sessionCookie } });
+    const webhookLogsPage = await app.inject({ method: 'GET', url: '/registros?aba=webhooks', cookies: { sdr_portal_session: sessionCookie } });
     expect(conversationsPage.body).toContain('Restaurante A');
     expect(webhookLogsPage.body).toContain('Oi, pode falar');
   });
@@ -3999,15 +3999,21 @@ describe('telas de diagnostico', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: '/ai-runs',
+      url: '/registros?aba=ia',
       cookies: { sdr_portal_session: sessionCookie },
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.body).toContain('Logs de IA');
-    expect(response.body).toContain('reply_generation');
+    expect(response.body).toContain('Registros');
+    expect(response.body).toContain('Resposta ao lead');
+    expect(response.body).toContain('Respondeu em 0,2s');
+    // O tecnico continua la, recolhido.
     expect(response.body).toContain('gpt-4o-mini');
     expect(response.body).toContain('5 / 10');
+
+    // O endereco antigo leva para a aba certa.
+    const antigo = await app.inject({ method: 'GET', url: '/ai-runs', cookies: { sdr_portal_session: sessionCookie } });
+    expect(antigo.headers.location).toBe('/registros?aba=ia');
   });
 
   it('shows job logs page', async () => {
@@ -4033,14 +4039,17 @@ describe('telas de diagnostico', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: '/job-logs',
+      url: '/registros?aba=tarefas',
       cookies: { sdr_portal_session: sessionCookie },
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.body).toContain('Logs de jobs');
+    expect(response.body).toContain('Primeira mensagem');
+    expect(response.body).toContain('Concluido');
     expect(response.body).toContain('initial-outreach');
-    expect(response.body).toContain('completed');
+
+    const antigo = await app.inject({ method: 'GET', url: '/job-logs', cookies: { sdr_portal_session: sessionCookie } });
+    expect(antigo.headers.location).toBe('/registros?aba=tarefas');
   });
 
   it('shows lead detail page with AI runs and job logs', async () => {

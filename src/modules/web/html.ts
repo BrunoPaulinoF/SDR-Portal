@@ -28,24 +28,18 @@ function renderAppNavigation(title: string): string {
     </div>
     <nav class="nav-groups" aria-label="Menu principal">
       <section class="nav-group">
-        <p>Operacao</p>
         ${navItem('/dashboard', 'Painel', title, ['painel'])}
-        ${navItem('/relatorios', 'Relatorios', title, ['relatorios'])}
-        ${navItem('/leads', 'Leads', title, ['lead'])}
         ${navItem('/conversations', 'Conversas', title, ['conversa'])}
-      </section>
-      <section class="nav-group">
-        <p>Configuracao</p>
-        ${navItem('/companies', 'Empresas', title, ['empresa'])}
+        ${navItem('/leads', 'Leads', title, ['lead'])}
         ${navItem('/sdr-agents', 'SDRs', title, ['sdr'])}
-        ${navItem('/prompt-assistant', 'IA auxiliar', title, ['auxiliar de prompt'])}
+        ${navItem('/relatorios', 'Relatorios', title, ['relatorios'])}
       </section>
       <section class="nav-group">
-        <p>Diagnostico</p>
+        <p>Configuracoes</p>
+        ${navItem('/companies', 'Empresas', title, ['empresa'])}
         ${navItem('/monitoring', 'Monitor', title, ['monitor de conexao'])}
-        ${navItem('/webhook-events', 'Webhook logs', title, ['webhook'])}
-        ${navItem('/ai-runs', 'AI logs', title, ['ai runs', 'logs de ia'])}
-        ${navItem('/job-logs', 'Job logs', title, ['job'])}
+        ${navItem('/prompt-assistant', 'IA auxiliar', title, ['auxiliar de prompt'])}
+        ${navItem('/registros', 'Registros', title, ['registros'])}
       </section>
     </nav>
     <form method="post" action="/logout" class="sidebar-logout">

@@ -36,6 +36,7 @@ async function loadRepos() {
     channelLimits: (await import('../src/modules/monitoring/db-channel-limits-repository.js')).createDbChannelLimitsRepository(),
     aiRuns: (await import('../src/modules/ai/db-ai-run-repository.js')).createDbAiRunRepository(),
     jobLogs: (await import('../src/modules/jobs/db-job-log-repository.js')).createDbJobLogRepository(),
+    webhooks: (await import('../src/modules/webhooks/db-webhook-event-repository.js')).createDbWebhookEventRepository(),
   };
 }
 
@@ -331,6 +332,65 @@ dbDescribe('repositorios no Postgres', () => {
     expect(runStats[0]).not.toHaveProperty('inputMessages');
     expect(logStats[0]).toMatchObject({ status: 'failed', jobName: 'initial-outreach' });
     expect(logStats[0]).not.toHaveProperty('payload');
+  });
+
+  it('registros: pagina do mais novo para o mais velho, filtra erro e SDR, sem o prompt', async () => {
+    const { agent, lead } = await agentAndLead();
+    const run = (error: string | null) =>
+      repos.aiRuns.create({
+        sdrAgentId: agent.id,
+        leadId: lead.id,
+        conversationId: null,
+        provider: 'deepseek',
+        model: 'deepseek-v4-flash',
+        purpose: 'reply_generation',
+        inputMessages: 'prompt enorme',
+        outputText: 'ok',
+        parsedJson: '{}',
+        error,
+        promptTokens: 1,
+        completionTokens: 1,
+        totalTokens: 2,
+        promptCacheHitTokens: null,
+        latencyMs: 10,
+      });
+    await run(null);
+    await run('HTTP 500');
+    const job = (status: string, jobKey: string, sdrAgentId: string | null) =>
+      repos.jobLogs.create({
+        jobName: 'initial-outreach',
+        jobKey,
+        sdrAgentId,
+        leadId: null,
+        status,
+        attempt: 1,
+        payload: null,
+        result: null,
+        error: status === 'failed' ? 'x' : null,
+        startedAt: null,
+        finishedAt: null,
+      });
+    for (let index = 0; index < 5; index += 1) await job('completed', `ok-${index}`, agent.id);
+    await job('failed', 'falhou', agent.id);
+    await job('failed', 'sem-sdr', null);
+    await repos.webhooks.create({ sdrAgentId: agent.id, rawBody: '{}', processingStatus: 'processed' } as never);
+    await repos.webhooks.create({ sdrAgentId: agent.id, rawBody: '{}', processingStatus: 'failed', processingError: 'boom' } as never);
+
+    const runs = await repos.aiRuns.listRecent({}, 10, 0);
+    const runErrors = await repos.aiRuns.listRecent({ onlyErrors: true }, 10, 0);
+    const page1 = await repos.jobLogs.listRecent({ sdrAgentId: agent.id }, 3, 0);
+    const page2 = await repos.jobLogs.listRecent({ sdrAgentId: agent.id }, 3, 3);
+    const jobErrors = await repos.jobLogs.listRecent({ onlyErrors: true }, 10, 0);
+    const webhookErrors = await repos.webhooks.listRecent({ onlyErrors: true, sdrAgentId: agent.id }, 10, 0);
+
+    expect(runs).toHaveLength(2);
+    expect(runs[0]).not.toHaveProperty('inputMessages');
+    expect(runs[0]).not.toHaveProperty('parsedJson');
+    expect(runErrors.map((item) => item.error)).toEqual(['HTTP 500']);
+    expect(page1.map((log) => log.jobKey)).toEqual(['falhou', 'ok-4', 'ok-3']);
+    expect(page2.map((log) => log.jobKey)).toEqual(['ok-2', 'ok-1', 'ok-0']);
+    expect(jobErrors.map((log) => log.jobKey)).toEqual(['sem-sdr', 'falhou']);
+    expect(webhookErrors.map((event) => event.processingError)).toEqual(['boom']);
   });
 
   it('as migracoes estao todas no journal', () => {

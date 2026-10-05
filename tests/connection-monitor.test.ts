@@ -351,38 +351,52 @@ describe('tela do monitor', () => {
 
     const salvo = await app.inject({
       method: 'POST',
-      url: '/monitoring',
+      url: '/monitoring/aba/numero',
       headers: { cookie },
       payload: {
         isEnabled: 'on',
         uazapiBaseUrl: 'https://uazapi.test',
         uazapiInstanceTokenEncrypted: 'token-monitor',
         alertRecipients: '5519888880000',
-        repeatAlertMinutes: '30',
-        notifyOnRecovery: 'on',
         onlyActiveAgents: 'on',
       },
     });
 
-    // Salvar volta para a propria tela com o aviso (e recarregar nao reenvia o formulario).
+    // Salvar volta para a propria aba com o aviso (e recarregar nao reenvia o formulario).
     expect(salvo.statusCode).toBe(302);
-    expect(salvo.headers.location).toBe('/monitoring?salvo=1');
+    expect(salvo.headers.location).toBe('/monitoring?aba=numero&salvo=1');
+    const queda = await app.inject({
+      method: 'POST',
+      url: '/monitoring/aba/queda',
+      headers: { cookie },
+      payload: { repeatAlertMinutes: '30', notifyOnRecovery: 'on' },
+    });
+    expect(queda.headers.location).toBe('/monitoring?salvo=1');
     const settings = await monitors.getSettings();
     expect(settings?.isEnabled).toBe(true);
     expect(settings?.repeatAlertMinutes).toBe(30);
     expect(settings?.uazapiInstanceTokenEncrypted).not.toBe('token-monitor');
     expect(decryptSecret(settings?.uazapiInstanceTokenEncrypted ?? '')).toBe('token-monitor');
 
+    // Salvar a aba Numero de novo com o token em branco: o token fica, e a aba Queda nao muda.
     await app.inject({
       method: 'POST',
-      url: '/monitoring',
+      url: '/monitoring/aba/numero',
       headers: { cookie },
-      payload: { isEnabled: 'on', uazapiBaseUrl: 'https://uazapi.test', alertRecipients: '5519888880000', repeatAlertMinutes: '30' },
+      payload: { isEnabled: 'on', uazapiBaseUrl: 'https://uazapi.test', alertRecipients: '5519888880000', uazapiInstanceTokenEncrypted: '' },
     });
+    expect(decryptSecret((await monitors.getSettings())?.uazapiInstanceTokenEncrypted ?? '')).toBe('token-monitor');
+    expect((await monitors.getSettings())?.notifyOnRecovery).toBe(true);
+    expect((await monitors.getSettings())?.onlyActiveAgents).toBe(false);
+
+    // Caixa desmarcada na propria aba desliga.
+    await app.inject({ method: 'POST', url: '/monitoring/aba/queda', headers: { cookie }, payload: { repeatAlertMinutes: '30' } });
 
     const depois = await monitors.getSettings();
     expect(decryptSecret(depois?.uazapiInstanceTokenEncrypted ?? '')).toBe('token-monitor');
     expect(depois?.notifyOnRecovery).toBe(false);
+    expect(depois?.isEnabled).toBe(true);
+    expect(depois?.alertRecipients).toBe('5519888880000');
     await app.close();
   });
 

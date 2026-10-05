@@ -118,7 +118,7 @@ A abordagem pode sair em duas mensagens: a apresentacao (variante fixa ou gerada
 logo depois, no mesmo disparo e sem esperar resposta, o texto fixo de `second_message`. O
 intervalo entre as duas usa o delay de digitacao do SDR. Campo vazio = abordagem de uma
 mensagem so. Se a segunda falhar, o lead continua `initial_sent` e o erro aparece em
-`/job-logs` com a chave `initial-second-<lead>` — a primeira nunca e reenviada.
+`/registros` (aba Tarefas) com a chave `initial-second-<lead>` — a primeira nunca e reenviada.
 
 Rotas UAZAPI por SDR:
 
@@ -210,9 +210,7 @@ Webhook e conversas:
 - `GET /conversations/updates`: mesmas conversas em JSON, para a pagina se atualizar sem recarregar. Aceita os mesmos `sdr`/`chat`/`q` mais `chatsSig`/`threadSig`, as assinaturas do HTML que a tela ja mostra: quando batem, a resposta volta sem `chatsHtml`/`threadHtml` e nada e redesenhado. A pagina consulta a cada 4 segundos (so com a aba visivel e a opcao "Atualizar sozinho" ligada) e tambem a cada clique num chat, o que troca a conversa sem recarregar e sem perder a rolagem da lista.
 - `POST /conversations/:id/ia`: `acao=pausar` ou `acao=liberar`. E o unico jeito de devolver a IA a uma conversa pausada.
 - `GET /conversations/:id`: link antigo de conversa; redireciona para `GET /conversations?sdr=...&chat=...`.
-- `GET /webhook-events`: exibe logs brutos dos webhooks recebidos.
-- `GET /ai-runs`: exibe chamadas de IA com provider, modelo, proposito, tokens, latencia e erros.
-- `GET /job-logs`: exibe execucoes do scheduler com job name, status, tentativa, payload e erros.
+- `GET /registros?aba=&sdr=&erros=1&pagina=`: os tres registros numa tela so, 50 por pagina, do mais novo para o mais velho. Abre na aba `erros` (tarefas que falharam, chamadas de IA com erro e webhooks com falha, misturados por data); as outras abas sao `tarefas`, `ia` e `webhooks`. Nome de tarefa, finalidade da IA, situacao e erro aparecem em portugues; o texto cru (payload, resultado, corpo do webhook, modelo, tokens) fica em "Detalhes tecnicos". `/job-logs`, `/ai-runs` e `/webhook-events` redirecionam para a aba certa.
 - `GET /leads/:id`: exibe detalhe completo do lead com dados, chamadas de IA e jobs associados.
 
 Processamento atual do webhook:
@@ -254,10 +252,10 @@ Buffer e divisao de resposta:
 
 Monitor de conexao dos SDRs:
 
-- `GET /monitoring`: tela do monitor com o estado de cada SDR e a configuracao dos alertas.
-- `POST /monitoring`: salva a configuracao (o token do monitor e gravado criptografado; campo vazio mantem o token atual).
-- `POST /monitoring/run`: roda uma verificacao na hora.
-- `POST /monitoring/test`: manda uma mensagem de teste para os numeros cadastrados.
+- `GET /monitoring?aba=`: tela do monitor em quatro abas — `queda` (padrao: estado de cada SDR e aviso de queda), `fila`, `relatorio` e `numero` (numero que envia, destinatarios e o liga/desliga, que vale para os tres avisos).
+- `POST /monitoring/aba/:aba`: salva so os campos daquela aba e volta para ela (o token do monitor e gravado criptografado; campo vazio mantem o token atual).
+- `POST /monitoring/run`: roda uma verificacao na hora (com `Accept: application/json` responde o resultado para a propria tela).
+- `POST /monitoring/test`: manda uma mensagem de teste para os numeros cadastrados (idem).
 - `POST /monitoring/qr`: gera o QR code para parear o celular que envia os alertas (o codigo expira em segundos; clique de novo se perder).
 - `POST /monitoring/report`: envia o relatorio do dia na hora, sem esperar o horario e sem gastar o envio automatico do dia.
 - `POST /monitoring/leads`: conta a fila de cada SDR agora e avisa se alguma acabou de esvaziar.

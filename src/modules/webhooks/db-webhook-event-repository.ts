@@ -1,4 +1,4 @@
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 
 import { db } from '../../db/client.js';
 import { webhookEvents } from '../../db/schema.js';
@@ -14,6 +14,21 @@ export function createDbWebhookEventRepository(): WebhookEventRepository {
 
     async list() {
       return db.select().from(webhookEvents).orderBy(desc(webhookEvents.createdAt));
+    },
+
+    async listRecent(filter, limit, offset) {
+      return db
+        .select()
+        .from(webhookEvents)
+        .where(
+          and(
+            filter.onlyErrors ? eq(webhookEvents.processingStatus, 'failed') : undefined,
+            filter.sdrAgentId ? eq(webhookEvents.sdrAgentId, filter.sdrAgentId) : undefined,
+          ),
+        )
+        .orderBy(desc(webhookEvents.createdAt), desc(webhookEvents.id))
+        .limit(limit)
+        .offset(offset);
     },
 
     async updateProcessing(id, input) {

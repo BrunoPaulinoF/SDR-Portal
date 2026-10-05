@@ -1373,6 +1373,11 @@ form[data-inline] {
 .funnel-row strong { text-align: right; }
 @media (max-width: 640px) { .funnel-row { grid-template-columns: 1fr auto; gap: 4px 12px; } .funnel-row .bar-track { grid-column: 1 / -1; } .funnel-row > .muted { display: none; } }
 .headline-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.filter-bar-logs { grid-template-columns: minmax(220px, 320px) auto auto; justify-content: start; }
+@media (max-width: 860px) { .filter-bar-logs { grid-template-columns: 1fr; } }
+.log-table td:nth-child(5) { min-width: 240px; }
+.log-technical { white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow: auto; font-size: 0.78rem; margin: 8px 0 0; }
+
 @media (max-width: 860px) { .headline-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 `;
 

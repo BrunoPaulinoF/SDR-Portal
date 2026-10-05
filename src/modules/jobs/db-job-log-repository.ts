@@ -1,4 +1,4 @@
-import { desc, eq, gte } from 'drizzle-orm';
+import { and, desc, eq, gte } from 'drizzle-orm';
 
 import { db } from '../../db/client.js';
 import { jobLogs } from '../../db/schema.js';
@@ -34,6 +34,21 @@ export function createDbJobLogRepository(): JobLogRepository {
         })
         .from(jobLogs)
         .where(since ? gte(jobLogs.createdAt, since) : undefined);
+    },
+
+    async listRecent(filter, limit, offset) {
+      return db
+        .select()
+        .from(jobLogs)
+        .where(
+          and(
+            filter.onlyErrors ? eq(jobLogs.status, 'failed') : undefined,
+            filter.sdrAgentId ? eq(jobLogs.sdrAgentId, filter.sdrAgentId) : undefined,
+          ),
+        )
+        .orderBy(desc(jobLogs.createdAt), desc(jobLogs.id))
+        .limit(limit)
+        .offset(offset);
     },
   };
 }

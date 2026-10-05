@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import type { AiRun, NewAiRun } from '../../db/schema.js';
+import type { RecentLogFilter } from '../logs/recent-log-filter.js';
 
 export type AiRunInput = Pick<
   NewAiRun,
@@ -24,6 +25,9 @@ export type AiRunInput = Pick<
 /** O que o painel le de cada chamada de IA. `inputMessages` (o prompt inteiro) fica de fora. */
 export type AiRunStat = Pick<AiRun, 'createdAt' | 'leadId' | 'sdrAgentId' | 'error' | 'totalTokens'>;
 
+/** Uma linha da tela Registros: o prompt enviado (`inputMessages`) e o JSON interpretado ficam de fora. */
+export type AiRunListItem = Omit<AiRun, 'inputMessages' | 'parsedJson'>;
+
 export interface AiRunRepository {
   /** Quantas geracoes de resposta ja rodaram nesta conversa depois de um instante. */
   countRepliesSince(conversationId: string, since: Date): Promise<number>;
@@ -32,6 +36,8 @@ export interface AiRunRepository {
   list(): Promise<AiRun[]>;
   /** Chamadas a partir de `since` (todas com `null`), so com as colunas que o painel usa. */
   listStats(since: Date | null): Promise<AiRunStat[]>;
+  /** Uma pagina da tela Registros, do mais novo para o mais velho. */
+  listRecent(filter: RecentLogFilter, limit: number, offset: number): Promise<AiRunListItem[]>;
 }
 
 export function createMemoryAiRunRepository(seedRuns: AiRun[] = []): AiRunRepository {
@@ -84,6 +90,19 @@ export function createMemoryAiRunRepository(seedRuns: AiRun[] = []): AiRunReposi
       return [...rows.values()]
         .filter((run) => !since || run.createdAt.getTime() >= since.getTime())
         .map(({ createdAt, leadId, sdrAgentId, error, totalTokens }) => ({ createdAt, leadId, sdrAgentId, error, totalTokens }));
+    },
+
+    async listRecent(filter, limit, offset) {
+      return [...rows.values()]
+        .filter((run) => (!filter.onlyErrors || run.error !== null) && (!filter.sdrAgentId || run.sdrAgentId === filter.sdrAgentId))
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.id.localeCompare(a.id))
+        .slice(offset, offset + limit)
+        .map((run) => {
+          const item: AiRunListItem & Partial<Pick<AiRun, 'inputMessages' | 'parsedJson'>> = { ...run };
+          delete item.inputMessages;
+          delete item.parsedJson;
+          return item;
+        });
     },
   };
 }

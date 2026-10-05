@@ -54,3 +54,10 @@ levaria semanas e arriscaria o que funciona. Cada etapa sai num PR.
   do periodo (4 numeros + funil). Filtro so de periodo. Todo o resto foi para `/relatorios`,
   com os filtros completos. No menu, "Dashboard" virou "Painel" e entrou "Relatorios"; o resto
   do menu fica para a etapa D.
+- **Etapa D (05/10): feita.** Menu com cinco itens de uso diario (Painel, Conversas, Leads, SDRs,
+  Relatorios) e Configuracoes (Empresas, Monitor, IA auxiliar, Registros). Os tres registros em
+  ingles viraram a tela Registros, que abre nos erros, pagina no banco (antes cada tela lia a
+  tabela inteira, com o corpo cru de todo webhook e o prompt de toda chamada de IA) e mostra tudo
+  em portugues, com o cru recolhido. O Monitor ficou em quatro abas em vez de tres: os tres
+  avisos saem pelo mesmo numero para as mesmas pessoas, e essa configuracao comum ganhou a
+  quarta aba em vez de se repetir nas outras.

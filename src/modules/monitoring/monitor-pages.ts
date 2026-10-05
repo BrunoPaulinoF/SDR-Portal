@@ -12,7 +12,38 @@ import { defaultDailyReportTemplate } from './daily-report-message.js';
 import { defaultLeadQueueTemplate } from './lead-queue-message.js';
 import type { LeadQueueResult } from './lead-queue-monitor-service.js';
 
+/**
+ * O Monitor faz tres coisas diferentes — avisar queda do WhatsApp, avisar fila de leads no fim e
+ * mandar o relatorio do dia — e todas saem pelo mesmo numero para as mesmas pessoas. Antes era um
+ * formulario so, com 16 campos misturados; agora cada aviso tem a sua aba e o numero e os
+ * destinatarios ficam numa quarta, que vale para os tres.
+ */
+export const MONITOR_TABS = ['queda', 'fila', 'relatorio', 'numero'] as const;
+export type MonitorTab = (typeof MONITOR_TABS)[number];
+
+const MONITOR_TAB_LABELS: Record<MonitorTab, string> = {
+  queda: 'Queda do WhatsApp',
+  fila: 'Fila de leads',
+  relatorio: 'Relatorio diario',
+  numero: 'Numero e destinatarios',
+};
+
+/** Campos que cada aba salva. Os das outras abas ficam como estao gravados. */
+export const MONITOR_TAB_FIELDS: Record<MonitorTab, readonly string[]> = {
+  queda: ['repeatAlertMinutes', 'notifyOnRecovery', 'alertTemplate', 'recoveryTemplate'],
+  fila: ['leadsAlertEnabled', 'leadsAlertThreshold', 'leadsAlertTemplate'],
+  relatorio: ['dailyReportEnabled', 'dailyReportTime', 'dailyReportTemplate'],
+  numero: ['isEnabled', 'onlyActiveAgents', 'uazapiBaseUrl', 'uazapiInstanceId', 'uazapiInstanceTokenEncrypted', 'alertRecipients'],
+};
+
+export const MONITOR_CHECKBOXES = new Set(['isEnabled', 'onlyActiveAgents', 'notifyOnRecovery', 'leadsAlertEnabled', 'dailyReportEnabled']);
+
+export function resolveMonitorTab(value: unknown): MonitorTab {
+  return typeof value === 'string' && (MONITOR_TABS as readonly string[]).includes(value) ? (value as MonitorTab) : 'queda';
+}
+
 export interface MonitorPageData {
+  tab?: MonitorTab;
   settings: MonitorSettings | null;
   agents: SdrAgent[];
   states: SdrConnectionState[];
@@ -152,58 +183,125 @@ function renderLeadQueueResult(result: LeadQueueResult | undefined): string {
   </section>`;
 }
 
-export function renderMonitorPage(data: MonitorPageData): string {
+function renderTabForm(tab: MonitorTab, content: string): string {
+  return `<form method="post" action="/monitoring/aba/${tab}" class="form-grid">
+    ${content}
+    <div class="actions field-full"><button type="submit">Salvar ${escapeHtml(MONITOR_TAB_LABELS[tab])}</button></div>
+  </form>`;
+}
+
+/** Botao que roda na hora e mostra o resultado no quadro logo abaixo (`/app.js`). */
+function inlineAction(action: string, label: string, target: string): string {
+  return `<form method="post" action="${action}" data-inline-result="${target}"><button class="button button-secondary" type="submit">${escapeHtml(label)}</button></form>`;
+}
+
+function renderQuedaTab(data: MonitorPageData): string {
+  const settings = data.settings;
+  const webhookHint = data.webhookUrlHint
+    ? `<p class="muted">Alem da verificacao a cada 5 minutos, a UAZAPI avisa a queda na hora pelo webhook de cada SDR (botao <em>Configurar webhook</em> na aba WhatsApp do SDR).</p>`
+    : '<p class="muted">Sem APP_URL no ambiente a UAZAPI nao consegue avisar a queda na hora: vale so a verificacao a cada 5 minutos.</p>';
+  return `<section class="panel tab-section">
+    <h2>Como estao os WhatsApps</h2>
+    <div class="actions">${inlineAction('/monitoring/run', 'Verificar agora', 'resultado-monitor')}</div>
+    <div id="resultado-monitor" class="action-result" aria-live="polite"></div>
+    ${renderStatesTable(data)}
+  </section>
+  <section class="panel tab-section">
+    <h2>Aviso de queda</h2>
+    <p class="muted">Quando o WhatsApp de um SDR cai, quem esta na aba Numero e destinatarios recebe uma mensagem.</p>
+    ${webhookHint}
+    ${renderTabForm(
+      'queda',
+      `<div class="field">
+        <label for="repeatAlertMinutes">Repetir o aviso a cada (minutos, 0 = so na queda)</label>
+        <input id="repeatAlertMinutes" name="repeatAlertMinutes" type="number" min="0" value="${settings?.repeatAlertMinutes ?? DEFAULT_REPEAT_ALERT_MINUTES}">
+        ${settings?.repeatAlertMinutes === 0 ? '<p class="muted">Com 0, o aviso sai uma vez so: se ninguem vir, o SDR fica fora do ar em silencio. Foi assim que um SDR passou 30 dias desconectado em setembro.</p>' : ''}
+      </div>
+      <label class="checkbox-field field-full"><input type="checkbox" name="notifyOnRecovery" ${settings?.notifyOnRecovery ?? true ? 'checked' : ''}> Avisar tambem quando o WhatsApp voltar</label>
+      <div class="field field-full">
+        <label for="alertTemplate">Mensagem de queda (vazio usa o padrao)</label>
+        <textarea id="alertTemplate" name="alertTemplate" rows="7" placeholder="${escapeHtml(defaultAlertTemplate(data.portalUrl))}">${escapeHtml(settings?.alertTemplate ?? '')}</textarea>
+        <p class="muted">Marcadores: <code>{sdrs}</code> (lista com nome, hora e motivo), <code>{total}</code>, <code>{data}</code>, <code>{hora}</code>, <code>{portal}</code>.</p>
+      </div>
+      <div class="field field-full">
+        <label for="recoveryTemplate">Mensagem de volta (vazio usa o padrao)</label>
+        <textarea id="recoveryTemplate" name="recoveryTemplate" rows="6" placeholder="${escapeHtml(defaultRecoveryTemplate())}">${escapeHtml(settings?.recoveryTemplate ?? '')}</textarea>
+      </div>`,
+    )}
+  </section>`;
+}
+
+function renderFilaTab(data: MonitorPageData): string {
+  const settings = data.settings;
+  return `<section class="panel tab-section">
+    <h2>Aviso de fila no fim</h2>
+    <p class="muted">Avisa quando a fila de leads de um SDR chega no limite, para dar tempo de importar mais antes de a prospeccao parar.</p>
+    <div class="actions">${inlineAction('/monitoring/leads', 'Conferir fila agora', 'resultado-fila')}</div>
+    <div id="resultado-fila" class="action-result" aria-live="polite"></div>
+    ${renderTabForm(
+      'fila',
+      `<label class="checkbox-field field-full"><input type="checkbox" name="leadsAlertEnabled" ${settings?.leadsAlertEnabled ? 'checked' : ''}> Avisar quando a fila de um SDR acabar</label>
+      <div class="field">
+        <label for="leadsAlertThreshold">Avisar quando a fila chegar a (leads)</label>
+        <input id="leadsAlertThreshold" name="leadsAlertThreshold" type="number" min="0" value="${settings?.leadsAlertThreshold ?? 0}">
+        <p class="muted">0 avisa so quando zerar. Um numero maior avisa antes de acabar, dando tempo de importar.</p>
+      </div>
+      <div class="field field-full">
+        <label for="leadsAlertTemplate">Mensagem da fila (vazio usa o padrao)</label>
+        <textarea id="leadsAlertTemplate" name="leadsAlertTemplate" rows="5" placeholder="${escapeHtml(defaultLeadQueueTemplate(data.portalUrl))}">${escapeHtml(settings?.leadsAlertTemplate ?? '')}</textarea>
+        <p class="muted">Marcadores: <code>{sdrs}</code>, <code>{data}</code>, <code>{hora}</code>, <code>{portal}</code>.</p>
+      </div>`,
+    )}
+  </section>`;
+}
+
+function renderRelatorioTab(data: MonitorPageData): string {
+  const settings = data.settings;
+  return `<section class="panel tab-section">
+    <h2>Relatorio do fim do dia</h2>
+    <p class="muted">Uma mensagem por dia com o que cada SDR ativo fez: prospectados, responderam, passados para o time, reunioes e clientes.</p>
+    <div class="actions">${inlineAction('/monitoring/report', 'Enviar relatorio agora', 'resultado-relatorio')}</div>
+    <div id="resultado-relatorio" class="action-result" aria-live="polite"></div>
+    ${renderTabForm(
+      'relatorio',
+      `<label class="checkbox-field field-full"><input type="checkbox" name="dailyReportEnabled" ${settings?.dailyReportEnabled ? 'checked' : ''}> Enviar o relatorio todo dia</label>
+      <div class="field">
+        <label for="dailyReportTime">Hora do relatorio</label>
+        <input id="dailyReportTime" name="dailyReportTime" type="time" value="${escapeHtml(settings?.dailyReportTime ?? DEFAULT_DAILY_REPORT_TIME)}">
+        <p class="muted">Fuso do portal (${escapeHtml(data.timeZone)}). Sai na primeira verificacao depois dessa hora, uma vez por dia.${data.lastDailyReportOn ? ` Ultimo envio: ${escapeHtml(data.lastDailyReportOn)}.` : ''}</p>
+      </div>
+      <div class="field field-full">
+        <label for="dailyReportTemplate">Texto do relatorio (vazio usa o padrao)</label>
+        <textarea id="dailyReportTemplate" name="dailyReportTemplate" rows="6" placeholder="${escapeHtml(defaultDailyReportTemplate())}">${escapeHtml(settings?.dailyReportTemplate ?? '')}</textarea>
+        <p class="muted">Marcadores: <code>{sdrs}</code> (um bloco por SDR ativo), <code>{totais}</code>, <code>{data}</code>, <code>{hora}</code>, <code>{portal}</code>.</p>
+      </div>`,
+    )}
+  </section>`;
+}
+
+function renderNumeroTab(data: MonitorPageData): string {
   const settings = data.settings;
   const recipients = settings?.alertRecipients ?? '';
   const recipientCount = parseAlertRecipients(recipients).length;
   const tokenSaved = Boolean(settings?.uazapiInstanceTokenEncrypted);
-  const errorHtml = data.error ? `<div class="alert-error">${escapeHtml(data.error)}</div>` : '';
-  const noticeHtml = data.notice ? `<section class="panel"><p>${escapeHtml(data.notice)}</p></section>` : '';
-  const webhookHint = data.webhookUrlHint
-    ? `<p class="muted">O webhook <strong>connection</strong> de cada SDR ja chega em <code>${escapeHtml(data.webhookUrlHint)}</code> e dispara a verificacao daquele SDR na hora, sem esperar o tick. Use o botao <em>Configurar webhook</em> na tela do SDR para registrar os eventos na UAZAPI.</p>`
-    : '<p class="muted">Configure APP_URL no ambiente para que a UAZAPI consiga avisar as quedas por webhook, alem do tick de 5 minutos.</p>';
-
-  return renderLayout({
-    title: 'Monitor de conexao - SDR Portal',
-    body: `<main class="app-shell">
-  <header class="topbar">
-    <div>
-      <h1>Monitor de conexao</h1>
-      <p class="muted">Uma instancia WhatsApp separada vigia os numeros dos SDRs e avisa quem voce escolher quando algum cair.</p>
-    </div>
+  return `${renderMonitorQr(data.qr)}
+  <section class="panel tab-section">
+    <h2>Numero que envia e quem recebe</h2>
+    <p class="muted">Um WhatsApp separado, que nao e de nenhum SDR, manda os tres avisos para os numeros abaixo.</p>
     <div class="actions">
-      <form method="post" action="/monitoring/run" data-inline>
-        <button class="button button-secondary" type="submit">Verificar agora</button>
-      </form>
-      <form method="post" action="/monitoring/test" data-inline>
-        <button class="button button-secondary" type="submit">Enviar teste</button>
-      </form>
-      <form method="post" action="/monitoring/report" data-inline>
-        <button class="button button-secondary" type="submit">Enviar relatorio agora</button>
-      </form>
-      <form method="post" action="/monitoring/leads" data-inline>
-        <button class="button button-secondary" type="submit">Conferir fila de leads</button>
-      </form>
-      <form method="post" action="/monitoring/qr" data-inline>
-        <button class="button button-secondary" type="submit">Conectar numero do monitor</button>
-      </form>
+      <form method="post" action="/monitoring/qr"><button class="button button-secondary" type="submit">Conectar numero do monitor</button></form>
+      ${inlineAction('/monitoring/test', 'Enviar mensagem de teste', 'resultado-teste')}
     </div>
-  </header>
-  ${errorHtml}
-  ${noticeHtml}
-  ${renderRunResult(data.runResult)}
-  ${renderMonitorQr(data.qr)}
-  ${renderReportResult(data.reportResult)}
-  ${renderLeadQueueResult(data.leadQueueResult)}
-  <section class="panel">
-    <h2>Estado dos SDRs</h2>
-    ${renderStatesTable(data)}
-  </section>
-  <section class="panel">
-    <h2>Configuracao</h2>
-    ${webhookHint}
-    <form method="post" action="/monitoring" class="form-grid">
-      <label class="checkbox-field field-full"><input type="checkbox" name="isEnabled" ${settings?.isEnabled ? 'checked' : ''}> Monitor ligado</label>
+    <div id="resultado-teste" class="action-result" aria-live="polite"></div>
+    ${renderTabForm(
+      'numero',
+      `<label class="checkbox-field field-full"><input type="checkbox" name="isEnabled" ${settings?.isEnabled ? 'checked' : ''}> Monitor ligado (vale para os tres avisos)</label>
+      <label class="checkbox-field field-full"><input type="checkbox" name="onlyActiveAgents" ${settings?.onlyActiveAgents ?? true ? 'checked' : ''}> Vigiar so os SDRs ativos no portal</label>
+      <div class="field field-full">
+        <label for="alertRecipients">Numeros que recebem os avisos (um por linha)</label>
+        <textarea id="alertRecipients" name="alertRecipients" rows="4" placeholder="5519999999999">${escapeHtml(recipients)}</textarea>
+        <p class="muted">${recipientCount} numero(s) validos hoje.</p>
+      </div>
       <div class="field">
         <label for="uazapiBaseUrl">URL base da UAZAPI do monitor</label>
         <input id="uazapiBaseUrl" name="uazapiBaseUrl" value="${escapeHtml(settings?.uazapiBaseUrl ?? '')}" placeholder="https://seu-servidor.uazapi.com">
@@ -214,56 +312,45 @@ export function renderMonitorPage(data: MonitorPageData): string {
       </div>
       <div class="field">
         <label for="uazapiInstanceTokenEncrypted">Token da instancia do monitor</label>
-        <input id="uazapiInstanceTokenEncrypted" name="uazapiInstanceTokenEncrypted" type="password" autocomplete="off" placeholder="${tokenSaved ? 'Token salvo - preencha so para trocar' : 'Token da instancia que envia os alertas'}">
-      </div>
-      <div class="field">
-        <label for="repeatAlertMinutes">Repetir o alerta a cada (minutos, 0 = so na queda)</label>
-        <input id="repeatAlertMinutes" name="repeatAlertMinutes" type="number" min="0" value="${settings?.repeatAlertMinutes ?? DEFAULT_REPEAT_ALERT_MINUTES}">
-        ${settings?.repeatAlertMinutes === 0 ? '<p class="muted">Com 0, o aviso sai uma vez so: se ninguem vir, o SDR fica fora do ar em silencio. Foi assim que um SDR passou 30 dias desconectado em setembro.</p>' : ''}
-      </div>
-      <div class="field field-full">
-        <label for="alertRecipients">Numeros que recebem o alerta (um por linha)</label>
-        <textarea id="alertRecipients" name="alertRecipients" rows="4" placeholder="5519999999999">${escapeHtml(recipients)}</textarea>
-        <p class="muted">${recipientCount} numero(s) validos hoje.</p>
-      </div>
-      <label class="checkbox-field field-full"><input type="checkbox" name="notifyOnRecovery" ${settings?.notifyOnRecovery ?? true ? 'checked' : ''}> Avisar tambem quando o SDR voltar</label>
-      <label class="checkbox-field field-full"><input type="checkbox" name="onlyActiveAgents" ${settings?.onlyActiveAgents ?? true ? 'checked' : ''}> Vigiar apenas SDRs ligados no portal</label>
-      <div class="field field-full">
-        <label for="alertTemplate">Mensagem de queda (vazio usa o padrao)</label>
-        <textarea id="alertTemplate" name="alertTemplate" rows="7" placeholder="${escapeHtml(defaultAlertTemplate(data.portalUrl))}">${escapeHtml(settings?.alertTemplate ?? '')}</textarea>
-        <p class="muted">Marcadores: <code>{sdrs}</code> (lista com nome, hora e motivo), <code>{total}</code>, <code>{data}</code>, <code>{hora}</code>, <code>{portal}</code>.</p>
-      </div>
-      <label class="checkbox-field field-full"><input type="checkbox" name="leadsAlertEnabled" ${settings?.leadsAlertEnabled ? 'checked' : ''}> Avisar quando a fila de leads de um SDR acabar</label>
-      <div class="field">
-        <label for="leadsAlertThreshold">Avisar quando a fila chegar a (leads)</label>
-        <input id="leadsAlertThreshold" name="leadsAlertThreshold" type="number" min="0" value="${settings?.leadsAlertThreshold ?? 0}">
-        <p class="muted">0 avisa so quando zerar. Um numero maior avisa antes de acabar, dando tempo de importar.</p>
-      </div>
-      <div class="field field-full">
-        <label for="leadsAlertTemplate">Mensagem da fila (vazio usa o padrao)</label>
-        <textarea id="leadsAlertTemplate" name="leadsAlertTemplate" rows="5" placeholder="${escapeHtml(defaultLeadQueueTemplate(data.portalUrl))}">${escapeHtml(settings?.leadsAlertTemplate ?? '')}</textarea>
-        <p class="muted">Marcadores: <code>{sdrs}</code>, <code>{data}</code>, <code>{hora}</code>, <code>{portal}</code>.</p>
-      </div>
-      <label class="checkbox-field field-full"><input type="checkbox" name="dailyReportEnabled" ${settings?.dailyReportEnabled ? 'checked' : ''}> Enviar relatorio no fim do dia (SDRs ativos: prospectados, responderam, passados para o time, reunioes e clientes)</label>
-      <div class="field">
-        <label for="dailyReportTime">Hora do relatorio</label>
-        <input id="dailyReportTime" name="dailyReportTime" type="time" value="${escapeHtml(settings?.dailyReportTime ?? DEFAULT_DAILY_REPORT_TIME)}">
-        <p class="muted">Fuso do portal (${escapeHtml(data.timeZone)}). Sai na primeira verificacao depois dessa hora, uma vez por dia.${data.lastDailyReportOn ? ` Ultimo envio: ${escapeHtml(data.lastDailyReportOn)}.` : ''}</p>
-      </div>
-      <div class="field field-full">
-        <label for="dailyReportTemplate">Texto do relatorio (vazio usa o padrao)</label>
-        <textarea id="dailyReportTemplate" name="dailyReportTemplate" rows="6" placeholder="${escapeHtml(defaultDailyReportTemplate())}">${escapeHtml(settings?.dailyReportTemplate ?? '')}</textarea>
-        <p class="muted">Marcadores: <code>{sdrs}</code> (um bloco por SDR ativo), <code>{totais}</code>, <code>{data}</code>, <code>{hora}</code>, <code>{portal}</code>.</p>
-      </div>
-      <div class="field field-full">
-        <label for="recoveryTemplate">Mensagem de volta (vazio usa o padrao)</label>
-        <textarea id="recoveryTemplate" name="recoveryTemplate" rows="6" placeholder="${escapeHtml(defaultRecoveryTemplate())}">${escapeHtml(settings?.recoveryTemplate ?? '')}</textarea>
-      </div>
-      <div class="actions field-full">
-        <button type="submit">Salvar</button>
-      </div>
-    </form>
-  </section>
+        <input id="uazapiInstanceTokenEncrypted" name="uazapiInstanceTokenEncrypted" type="password" autocomplete="off" placeholder="${tokenSaved ? 'Token salvo - preencha so para trocar' : 'Token da instancia que envia os avisos'}">
+      </div>`,
+    )}
+  </section>`;
+}
+
+export function renderMonitorPage(data: MonitorPageData): string {
+  const tab = data.tab ?? 'queda';
+  const settings = data.settings;
+  const errorHtml = data.error ? `<div class="alert-error">${escapeHtml(data.error)}</div>` : '';
+  const noticeHtml = data.notice ? `<section class="panel"><p>${escapeHtml(data.notice)}</p></section>` : '';
+  const offNotice =
+    !settings?.isEnabled && tab !== 'numero'
+      ? `<section class="panel"><p class="alert-error">O monitor esta desligado: nenhum dos tres avisos sai. Ligue na aba <a href="/monitoring?aba=numero">Numero e destinatarios</a>.</p></section>`
+      : '';
+  const tabs = MONITOR_TABS.map(
+    (item) =>
+      `<a class="tab${item === tab ? ' tab-active' : ''}" href="/monitoring${item === 'queda' ? '' : `?aba=${item}`}"${item === tab ? ' aria-current="page"' : ''}>${MONITOR_TAB_LABELS[item]}</a>`,
+  ).join('');
+  const content =
+    tab === 'fila' ? renderFilaTab(data) : tab === 'relatorio' ? renderRelatorioTab(data) : tab === 'numero' ? renderNumeroTab(data) : renderQuedaTab(data);
+
+  return renderLayout({
+    title: 'Monitor de conexao - SDR Portal',
+    body: `<main class="app-shell">
+  <header class="topbar">
+    <div>
+      <h1>Monitor</h1>
+      <p class="muted">Avisa pelo WhatsApp quando um SDR cai, quando a fila de leads acaba e manda o resumo do dia.</p>
+    </div>
+  </header>
+  <nav class="tabs" aria-label="Partes do monitor">${tabs}</nav>
+  ${errorHtml}
+  ${noticeHtml}
+  ${offNotice}
+  ${renderRunResult(data.runResult)}
+  ${renderReportResult(data.reportResult)}
+  ${renderLeadQueueResult(data.leadQueueResult)}
+  ${content}
 </main>`,
   });
 }
