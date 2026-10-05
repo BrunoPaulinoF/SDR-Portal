@@ -49,3 +49,8 @@ levaria semanas e arriscaria o que funciona. Cada etapa sai num PR.
   Conectar ganharam as mesmas abas; a lista de SDRs virou cartoes. A rota antiga que salvava
   o formulario inteiro (`POST /sdr-agents/:id`) saiu: nada mais a usava, e um POST parcial
   nela apagava o que nao viesse.
+- **Etapa C (05/10): feita.** O `/dashboard` virou o Painel: "Precisa de voce agora" (cada aviso
+  com o botao para resolver; o que e so informacao saiu), um cartao por SDR ativo e o resultado
+  do periodo (4 numeros + funil). Filtro so de periodo. Todo o resto foi para `/relatorios`,
+  com os filtros completos. No menu, "Dashboard" virou "Painel" e entrou "Relatorios"; o resto
+  do menu fica para a etapa D.

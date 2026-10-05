@@ -1,5 +1,14 @@
 import { escapeHtml, renderLayout } from '../web/html.js';
-import { leadStatusOptions, pendingLeadLowThreshold, periodOptions, stageOptions, type DashboardDispatchRow, type DashboardViewModel } from './dashboard-view-model.js';
+import {
+  leadStatusOptions,
+  pendingLeadLowThreshold,
+  periodOptions,
+  stageOptions,
+  type DashboardAction,
+  type DashboardDispatchRow,
+  type DashboardSdrCard,
+  type DashboardViewModel,
+} from './dashboard-view-model.js';
 
 function renderOption(value: string, label: string, selected: string): string {
   return `<option value="${escapeHtml(value)}"${value === selected ? ' selected' : ''}>${escapeHtml(label)}</option>`;
@@ -46,7 +55,7 @@ function renderMetricCards(model: DashboardViewModel): string {
 
 function renderFilters(model: DashboardViewModel): string {
   return `<section class="panel dashboard-filters">
-    <form method="get" action="/dashboard" class="form-grid">
+    <form method="get" action="/relatorios" class="form-grid">
       <div class="field">
         <label for="companyId">Empresa</label>
         <select id="companyId" name="companyId">${renderCompanyOptions(model)}</select>
@@ -76,20 +85,17 @@ function renderFilters(model: DashboardViewModel): string {
       </div>
       <div class="actions field-full">
         <button type="submit">Aplicar filtros</button>
-        <a class="button button-secondary" href="/dashboard">Limpar</a>
+        <a class="button button-secondary" href="/relatorios">Limpar</a>
       </div>
     </form>
   </section>`;
 }
 
-function renderAlerts(model: DashboardViewModel): string {
-  if (!model.alerts.length) {
-    return '<section class="empty-state"><h2>Nenhum alerta operacional</h2><p class="muted">Nao ha bloqueios, erros ou follow-ups vencidos no filtro atual.</p></section>';
-  }
-
+function renderNotes(model: DashboardViewModel): string {
+  if (!model.notes.length) return '';
   return `<section class="panel">
-    <div class="section-heading"><h2>Alertas inteligentes</h2><p class="muted">Pontos que merecem atencao agora.</p></div>
-    <div class="alert-list">${model.alerts.map((alert) => `<div>${escapeHtml(alert)}</div>`).join('')}</div>
+    <div class="section-heading"><h2>Avisos do periodo</h2><p class="muted">So para informacao. O que pede acao fica no Painel.</p></div>
+    <div class="alert-list">${model.notes.map((note) => `<div>${escapeHtml(note)}</div>`).join('')}</div>
   </section>`;
 }
 
@@ -210,20 +216,140 @@ function renderCompanyTable(model: DashboardViewModel): string {
   </section>`;
 }
 
+/** Hoje / 7 dias / 30 dias / Tudo: o unico filtro do Painel. O resto fica em Relatorios. */
+function renderPeriodChips(model: DashboardViewModel): string {
+  return `<nav class="period-chips" aria-label="Periodo">${periodOptions
+    .map(
+      (option) =>
+        `<a class="chip${option.value === model.filters.period ? ' chip-active' : ''}" href="/dashboard?period=${option.value}"${option.value === model.filters.period ? ' aria-current="page"' : ''}>${escapeHtml(option.label)}</a>`,
+    )
+    .join('')}</nav>`;
+}
+
+function renderAction(action: DashboardAction): string {
+  const items = action.items?.length
+    ? `<p class="action-links">${action.items.map((item) => `<a href="${escapeHtml(item.href)}">${escapeHtml(item.label)}</a>`).join('')}</p>`
+    : '';
+  return `<article class="action-item action-${action.tone}">
+    <div>
+      <strong>${escapeHtml(action.title)}</strong>
+      <p class="muted">${escapeHtml(action.detail)}</p>
+      ${items}
+    </div>
+    <a class="button${action.tone === 'urgent' ? '' : ' button-secondary'}" href="${escapeHtml(action.href)}">${escapeHtml(action.label)}</a>
+  </article>`;
+}
+
+function renderNeedsYou(model: DashboardViewModel): string {
+  if (!model.actions.length) {
+    return `<section class="panel needs-you needs-you-ok">
+      <h2>Precisa de voce agora</h2>
+      <p>✓ Tudo certo. Nenhum lead esperando, nenhum WhatsApp fora do ar e nenhuma fila no fim.</p>
+    </section>`;
+  }
+  const urgent = model.actions.filter((action) => action.tone === 'urgent').length;
+  return `<section class="panel needs-you">
+    <div class="section-heading">
+      <h2>Precisa de voce agora</h2>
+      <p class="muted">${model.actions.length} item(ns)${urgent > 0 ? `, ${urgent} urgente(s)` : ''}. Cada um tem o botao para resolver.</p>
+    </div>
+    <div class="action-list">${model.actions.map(renderAction).join('')}</div>
+  </section>`;
+}
+
+function renderSdrCard(card: DashboardSdrCard): string {
+  return `<article class="panel sdr-card">
+    <header class="sdr-card-head">
+      <div>
+        <h3><a href="/sdr-agents/${escapeHtml(card.agentId)}/edit">${escapeHtml(card.name)}</a></h3>
+        <p class="muted">${escapeHtml(card.companyName)}</p>
+      </div>
+      <span class="status-pill ${dispatchStatusClass(card.status)}">${escapeHtml(card.statusLabel)}</span>
+    </header>
+    <p class="muted sdr-card-next">${escapeHtml(card.nextLabel)}</p>
+    <dl class="sdr-card-stats sdr-card-stats-4">
+      <div><dt>WhatsApp</dt><dd class="summary-${card.whatsappTone}">${escapeHtml(card.whatsappLabel)}</dd></div>
+      <div><dt>Abordagens hoje</dt><dd>${escapeHtml(card.sentLabel)}</dd></div>
+      <div><dt>Fila</dt><dd class="${card.pending < pendingLeadLowThreshold ? 'summary-bad' : ''}">${card.pending}</dd></div>
+      <div><dt>Follow-ups hoje</dt><dd>${card.followupsToday}</dd></div>
+    </dl>
+    <div class="actions"><a class="button button-secondary" href="/sdr-agents/${escapeHtml(card.agentId)}/edit">Abrir</a></div>
+  </article>`;
+}
+
+function renderSdrCards(model: DashboardViewModel): string {
+  const cards = model.sdrCards.length
+    ? `<div class="sdr-cards">${model.sdrCards.map(renderSdrCard).join('')}</div>`
+    : '<p class="muted">Nenhum SDR ativo. <a href="/sdr-agents">Ver todos os SDRs</a>.</p>';
+  return `<section class="page-section">
+    <div class="section-heading"><h2>SDRs agora</h2><p class="muted">Como cada SDR ativo esta neste momento. <a href="/sdr-agents">Todos os SDRs</a></p></div>
+    ${cards}
+  </section>`;
+}
+
+function renderResults(model: DashboardViewModel): string {
+  const tiles = model.headline
+    .map(
+      (item) =>
+        `<div class="summary-card"><span class="muted">${escapeHtml(item.label)}</span><strong>${escapeHtml(item.value)}</strong><span class="muted">${escapeHtml(item.help)}</span></div>`,
+    )
+    .join('');
+  const funnel = model.cohortRows
+    .map(
+      (row) => `<div class="funnel-row">
+        <span>${escapeHtml(row.label)}</span>
+        <div class="bar-track"><span style="width:${row.percentOfBase}%"></span></div>
+        <strong>${row.count}</strong>
+        <span class="muted">${row.percentOfPrevious === null ? '' : `${row.percentOfPrevious}% da etapa anterior`}</span>
+      </div>`,
+    )
+    .join('');
+  return `<section class="page-section">
+    <div class="section-heading">
+      <h2>Resultado · ${escapeHtml(model.periodLabel)}</h2>
+      <p class="muted">Dos leads abordados no periodo, ate onde cada um chegou. <a href="/relatorios?period=${escapeHtml(model.filters.period)}">Ver relatorio completo</a></p>
+    </div>
+    <div class="summary-grid headline-grid">${tiles}</div>
+    <div class="panel funnel-compact spacing-top">${funnel}</div>
+  </section>`;
+}
+
+/** Painel: o que precisa de alguem agora, cada SDR em uma linha de cartoes e o resultado do periodo. */
 export function renderDashboardPage(model: DashboardViewModel): string {
   return renderLayout({
-    title: 'Dashboard - SDR Portal',
+    title: 'Painel - SDR Portal',
     body: `<main class="app-shell dashboard-shell">
   <header class="topbar">
     <div>
-      <h1>Dashboard</h1>
-      <p class="muted">Dados reais da operacao. Periodo: ${escapeHtml(model.periodLabel)}. Logado como ${escapeHtml(model.userLabel)}.</p>
+      <h1>Painel</h1>
+      <p class="muted">Logado como ${escapeHtml(model.userLabel)}.</p>
     </div>
+    <div class="actions">${renderPeriodChips(model)}<a class="button button-secondary" href="/relatorios?period=${escapeHtml(model.filters.period)}">Relatorios</a></div>
+  </header>
+
+  ${renderNeedsYou(model)}
+  ${renderSdrCards(model)}
+  ${renderResults(model)}
+</main>`,
+  });
+}
+
+/** Relatorios: tudo o que o painel antigo mostrava, com os filtros completos. */
+export function renderReportsPage(model: DashboardViewModel): string {
+  return renderLayout({
+    title: 'Relatorios - SDR Portal',
+    body: `<main class="app-shell dashboard-shell">
+  <header class="topbar">
+    <div>
+      <h1>Relatorios</h1>
+      <p class="muted">Numeros detalhados da operacao. Periodo: ${escapeHtml(model.periodLabel)}.</p>
+    </div>
+    <div class="actions"><a class="button button-secondary" href="/dashboard?period=${escapeHtml(model.filters.period)}">Voltar ao painel</a></div>
   </header>
 
   ${renderFilters(model)}
   ${renderMetricCards(model)}
-  ${renderAlerts(model)}
+  ${renderNotes(model)}
   ${renderDispatchTable(model)}
   ${renderChannelHealth(model)}
   ${renderCohortFunnel(model)}

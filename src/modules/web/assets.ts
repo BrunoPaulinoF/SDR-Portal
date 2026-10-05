@@ -1346,6 +1346,34 @@ form[data-inline] {
 .sdr-card-stats dd { margin: 2px 0 0; font-weight: 700; }
 .sdr-card .actions { margin-top: auto; }
 .sdr-card .alert-error { margin: 0; }
+
+.period-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { padding: 8px 14px; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--card); color: var(--muted); font-weight: 600; text-decoration: none; }
+.chip:hover { color: var(--text); }
+.chip-active, .chip-active:hover { background: var(--primary-soft); border-color: var(--primary); color: var(--primary-dark); }
+.needs-you { margin-bottom: 28px; display: grid; gap: 14px; }
+.needs-you h2 { margin: 0; }
+.needs-you-ok { border-color: #abefc6; background: #f6fef9; }
+.needs-you-ok p { margin: 0; color: #067647; font-weight: 600; }
+.action-list { display: grid; gap: 10px; }
+.action-item { display: flex; gap: 16px; justify-content: space-between; align-items: center; padding: 14px 16px; border: 1px solid var(--border); border-left-width: 4px; border-radius: var(--radius-sm); background: var(--surface-muted); }
+.action-item p { margin: 4px 0 0; }
+.action-item .button { flex: none; }
+.action-urgent { border-left-color: #d92d20; background: var(--danger-bg); }
+.action-attention { border-left-color: #f79009; background: #fffaeb; }
+.action-links { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+@media (max-width: 640px) { .action-item { flex-direction: column; align-items: flex-start; } }
+.sdr-card-head h3 { margin: 0; font-size: 1.1rem; }
+.sdr-card-head h3 a { color: inherit; text-decoration: none; }
+.sdr-card-next { margin: 0; }
+.sdr-card-stats-4 { grid-template-columns: repeat(2, 1fr); }
+.funnel-compact { display: grid; gap: 10px; }
+.funnel-row { display: grid; grid-template-columns: minmax(130px, 170px) 1fr 48px minmax(0, 190px); gap: 12px; align-items: center; }
+.funnel-row .bar-track { width: 100%; margin: 0; }
+.funnel-row strong { text-align: right; }
+@media (max-width: 640px) { .funnel-row { grid-template-columns: 1fr auto; gap: 4px 12px; } .funnel-row .bar-track { grid-column: 1 / -1; } .funnel-row > .muted { display: none; } }
+.headline-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 860px) { .headline-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 `;
 
 export function registerAssetsRoutes(app: FastifyInstance): void {

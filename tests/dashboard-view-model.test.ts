@@ -134,14 +134,15 @@ describe('dashboard stall detection', () => {
     expect(model.dispatchRows[0]?.statusLabel).toBe('Parado');
     expect(model.dispatchRows[0]?.status).toBe('blocked');
     expect(model.dispatchRows[0]?.detail).toContain('Conectar');
-    expect(model.alerts[0]).toContain('SDR parado sem enviar: Francielly');
+    expect(model.actions[0]).toMatchObject({ tone: 'urgent', title: 'Francielly parou de enviar', label: 'Ver WhatsApp' });
+    expect(model.actions[0]?.href).toMatch(/\/sdr-agents\/.+\/edit\?aba=whatsapp$/);
   });
 
   it('nao acusa parada dentro da folga do piso', async () => {
     const model = await buildModel(60);
 
     expect(model.dispatchRows[0]?.statusLabel).toBe('Pronto');
-    expect(model.alerts.some((alert) => alert.includes('parado'))).toBe(false);
+    expect(model.actions.some((action) => action.title.includes('parou de enviar'))).toBe(false);
   });
 
   // Cooldown longo nao pode virar alarme sozinho: o corte anda junto com ele.
@@ -274,7 +275,7 @@ describe('dashboard: resposta de gente e capacidade do dia', () => {
       sdrAgents: await scenario.sdrAgentRepository.list(),
       userLabel: 'Admin',
     });
-    return model.alerts;
+    return model.actions.map((action) => action.title);
   }
 
   // Janela curta com cooldown longo nunca chega ao limite: sem o aviso, o SDR parece "sem fila".
@@ -358,25 +359,30 @@ describe('alertas de lead com interesse', () => {
   it('avisa do lead parado na oferta de handoff ha mais de duas horas', async () => {
     const model = await buildModel({ minutesSinceActivity: 6 * 60 });
 
-    expect(model.alerts.join(' ')).toContain('esperando ha mais de 2h na oferta de handoff: Fit013 Marmitas');
+    const action = model.actions.find((item) => item.title.includes('esperando ha mais de 2h na oferta de handoff'));
+    expect(action?.tone).toBe('urgent');
+    expect(action?.items?.map((item) => item.label)).toEqual(['Fit013 Marmitas']);
+    expect(action?.items?.[0]?.href).toMatch(/^\/leads\/.+/);
   });
 
   it('esquece a oferta velha: alerta que nunca sai da tela vira paisagem', async () => {
     const model = await buildModel({ minutesSinceActivity: 20 * 24 * 60 });
 
-    expect(model.alerts.join(' ')).not.toContain('oferta de handoff');
+    expect(model.actions.some((action) => action.title.includes('oferta de handoff'))).toBe(false);
   });
 
   it('nao avisa enquanto a oferta ainda e recente', async () => {
     const model = await buildModel({ minutesSinceActivity: 30 });
 
-    expect(model.alerts.join(' ')).not.toContain('oferta de handoff');
+    expect(model.actions.some((action) => action.title.includes('oferta de handoff'))).toBe(false);
   });
 
   it('avisa quando o aviso de handoff nao chegou a ninguem', async () => {
     const model = await buildModel({ minutesSinceActivity: 30, failedNotice: true });
 
-    expect(model.alerts.join(' ')).toContain('1 aviso(s) de handoff nao chegaram a quem atende (Fit013 Marmitas)');
+    const action = model.actions.find((item) => item.title === '1 aviso(s) de handoff nao chegaram a quem atende');
+    expect(action).toMatchObject({ tone: 'urgent', href: '/job-logs' });
+    expect(action?.items?.map((item) => item.label)).toEqual(['Fit013 Marmitas']);
   });
 });
 

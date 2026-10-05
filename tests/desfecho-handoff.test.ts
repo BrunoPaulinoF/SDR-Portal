@@ -154,11 +154,14 @@ describe('painel cobra o desfecho', () => {
   }
 
   it('avisa do handoff de dias atras sem nada marcado', async () => {
-    expect((await model(5)).alerts.join(' ')).toContain('1 handoff(s) de mais de 3 dias sem desfecho marcado: Fit013 Marmitas');
+    const action = (await model(5)).actions.find((item) => item.title === '1 handoff(s) de mais de 3 dias sem desfecho marcado');
+    expect(action).toMatchObject({ tone: 'attention', label: 'Abrir o lead' });
+    expect(action?.items?.map((item) => item.label)).toEqual(['Fit013 Marmitas']);
   });
 
   it('nao cobra quem ja tem desfecho, nem o handoff de ontem', async () => {
-    expect((await model(5, { meetingAt: new Date() })).alerts.join(' ')).not.toContain('sem desfecho');
-    expect((await model(1)).alerts.join(' ')).not.toContain('sem desfecho');
+    const titles = async (...args: Parameters<typeof model>) => (await model(...args)).actions.map((action) => action.title).join(' ');
+    expect(await titles(5, { meetingAt: new Date() })).not.toContain('sem desfecho');
+    expect(await titles(1)).not.toContain('sem desfecho');
   });
 });

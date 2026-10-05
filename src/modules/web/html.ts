@@ -29,7 +29,8 @@ function renderAppNavigation(title: string): string {
     <nav class="nav-groups" aria-label="Menu principal">
       <section class="nav-group">
         <p>Operacao</p>
-        ${navItem('/dashboard', 'Dashboard', title, ['dashboard'])}
+        ${navItem('/dashboard', 'Painel', title, ['painel'])}
+        ${navItem('/relatorios', 'Relatorios', title, ['relatorios'])}
         ${navItem('/leads', 'Leads', title, ['lead'])}
         ${navItem('/conversations', 'Conversas', title, ['conversa'])}
       </section>
