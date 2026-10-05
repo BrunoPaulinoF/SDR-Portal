@@ -346,7 +346,8 @@ describe('limites e aquecimento na tela e no relatorio', () => {
       userLabel: 'teste',
     });
 
-    expect(model.alerts.join(' ')).toContain('WhatsApp proibindo conversa nova: Mariana ate 02/10');
+    const action = model.actions.find((item) => item.title.startsWith('WhatsApp proibindo conversa nova: Mariana ate 02/10'));
+    expect(action?.href).toBe(`/sdr-agents/${agent.id}/edit?aba=envio`);
     expect(model.channelRows[0]?.newChatsLabel).toContain('Bloqueado ate 02/10');
   });
 

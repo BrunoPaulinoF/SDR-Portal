@@ -130,6 +130,9 @@ describe('painel mostra a saude do WhatsApp', () => {
       sendWindowStart: '00:00',
       sendWindowEnd: '23:59',
       sendDaysOfWeek: '0,1,2,3,4,5,6',
+      // Com instancia: sem ela o aviso seria "sem WhatsApp configurado", nao "fora do ar".
+      uazapiBaseUrl: 'https://uazapi.test',
+      uazapiInstanceTokenEncrypted: encryptSecret('token'),
     });
     const now = new Date('2026-10-02T12:00:00.000Z');
     const connectionEvents: SdrConnectionEvent[] = [
@@ -153,6 +156,10 @@ describe('painel mostra a saude do WhatsApp', () => {
 
     expect(model.channelRows[0]?.connectedLabel).toBe('57%');
     expect(model.channelRows[0]?.downNowLabel).toBe('3d');
-    expect(model.alerts.join(' ')).toContain('Mariana (57%, fora ha 3d)');
+    // Fora do ar agora: o aviso e o de "fora do ar", com o botao de conectar, e nao repete o de meta.
+    const titles = model.actions.map((action) => action.title);
+    expect(titles).toContain('WhatsApp de Mariana fora do ar ha 3d');
+    expect(titles.some((title) => title.includes('conectado so'))).toBe(false);
+    expect(model.actions.find((action) => action.title.startsWith('WhatsApp de Mariana fora'))?.href).toMatch(/\/conectar$/);
   });
 });

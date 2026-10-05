@@ -394,9 +394,27 @@ describe('auth routes', () => {
     });
     const sessionCookie = await login();
 
-    const response = await app.inject({
+    // O Painel: o que pede acao, os SDRs agora e o resultado do periodo.
+    const painel = await app.inject({
       method: 'GET',
       url: '/dashboard?period=7d',
+      cookies: { sdr_portal_session: sessionCookie },
+    });
+
+    expect(painel.statusCode).toBe(200);
+    expect(painel.body).toContain('Precisa de voce agora');
+    expect(painel.body).toContain('Kyane tem so 1 lead(s) na fila');
+    expect(painel.body).toContain('href="/leads/import">Importar leads</a>');
+    expect(painel.body).toContain('SDRs agora');
+    expect(painel.body).toContain(`/sdr-agents/${agent.id}/edit`);
+    expect(painel.body).toContain('Abordados');
+    expect(painel.body).toContain('Viraram cliente');
+    expect(painel.body).not.toContain('Proximos disparos por SDR');
+
+    // O detalhe que saiu do Painel continua em Relatorios.
+    const response = await app.inject({
+      method: 'GET',
+      url: '/relatorios?period=7d',
       cookies: { sdr_portal_session: sessionCookie },
     });
 
@@ -410,7 +428,6 @@ describe('auth routes', () => {
     expect(response.body).toContain('Tel. inexistente');
     expect(response.body).toContain('Proximos disparos por SDR');
     expect(response.body).toContain('Pendentes');
-    expect(response.body).toContain('1 SDR(s) com menos de 100 leads pendentes');
     expect(response.body).toContain('abaixo de 100');
     expect(response.body).toContain('Restaurante Pendente');
     expect(response.body).toContain(`/leads/${pendingLead.id}`);

@@ -43,10 +43,6 @@ function lastActivityAt(lead: Lead): Date {
   return times.length > 0 ? new Date(Math.max(...times.map((value) => value.getTime()))) : lead.updatedAt;
 }
 
-function namesPreview(names: string[], max = 4): string {
-  return names.length > max ? `${names.slice(0, max).join(', ')} e mais ${names.length - max}` : names.join(', ');
-}
-
 /** Um SDR liberado para enviar e parado por mais que isto nao esta esperando: esta preso. */
 function stalledAfterMinutes(maxCooldownMinutes: number): number {
   return Math.max(stalledDispatchMinutes, maxCooldownMinutes * 2);
@@ -68,6 +64,7 @@ export interface DashboardMetric {
 }
 
 export interface DashboardDispatchRow {
+  agentId: string;
   companyName: string;
   detail: string;
   etaLabel: string;
@@ -120,6 +117,7 @@ export interface DashboardCompanyRow {
 
 /** Saude do WhatsApp de um SDR nos ultimos 7 dias, so no horario de envio. */
 export interface DashboardChannelRow {
+  agentId: string;
   sdrName: string;
   /** "93%" ou "-" sem historico. */
   connectedLabel: string;
@@ -135,8 +133,53 @@ export interface DashboardChannelRow {
   detail: string;
 }
 
+/**
+ * Um aviso de "Precisa de voce agora": so entra o que pede alguem fazer alguma coisa, e cada um
+ * leva o botao para o lugar onde se resolve. Antes eram 13 frases soltas na mesma caixa, com
+ * "2 SDRs prontos" (informacao) do lado de "WhatsApp caiu" (urgencia), e nenhuma dizia onde clicar.
+ */
+export interface DashboardAction {
+  /** `urgent`: algo parado ou alguem esperando agora. `attention`: vai virar problema se ficar. */
+  tone: 'urgent' | 'attention';
+  /** O que esta acontecendo, em uma frase. */
+  title: string;
+  /** O que fazer. */
+  detail: string;
+  href: string;
+  label: string;
+  /** Leads ou SDRs citados, cada um com o proprio link. */
+  items?: Array<{ label: string; href: string }>;
+}
+
+/** Cartao de um SDR no painel: como ele esta agora. */
+export interface DashboardSdrCard {
+  agentId: string;
+  name: string;
+  companyName: string;
+  status: DashboardDispatchRow['status'];
+  statusLabel: string;
+  /** Quando sai a proxima abordagem e por que. */
+  nextLabel: string;
+  whatsappLabel: string;
+  whatsappTone: 'ok' | 'bad' | 'neutral';
+  sentLabel: string;
+  pending: number;
+  followupsToday: number;
+}
+
+/** Um dos 4 numeros do periodo, tirados da mesma safra do funil para os dois nao divergirem. */
+export interface DashboardHeadline {
+  label: string;
+  value: string;
+  help: string;
+}
+
 export interface DashboardViewModel {
-  alerts: string[];
+  actions: DashboardAction[];
+  /** Avisos so informativos (contagens, taxas): ficam em Relatorios. */
+  notes: string[];
+  headline: DashboardHeadline[];
+  sdrCards: DashboardSdrCard[];
   channelRows: DashboardChannelRow[];
   cohortLost: number;
   cohortRows: DashboardCohortRow[];
@@ -438,6 +481,7 @@ function buildDispatchRow(
   const maxCooldown = Math.max(agent.initialCooldownMinMinutes, agent.initialCooldownMaxMinutes);
   const todayLimit = dailyInitialLimit(agent, now);
   const base: Omit<DashboardDispatchRow, 'detail' | 'etaLabel' | 'status' | 'statusLabel'> = {
+    agentId: agent.id,
     companyName: company?.name ?? '-',
     followupsDue,
     followupsSentToday,
@@ -623,7 +667,6 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
   );
   const readyCount = dispatchRows.filter((row) => row.statusLabel === 'Pronto').length;
   const blockedCount = dispatchRows.filter((row) => row.status === 'blocked').length;
-  const lowPendingCount = dispatchRows.filter((row) => row.pendingCount < pendingLeadLowThreshold).length;
   const statusCounts = new Map<string, number>();
   const stageCounts = new Map<string, number>();
   for (const lead of scopedLeads) {
@@ -671,12 +714,6 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
     })
     .filter((row) => row.totalSdrs > 0 || row.leadsTotal > 0)
     .sort((a, b) => b.leadsTotal - a.leadsTotal || a.companyName.localeCompare(b.companyName));
-  const stalledSdrs = dispatchRows.filter((row) => row.statusLabel === 'Parado').map((row) => row.sdrName);
-  // Limite diario acima do que a janela comporta e limite que nunca chega: quem segura o volume
-  // passa a ser o cooldown, e a tela mostraria "0/40" para sempre sem dizer por que.
-  const overCapacitySdrs = scopedAgents
-    .filter((agent) => agent.isActive && dailySendCapacity(agent) < dailyInitialLimit(agent, now).limit)
-    .map((agent) => `${agent.displayName || agent.name} (~${dailySendCapacity(agent)}/${dailyInitialLimit(agent, now).limit})`);
   const stalledHandoffOffers = scopedLeads.filter(
     (lead) =>
       lead.conversationStage === 'handoff_offer' &&
@@ -698,6 +735,7 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
       });
       const partial = health.coveredFrom && health.coveredFrom.getTime() > healthFrom.getTime();
       return {
+        agentId: agent.id,
         sdrName: agent.displayName || agent.name,
         connectedLabel: health.percent === null ? '-' : `${health.percent}%`,
         belowTarget: (health.percent !== null && health.percent < CHANNEL_HEALTH_TARGET_PERCENT) || health.downForMinutes !== null,
@@ -720,51 +758,181 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
     return age > handoffOutcomeDueDays * DAY_MS && age < handoffOutcomeMaxDays * DAY_MS;
   });
   const failedHandoffNotices = jobLogsInPeriod.filter((log) => log.jobName === HANDOFF_NOTICE_JOB && log.status === 'failed');
-  const failedNoticeLeads = failedHandoffNotices
-    .map((log) => scopedLeads.find((lead) => lead.id === log.leadId)?.companyName)
-    .filter((name): name is string => Boolean(name));
   const blockedChannels = scopedAgents.filter((agent) => agent.isActive && isChannelBlocked(limitsByAgent.get(agent.id), now));
-  const alerts = [
-    blockedChannels.length > 0
-      ? `WhatsApp proibindo conversa nova: ${blockedChannels
-          .map((agent) => {
-            const limits = limitsByAgent.get(agent.id);
-            const until = limits?.blockedUntil ? formatDateTimeInTimeZone(limits.blockedUntil, agent.timezone) : '-';
-            return `${agent.displayName || agent.name} ate ${until}${limits?.blockReason ? ` (${limits.blockReason})` : ''}`;
-          })
-          .join(', ')}. A prospeccao para sozinha ate la; insistir e o que alonga o bloqueio. Vale baixar o limite diario ou ligar o aquecimento.`
-      : null,
-    unhealthyChannels.length > 0
-      ? `WhatsApp abaixo da meta de ${CHANNEL_HEALTH_TARGET_PERCENT}% conectado no horario de envio: ${unhealthyChannels.map((row) => `${row.sdrName} (${row.connectedLabel}${row.downNowLabel !== '-' ? `, fora ha ${row.downNowLabel}` : ''})`).join(', ')}. Cada hora fora e abordagem que nao sai.`
-      : null,
-    stalledHandoffOffers.length > 0
-      ? `${stalledHandoffOffers.length} lead(s) com interesse esperando ha mais de ${stalledHandoffOfferMinutes / 60}h na oferta de handoff: ${namesPreview(stalledHandoffOffers.map((lead) => lead.companyName))}. Chame pelo WhatsApp do SDR.`
-      : null,
-    handoffsWithoutOutcome.length > 0
-      ? `${handoffsWithoutOutcome.length} handoff(s) de mais de ${handoffOutcomeDueDays} dias sem desfecho marcado: ${namesPreview(handoffsWithoutOutcome.map((lead) => lead.companyName))}. Abra o lead e marque reuniao, teste, cliente ou perdido.`
-      : null,
-    failedHandoffNotices.length > 0
-      ? `${failedHandoffNotices.length} aviso(s) de handoff nao chegaram a quem atende${failedNoticeLeads.length > 0 ? ` (${namesPreview(failedNoticeLeads)})` : ''}. O resumo de cada um esta em Job logs.`
-      : null,
-    stalledSdrs.length > 0
-      ? `SDR parado sem enviar: ${stalledSdrs.join(', ')}. Confira a conexao do WhatsApp na tela Conectar.`
-      : null,
+  const sdrName = (agent: SdrAgent): string => agent.displayName || agent.name;
+  const sdrHref = (agent: SdrAgent, aba?: string): string => `/sdr-agents/${agent.id}/edit${aba ? `?aba=${aba}` : ''}`;
+  const leadItems = (leads: Lead[]): Array<{ label: string; href: string }> =>
+    leads.slice(0, 6).map((lead) => ({ label: lead.companyName, href: `/leads/${lead.id}` }));
+  const channelByAgent = new Map(channelRows.map((row) => [row.agentId, row]));
+  const dispatchByAgent = new Map(dispatchRows.map((row) => [row.agentId, row]));
+  const activeAgents = scopedAgents.filter((agent) => agent.isActive);
+
+  // Ordem: primeiro quem esta esperando uma pessoa, depois o que impede o SDR de trabalhar,
+  // por fim o que vai virar problema se ninguem mexer.
+  const actions: DashboardAction[] = [];
+  if (stalledHandoffOffers.length > 0) {
+    actions.push({
+      tone: 'urgent',
+      title: `${stalledHandoffOffers.length} lead(s) com interesse esperando ha mais de ${stalledHandoffOfferMinutes / 60}h na oferta de handoff`,
+      detail: 'Eles disseram que tem interesse e ninguem respondeu ainda. Chame pelo WhatsApp do SDR.',
+      href: stalledHandoffOffers.length === 1 ? `/leads/${stalledHandoffOffers[0]?.id}` : '/conversations',
+      label: stalledHandoffOffers.length === 1 ? 'Abrir o lead' : 'Ver conversas',
+      items: leadItems(stalledHandoffOffers),
+    });
+  }
+  if (failedHandoffNotices.length > 0) {
+    const failedLeads = failedHandoffNotices
+      .map((log) => scopedLeads.find((lead) => lead.id === log.leadId))
+      .filter((lead): lead is Lead => Boolean(lead));
+    actions.push({
+      tone: 'urgent',
+      title: `${failedHandoffNotices.length} aviso(s) de handoff nao chegaram a quem atende`,
+      detail: 'O lead foi passado, mas o WhatsApp do responsavel nao recebeu o aviso. Avise a pessoa por fora.',
+      href: '/job-logs',
+      label: 'Ver registros',
+      items: leadItems(failedLeads),
+    });
+  }
+  for (const agent of activeAgents) {
+    const channel = channelByAgent.get(agent.id);
+    const dispatch = dispatchByAgent.get(agent.id);
+    // Um aviso por SDR: sem instancia configurada, "fora do ar" e "parado" sao so consequencia.
+    if (dispatch?.statusLabel === 'Config incompleta') {
+      actions.push({
+        tone: 'urgent',
+        title: `${sdrName(agent)} esta sem WhatsApp configurado`,
+        detail: 'Sem a instancia da UAZAPI o SDR nao envia nem recebe.',
+        href: sdrHref(agent, 'whatsapp'),
+        label: 'Configurar',
+      });
+    } else if (channel && channel.downNowLabel !== '-') {
+      actions.push({
+        tone: 'urgent',
+        title: `WhatsApp de ${sdrName(agent)} fora do ar ha ${channel.downNowLabel}`,
+        detail: 'Nada sai e nada chega enquanto ele estiver desconectado. Leia o QR code de novo.',
+        href: `/sdr-agents/${agent.id}/conectar`,
+        label: 'Conectar',
+      });
+    } else if (dispatch?.statusLabel === 'Parado') {
+      actions.push({
+        tone: 'urgent',
+        title: `${sdrName(agent)} parou de enviar`,
+        detail: dispatch.detail,
+        href: sdrHref(agent, 'whatsapp'),
+        label: 'Ver WhatsApp',
+      });
+    }
+  }
+  for (const agent of blockedChannels) {
+    const limits = limitsByAgent.get(agent.id);
+    const until = limits?.blockedUntil ? formatDateTimeInTimeZone(limits.blockedUntil, agent.timezone) : '-';
+    actions.push({
+      tone: 'attention',
+      title: `WhatsApp proibindo conversa nova: ${sdrName(agent)} ate ${until}${limits?.blockReason ? ` (${limits.blockReason})` : ''}`,
+      detail: 'A prospeccao para sozinha ate la e as respostas continuam saindo. Insistir e o que alonga o bloqueio: baixe o limite diario ou ligue o aquecimento.',
+      href: sdrHref(agent, 'envio'),
+      label: 'Ajustar envio',
+    });
+  }
+  for (const row of unhealthyChannels) {
+    if (row.downNowLabel !== '-') continue; // ja esta no aviso de "fora do ar"
+    actions.push({
+      tone: 'attention',
+      title: `WhatsApp de ${row.sdrName} ficou conectado so ${row.connectedLabel} do horario de envio`,
+      detail: `A meta e ${CHANNEL_HEALTH_TARGET_PERCENT}%. Cada hora fora e abordagem que nao sai: confira o celular e a conexao.`,
+      href: `/sdr-agents/${row.agentId}/edit?aba=whatsapp`,
+      label: 'Ver WhatsApp',
+    });
+  }
+  if (handoffsWithoutOutcome.length > 0) {
+    actions.push({
+      tone: 'attention',
+      title: `${handoffsWithoutOutcome.length} handoff(s) de mais de ${handoffOutcomeDueDays} dias sem desfecho marcado`,
+      detail: 'Abra cada lead e marque reuniao, teste, cliente ou perdido. Sem isso o funil para no handoff.',
+      href: handoffsWithoutOutcome.length === 1 ? `/leads/${handoffsWithoutOutcome[0]?.id}` : '/leads?status=transferred',
+      label: handoffsWithoutOutcome.length === 1 ? 'Abrir o lead' : 'Ver leads',
+      items: leadItems(handoffsWithoutOutcome),
+    });
+  }
+  for (const agent of activeAgents) {
+    const dispatch = dispatchByAgent.get(agent.id);
+    if (dispatch && dispatch.pendingCount < pendingLeadLowThreshold) {
+      actions.push({
+        tone: dispatch.pendingCount === 0 ? 'urgent' : 'attention',
+        title:
+          dispatch.pendingCount === 0
+            ? `${sdrName(agent)} ficou sem leads na fila`
+            : `${sdrName(agent)} tem so ${dispatch.pendingCount} lead(s) na fila`,
+        detail: `Importe mais leads para a prospeccao nao parar (aviso abaixo de ${pendingLeadLowThreshold}).`,
+        href: '/leads/import',
+        label: 'Importar leads',
+      });
+    }
+    // Limite diario acima do que a janela comporta e limite que nunca chega: quem segura o volume
+    // passa a ser o cooldown, e a tela mostraria "0/40" para sempre sem dizer por que.
+    if (dailySendCapacity(agent) < dailyInitialLimit(agent, now).limit) {
+      actions.push({
+        tone: 'attention',
+        title: `Limite diario acima do que a janela permite: ${sdrName(agent)} (~${dailySendCapacity(agent)}/${dailyInitialLimit(agent, now).limit})`,
+        detail: 'Com essa janela e esse intervalo entre abordagens o limite nunca e alcancado. Aumente a janela de envio ou baixe o intervalo.',
+        href: sdrHref(agent, 'envio'),
+        label: 'Ajustar envio',
+      });
+    }
+  }
+  actions.sort((a, b) => (a.tone === b.tone ? 0 : a.tone === 'urgent' ? -1 : 1));
+
+  const notes = [
     readyCount > 0 ? `${readyCount} SDR(s) pronto(s) para chamar o proximo lead.` : null,
-    lowPendingCount > 0 ? `${lowPendingCount} SDR(s) com menos de ${pendingLeadLowThreshold} leads pendentes. Importe mais leads para evitar fila vazia.` : null,
     followupsDue > 0 ? `${followupsDue} follow-up(s) vencido(s) aguardando envio.` : null,
     blockedCount > 0 ? `${blockedCount} SDR(s) bloqueado(s) por limite, janela ou configuracao.` : null,
-    overCapacitySdrs.length > 0
-      ? `Limite diario acima do que a janela permite: ${overCapacitySdrs.join(', ')}. Aumente a janela de envio ou baixe o cooldown para o limite valer.`
-      : null,
     jobErrors > 0 ? `${jobErrors} erro(s) de job no periodo selecionado.` : null,
     aiErrors > 0 ? `${aiErrors} erro(s) de IA no periodo selecionado.` : null,
     initialSent >= 10 && responseRate !== '-' && respondedLeadIds.size / initialSent < 0.1
       ? 'Taxa de resposta abaixo de 10% para as abordagens do periodo.'
       : null,
-  ].filter((alert): alert is string => alert !== null);
+  ].filter((note): note is string => note !== null);
+
+  const sdrCards: DashboardSdrCard[] = scopedAgents.map((agent) => {
+    const dispatch = dispatchByAgent.get(agent.id);
+    const channel = channelByAgent.get(agent.id);
+    const todayLimit = dailyInitialLimit(agent, now);
+    const down = channel && channel.downNowLabel !== '-';
+    return {
+      agentId: agent.id,
+      name: sdrName(agent),
+      companyName: companyById.get(agent.companyId)?.name ?? '-',
+      status: dispatch?.status ?? 'muted',
+      statusLabel: dispatch?.statusLabel ?? '-',
+      nextLabel: dispatch ? (dispatch.etaLabel === '-' ? dispatch.detail : `${dispatch.etaLabel} · ${dispatch.detail}`) : '-',
+      whatsappLabel: !channel || channel.connectedLabel === '-' ? 'Sem leitura' : down ? `Fora ha ${channel.downNowLabel}` : `${channel.connectedLabel} em 7 dias`,
+      whatsappTone: !channel || channel.connectedLabel === '-' ? 'neutral' : down || channel.belowTarget ? 'bad' : 'ok',
+      sentLabel: `${dispatch?.sentToday ?? 0} de ${todayLimit.limit}${todayLimit.warmupDay === null ? '' : ` (aquecimento, dia ${todayLimit.warmupDay})`}`,
+      pending: dispatch?.pendingCount ?? 0,
+      followupsToday: dispatch?.followupsSentToday ?? 0,
+    };
+  });
+
+  const step = (label: string) => cohortFunnel.rows.find((row) => row.label === label);
+  const replied = step('Gente respondeu');
+  const handoffStep = step('Handoff');
+  const wonStep = step('Virou cliente');
+  const headline: DashboardHeadline[] = [
+    { label: 'Abordados', value: String(cohort.length), help: 'Receberam a primeira mensagem no periodo.' },
+    {
+      label: 'Gente respondeu',
+      value: String(replied?.count ?? 0),
+      help: cohort.length > 0 ? `${replied?.percentOfBase ?? 0}% dos abordados. Robo da loja nao conta.` : 'Robo da loja nao conta.',
+    },
+    { label: 'Handoffs', value: String(handoffStep?.count ?? 0), help: cohort.length > 0 ? `${handoffStep?.percentOfBase ?? 0}% dos abordados.` : 'Passados para alguem do time.' },
+    { label: 'Viraram cliente', value: String(wonStep?.count ?? 0), help: 'Marcado na tela do lead por quem atendeu.' },
+  ];
 
   return {
-    alerts,
+    actions,
+    notes,
+    headline,
+    sdrCards,
     channelRows,
     cohortLost: cohortFunnel.lost,
     cohortRows: cohortFunnel.rows,

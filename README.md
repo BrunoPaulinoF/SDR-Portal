@@ -83,7 +83,8 @@ Rotas iniciais:
 
 - `GET /login`: tela de login.
 - `POST /login`: autentica usuario.
-- `GET /dashboard`: painel interno protegido.
+- `GET /dashboard?period=`: Painel — "Precisa de voce agora" (so o que pede acao, cada aviso com o botao para resolver), um cartao por SDR ativo e o resultado do periodo (4 numeros + funil da safra). So o periodo muda: os avisos olham todos os SDRs ativos.
+- `GET /relatorios`: o detalhe que saiu do Painel (metricas, proximos disparos, saude do WhatsApp, funil, status, etapas e empresas), com os filtros de empresa, SDR, periodo, status e etapa.
 - `POST /logout`: encerra sessao.
 
 Rotas de empresas:
