@@ -130,6 +130,9 @@ describe('painel mostra a saude do WhatsApp', () => {
       sendWindowStart: '00:00',
       sendWindowEnd: '23:59',
       sendDaysOfWeek: '0,1,2,3,4,5,6',
+      // Com instancia: sem ela o aviso seria "sem WhatsApp configurado", nao "fora do ar".
+      uazapiBaseUrl: 'https://uazapi.test',
+      uazapiInstanceTokenEncrypted: encryptSecret('token'),
     });
     const now = new Date('2026-10-02T12:00:00.000Z');
     const connectionEvents: SdrConnectionEvent[] = [
