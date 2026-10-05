@@ -788,7 +788,7 @@ export function buildDashboardViewModel(input: BuildDashboardInput): DashboardVi
       tone: 'urgent',
       title: `${failedHandoffNotices.length} aviso(s) de handoff nao chegaram a quem atende`,
       detail: 'O lead foi passado, mas o WhatsApp do responsavel nao recebeu o aviso. Avise a pessoa por fora.',
-      href: '/job-logs',
+      href: '/registros',
       label: 'Ver registros',
       items: leadItems(failedLeads),
     });

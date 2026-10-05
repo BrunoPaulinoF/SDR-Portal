@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import type { JobLog, NewJobLog } from '../../db/schema.js';
+import type { RecentLogFilter } from '../logs/recent-log-filter.js';
 
 export type JobLogInput = Pick<
   NewJobLog,
@@ -16,6 +17,8 @@ export interface JobLogRepository {
   list(): Promise<JobLog[]>;
   /** Registros a partir de `since` (todos com `null`), so com as colunas que o painel usa. */
   listStats(since: Date | null): Promise<JobLogStat[]>;
+  /** Uma pagina da tela Registros, do mais novo para o mais velho. */
+  listRecent(filter: RecentLogFilter, limit: number, offset: number): Promise<JobLog[]>;
 }
 
 export function createMemoryJobLogRepository(seedLogs: JobLog[] = []): JobLogRepository {
@@ -59,6 +62,13 @@ export function createMemoryJobLogRepository(seedLogs: JobLog[] = []): JobLogRep
       return [...rows.values()]
         .filter((log) => !since || log.createdAt.getTime() >= since.getTime())
         .map(({ createdAt, leadId, sdrAgentId, status, error, jobName }) => ({ createdAt, leadId, sdrAgentId, status, error, jobName }));
+    },
+
+    async listRecent(filter, limit, offset) {
+      return [...rows.values()]
+        .filter((log) => (!filter.onlyErrors || log.status === 'failed') && (!filter.sdrAgentId || log.sdrAgentId === filter.sdrAgentId))
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.id.localeCompare(a.id))
+        .slice(offset, offset + limit);
     },
   };
 }

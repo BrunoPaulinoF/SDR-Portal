@@ -178,7 +178,7 @@ const fieldHelp: Partial<Record<keyof SdrAgentFormData, string>> = {
   handoffMessageTemplate: 'Mensagem enviada ao responsavel humano quando a IA solicita transferencia. O link para marcar o desfecho (reuniao, teste, cliente, perdido) vai no fim sozinho; use {{leadUrl}} para escolher onde ele aparece.',
   demoContactName: 'Nome que aparece no cartao de contato que a IA envia para o lead testar (deixe vazio para desativar).',
   demoContactPhone: 'WhatsApp que vai dentro do cartao de contato, com DDI e DDD. Ex.: 5519997353221.',
-  audioReplyMode: `Quando a IA responde com audio de voz em vez de texto. Vale so para a resposta a quem escreveu: a primeira mensagem e o follow-up continuam em texto. Resposta com link, telefone, e-mail ou mais de ${MAX_AUDIO_REPLY_CHARS} caracteres vai em texto. Se a ElevenLabs falhar (sem credito, conta bloqueada), a resposta sai em texto e o erro aparece em AI logs.`,
+  audioReplyMode: `Quando a IA responde com audio de voz em vez de texto. Vale so para a resposta a quem escreveu: a primeira mensagem e o follow-up continuam em texto. Resposta com link, telefone, e-mail ou mais de ${MAX_AUDIO_REPLY_CHARS} caracteres vai em texto. Se a ElevenLabs falhar (sem credito, conta bloqueada), a resposta sai em texto e o erro aparece em Registros, aba IA.`,
   elevenlabsApiKeyEncrypted: 'Chave da API da ElevenLabs (elevenlabs.io > Developers > API Keys). Se ficar vazio, usa a chave global ELEVENLABS_API_KEY do ambiente quando existir. O plano gratuito nao permite uso comercial e costuma ser bloqueado quando usado de servidor.',
   elevenlabsVoiceId: 'ID da voz na ElevenLabs (na biblioteca de vozes, botao "Copy voice ID"). Prefira uma voz em portugues do Brasil. Vozes da biblioteca da comunidade exigem plano pago para uso pela API.',
   elevenlabsModel: 'Modelo de voz. eleven_multilingual_v2 (padrao) tem a fala mais natural; eleven_flash_v2_5 e mais rapido e gasta metade dos creditos.',
@@ -1256,7 +1256,7 @@ function renderResumoTab(agent: SdrAgent, summary: SdrSummary, drift: PromptDrif
   const queue = summaryCard('Fila', `${summary.pending} pendente(s)`, summary.pending < 100 ? 'importe mais leads para nao parar' : 'leads esperando a primeira mensagem', summary.pending === 0 ? 'bad' : 'neutral');
   const followups = summaryCard('Follow-ups hoje', String(summary.followupsToday), agent.followupEnabled ? 'follow-up ligado' : 'follow-up desligado');
   const lastError = summary.lastError
-    ? `<section class="panel spacing-top"><h2>Ultimo erro (24h)</h2><p class="alert-error">${escapeHtml(summary.lastError.message)}</p><p class="muted">${escapeHtml(formatDateTimeInTimeZone(summary.lastError.at, tz))} · todos em <a href="/job-logs">Job logs</a></p></section>`
+    ? `<section class="panel spacing-top"><h2>Ultimo erro (24h)</h2><p class="alert-error">${escapeHtml(summary.lastError.message)}</p><p class="muted">${escapeHtml(formatDateTimeInTimeZone(summary.lastError.at, tz))} · todos em <a href="/registros?sdr=${agent.id}">Registros</a></p></section>`
     : '';
   const driftNotice =
     drift && drift.fields.length > 0

@@ -381,7 +381,7 @@ describe('alertas de lead com interesse', () => {
     const model = await buildModel({ minutesSinceActivity: 30, failedNotice: true });
 
     const action = model.actions.find((item) => item.title === '1 aviso(s) de handoff nao chegaram a quem atende');
-    expect(action).toMatchObject({ tone: 'urgent', href: '/job-logs' });
+    expect(action).toMatchObject({ tone: 'urgent', href: '/registros' });
     expect(action?.items?.map((item) => item.label)).toEqual(['Fit013 Marmitas']);
   });
 });

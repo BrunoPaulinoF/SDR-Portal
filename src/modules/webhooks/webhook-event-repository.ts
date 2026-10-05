@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import type { NewWebhookEvent, WebhookEvent } from '../../db/schema.js';
+import type { RecentLogFilter } from '../logs/recent-log-filter.js';
 
 export type WebhookEventInput = Pick<
   NewWebhookEvent,
@@ -37,6 +38,8 @@ export interface WebhookEventUpdateInput {
 export interface WebhookEventRepository {
   create(input: WebhookEventInput): Promise<WebhookEvent>;
   list(): Promise<WebhookEvent[]>;
+  /** Uma pagina da tela Registros, do mais novo para o mais velho. Erro = `processing_status = 'failed'`. */
+  listRecent(filter: RecentLogFilter, limit: number, offset: number): Promise<WebhookEvent[]>;
   updateProcessing(id: string, input: WebhookEventUpdateInput): Promise<WebhookEvent | null>;
 }
 
@@ -70,6 +73,16 @@ export function createMemoryWebhookEventRepository(seedEvents: WebhookEvent[] = 
 
     async list() {
       return [...rows.values()].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    },
+
+    async listRecent(filter, limit, offset) {
+      return [...rows.values()]
+        .filter(
+          (event) =>
+            (!filter.onlyErrors || event.processingStatus === 'failed') && (!filter.sdrAgentId || event.sdrAgentId === filter.sdrAgentId),
+        )
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.id.localeCompare(a.id))
+        .slice(offset, offset + limit);
     },
 
     async updateProcessing(id, input) {

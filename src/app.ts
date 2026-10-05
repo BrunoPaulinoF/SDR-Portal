@@ -11,7 +11,6 @@ import { createInboundResponseBuffer } from './modules/ai/inbound-response-buffe
 import { createReplyDispatcher, type ReplyTransportSlot } from './modules/ai/reply-queue.js';
 import { createAudioTranscriptionService } from './modules/audio/audio-transcription-service.js';
 import { createElevenLabsTextToSpeechClient, type TextToSpeechClient } from './modules/audio/text-to-speech-client.js';
-import { registerAiRunRoutes } from './modules/ai/ai-run-routes.js';
 import { registerPromptAssistantRoutes } from './modules/ai/prompt-assistant-routes.js';
 import { createMemoryAuthRepository, type AuthRepository } from './modules/auth/auth-repository.js';
 import { registerAuthRoutes } from './modules/auth/auth-routes.js';
@@ -26,7 +25,6 @@ import {
 } from './modules/first-message-variants/first-message-variant-repository.js';
 import { registerFirstMessageVariantRoutes } from './modules/first-message-variants/first-message-variant-routes.js';
 import { createMemoryJobLogRepository, type JobLogRepository } from './modules/jobs/job-log-repository.js';
-import { registerJobLogRoutes } from './modules/jobs/job-log-routes.js';
 import { createMemoryLeadResearchRepository, type LeadResearchRepository } from './modules/leads/lead-research-repository.js';
 import {
   createHttpLeadResearchProvider,
@@ -36,6 +34,7 @@ import {
 } from './modules/leads/lead-research-service.js';
 import { createMemoryLeadRepository, type LeadRepository } from './modules/leads/lead-repository.js';
 import { registerLeadRoutes } from './modules/leads/lead-routes.js';
+import { registerLogRoutes } from './modules/logs/log-routes.js';
 import {
   createMemoryConnectionMonitorRepository,
   type ConnectionMonitorRepository,
@@ -65,7 +64,6 @@ import {
   type ChannelLimitsRepository,
 } from './modules/monitoring/channel-limits.js';
 import { createMemorySdrConfigChangeRepository, type SdrConfigChangeRepository } from './modules/sdr-agents/config-history.js';
-import { registerWebhookEventRoutes } from './modules/webhooks/webhook-event-routes.js';
 import { createMemoryWebhookEventRepository, type WebhookEventRepository } from './modules/webhooks/webhook-event-repository.js';
 import { createResetConversationService } from './modules/webhooks/reset-conversation-service.js';
 import { registerUazapiWebhookRoutes } from './modules/webhooks/uazapi-webhook-routes.js';
@@ -119,6 +117,10 @@ function createLazyDbAiRunRepository(): AiRunRepository {
     async listStats(since) {
       const { createDbAiRunRepository } = await import('./modules/ai/db-ai-run-repository.js');
       return createDbAiRunRepository().listStats(since);
+    },
+    async listRecent(filter, limit, offset) {
+      const { createDbAiRunRepository } = await import('./modules/ai/db-ai-run-repository.js');
+      return createDbAiRunRepository().listRecent(filter, limit, offset);
     },
   };
 }
@@ -190,6 +192,10 @@ function createLazyDbWebhookEventRepository(): WebhookEventRepository {
       const { createDbWebhookEventRepository } = await import('./modules/webhooks/db-webhook-event-repository.js');
       return createDbWebhookEventRepository().list();
     },
+    async listRecent(filter, limit, offset) {
+      const { createDbWebhookEventRepository } = await import('./modules/webhooks/db-webhook-event-repository.js');
+      return createDbWebhookEventRepository().listRecent(filter, limit, offset);
+    },
     async updateProcessing(id, input) {
       const { createDbWebhookEventRepository } = await import('./modules/webhooks/db-webhook-event-repository.js');
       return createDbWebhookEventRepository().updateProcessing(id, input);
@@ -216,6 +222,10 @@ function createLazyDbJobLogRepository(): JobLogRepository {
     async listStats(since) {
       const { createDbJobLogRepository } = await import('./modules/jobs/db-job-log-repository.js');
       return createDbJobLogRepository().listStats(since);
+    },
+    async listRecent(filter, limit, offset) {
+      const { createDbJobLogRepository } = await import('./modules/jobs/db-job-log-repository.js');
+      return createDbJobLogRepository().listRecent(filter, limit, offset);
     },
   };
 }
@@ -886,9 +896,7 @@ export function buildApp(options: AppOptions = {}): AppInstance {
     uazapi,
   );
   registerConversationRoutes(app, repository, conversations, leads, sdrAgents);
-  registerWebhookEventRoutes(app, repository, webhookEvents);
-  registerAiRunRoutes(app, repository, aiRuns);
-  registerJobLogRoutes(app, repository, jobLogs);
+  registerLogRoutes(app, repository, sdrAgents, { aiRunRepository: aiRuns, jobLogRepository: jobLogs, webhookEventRepository: webhookEvents });
   app.addHook('onClose', async () => {
     bufferedAiResponseService.close();
   });

@@ -19,7 +19,7 @@ function renderSchedulerResultPage(
       <h1>${escapeHtml(title)}</h1>
       <p class="muted">${escapeHtml(description)}</p>
     </div>
-    <a class="button button-secondary" href="/job-logs">Ver job logs</a>
+    <a class="button button-secondary" href="/registros?aba=tarefas">Ver registros</a>
   </header>
   <section class="panel">
     <p>${escapeHtml(primary.label)}: ${primary.value}</p>
